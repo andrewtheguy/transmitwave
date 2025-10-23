@@ -655,20 +655,26 @@
                 return;
             }
 
-            // Save at actual sample rate to preserve duration
-            const wavBlob = createWavBlob(recordedSamples, actualSampleRate);
-            const url = URL.createObjectURL(wavBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `recording-${Date.now()}.wav`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            try {
+                // Resample to 16kHz for WAV download (standard for audio modem decoder)
+                const resampledForWav = resampleAudio(recordedSamples, actualSampleRate, SAMPLE_RATE);
+                const wavBlob = createWavBlob(resampledForWav, SAMPLE_RATE);
+                const url = URL.createObjectURL(wavBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `recording-${Date.now()}.wav`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
 
-            const durationSecs = (recordedSamples.length / actualSampleRate).toFixed(2);
-            addTimelineEvent('💾', `Downloaded ${durationSecs}s of audio at ${actualSampleRate}Hz`);
-            showStatus('recordingStatus', 'WAV file downloaded', 'success');
+                const durationSecs = (resampledForWav.length / SAMPLE_RATE).toFixed(2);
+                addTimelineEvent('💾', `Downloaded ${durationSecs}s of audio at ${SAMPLE_RATE}Hz (resampled from ${actualSampleRate}Hz)`);
+                showStatus('recordingStatus', 'WAV file downloaded (16kHz mono)', 'success');
+            } catch (err) {
+                console.error('Download error:', err);
+                showStatus('recordingStatus', 'Download failed: ' + err.message, 'error');
+            }
         });
 
         function stopRecording() {
