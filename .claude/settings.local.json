@@ -19,7 +19,8 @@
       "Bash(git commit:*)",
       "Bash(cmp:*)",
       "Bash(git checkout:*)",
-      "Bash(./target/debug/testaudio-cli:*)"
+      "Bash(./target/debug/testaudio-cli:*)",
+      "Bash(chmod:*)"
     ],
     "deny": [],
     "ask": []
