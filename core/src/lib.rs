@@ -16,6 +16,7 @@ pub mod encoder_spread;
 pub mod decoder_spread;
 pub mod spread;
 pub mod trellis;
+pub mod resample;
 
 pub use encoder::Encoder;
 pub use encoder_cp::EncoderCp;
@@ -27,6 +28,7 @@ pub use error::{AudioModemError, Result};
 pub use sync::{detect_preamble, detect_postamble};
 pub use spread::{SpreadSpectrumSpreader, SpreadSpectrumDespreader};
 pub use trellis::{ConvolutionalEncoder, ViterbiDecoder};
+pub use resample::{resample_audio, stereo_to_mono};
 
 // Configuration constants
 pub const SAMPLE_RATE: usize = 16000;

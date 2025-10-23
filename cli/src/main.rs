@@ -8,7 +8,7 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread};
+use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, resample_audio, stereo_to_mono, SAMPLE_RATE};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
@@ -247,7 +247,7 @@ fn decode_legacy_command(input_path: &PathBuf, output_path: &PathBuf) -> Result<
     );
 
     // Extract samples (handle both 16-bit and 32-bit float formats)
-    let samples = match spec.bits_per_sample {
+    let mut samples = match spec.bits_per_sample {
         16 => {
             // Convert i16 to f32
             let int_samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
@@ -267,6 +267,20 @@ fn decode_legacy_command(input_path: &PathBuf, output_path: &PathBuf) -> Result<
     };
 
     println!("Extracted {} samples", samples.len());
+
+    // Convert to mono if stereo
+    if spec.channels == 2 {
+        println!("Converting stereo to mono...");
+        samples = stereo_to_mono(&samples);
+        println!("Converted to {} mono samples", samples.len());
+    }
+
+    // Resample to 16kHz if needed
+    if spec.sample_rate != SAMPLE_RATE as u32 {
+        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
+        samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
+        println!("Resampled to {} samples", samples.len());
+    }
 
     // Decode
     let mut decoder = Decoder::new()?;
@@ -338,7 +352,7 @@ fn decode_spread_command(
     );
 
     // Extract samples (handle both 16-bit and 32-bit float formats)
-    let samples = match spec.bits_per_sample {
+    let mut samples = match spec.bits_per_sample {
         16 => {
             // Convert i16 to f32
             let int_samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
@@ -358,6 +372,20 @@ fn decode_spread_command(
     };
 
     println!("Extracted {} samples", samples.len());
+
+    // Convert to mono if stereo
+    if spec.channels == 2 {
+        println!("Converting stereo to mono...");
+        samples = stereo_to_mono(&samples);
+        println!("Converted to {} mono samples", samples.len());
+    }
+
+    // Resample to 16kHz if needed
+    if spec.sample_rate != SAMPLE_RATE as u32 {
+        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
+        samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
+        println!("Resampled to {} samples", samples.len());
+    }
 
     // Decode with spread spectrum
     let mut decoder = DecoderSpread::new(chip_duration)?;
