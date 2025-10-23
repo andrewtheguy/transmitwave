@@ -525,19 +525,22 @@
                         return;
                     }
 
-                    // Detect preamble - check entire buffer for robustness
+                    // Detect preamble - only after we have enough samples, and use a separate detection pass
                     if (!preambleDetected && recordedSamples.length >= 8000) {
-                        const pos = microphoneListener.add_samples(Array.from(inputData));
+                        // Do detection on recorded samples directly, don't use microphoneListener buffer
+                        const recentStart = Math.max(0, recordedSamples.length - 16000);
+                        const recentSamples = recordedSamples.slice(recentStart);
+
+                        const pos = microphoneListener.add_samples(recentSamples);
                         if (pos >= 0) {
                             preambleDetected = true;
-                            preamblePosition = recordedSamples.length - inputData.length + pos;
+                            preamblePosition = recentStart + pos;
                             preambleStatus.textContent = '✓ Detected';
                             preambleStatus.style.color = '#28a745';
-                            addTimelineEvent('📍', `Preamble detected at ${(preamblePosition / SAMPLE_RATE).toFixed(2)}s`);
+                            addTimelineEvent('📍', `Preamble detected at ${(preamblePosition / actualSampleRate).toFixed(2)}s`);
                             showStatus('detectionStatus', 'Preamble detected! Waiting for postamble...', 'success');
                         } else {
                             // Update buffer status for debugging
-                            const bufferSecs = (microphoneListener.buffer_size() / SAMPLE_RATE).toFixed(2);
                             const recordedSecs = (recordedSamples.length / actualSampleRate).toFixed(1);
                             if (recordedSamples.length % (actualSampleRate / 2) === 0) { // Update every ~0.5 second
                                 const thresh = parseFloat(detectionThreshold.value).toFixed(2);
@@ -550,13 +553,16 @@
 
                     // Detect postamble after preamble
                     if (preambleDetected && !postambleDetected) {
-                        const pos = postambleDetector.add_samples(Array.from(inputData));
+                        const recentStart = Math.max(0, recordedSamples.length - 16000);
+                        const recentSamples = recordedSamples.slice(recentStart);
+
+                        const pos = postambleDetector.add_samples(recentSamples);
                         if (pos >= 0) {
                             postambleDetected = true;
-                            postamblePosition = recordedSamples.length - inputData.length + pos;
+                            postamblePosition = recentStart + pos;
                             postambleStatus.textContent = '✓ Detected';
                             postambleStatus.style.color = '#28a745';
-                            addTimelineEvent('🏁', `Postamble detected at ${(postamblePosition / SAMPLE_RATE).toFixed(2)}s`);
+                            addTimelineEvent('🏁', `Postamble detected at ${(postamblePosition / actualSampleRate).toFixed(2)}s`);
                             showStatus('detectionStatus', 'Postamble detected! Decoding...', 'success');
 
                             // Extract and decode
