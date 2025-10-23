@@ -26,11 +26,11 @@ impl Decoder {
         }
 
         // Detect preamble
-        let _preamble_pos = detect_preamble(samples, 500.0)
+        let preamble_pos = detect_preamble(samples, 500.0)
             .ok_or(AudioModemError::PreambleNotFound)?;
 
         // Start reading data after preamble
-        let data_start = PREAMBLE_SAMPLES;
+        let data_start = preamble_pos + PREAMBLE_SAMPLES;
 
         if data_start + SAMPLES_PER_SYMBOL > samples.len() {
             return Err(AudioModemError::InsufficientData);
