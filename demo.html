@@ -523,10 +523,19 @@
 
             try {
                 const arrayBuffer = await file.arrayBuffer();
-                const audioData = parseWavFile(arrayBuffer);
+                const wavResult = parseWavFile(arrayBuffer);
 
-                if (!audioData) {
+                if (!wavResult || !wavResult.data) {
                     throw new Error('Invalid WAV file format');
+                }
+
+                let audioData = wavResult.data;
+                const originalSampleRate = wavResult.sampleRate;
+
+                // Resample to 16kHz if needed
+                if (originalSampleRate !== SAMPLE_RATE) {
+                    audioData = resampleAudio(audioData, originalSampleRate, SAMPLE_RATE);
+                    showStatus('decodeStatus', `Resampling from ${originalSampleRate}Hz to ${SAMPLE_RATE}Hz...`, 'info');
                 }
 
                 const decoder = new WasmDecoder();
@@ -537,10 +546,17 @@
                 decodedTextContainer.style.display = 'block';
 
                 const duration = (audioData.length / SAMPLE_RATE).toFixed(2);
+                const sampleRateInfo = originalSampleRate !== SAMPLE_RATE
+                    ? ` (resampled from ${originalSampleRate}Hz)`
+                    : '';
                 decodeStats.innerHTML = `
                     <div class="stat-item">
                         <div class="stat-label">Duration</div>
                         <div class="stat-value">${duration}s</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Sample Rate</div>
+                        <div class="stat-value">${SAMPLE_RATE}Hz${sampleRateInfo}</div>
                     </div>
                     <div class="stat-item">
                         <div class="stat-label">Samples</div>
@@ -569,6 +585,32 @@
         });
 
         // Helper functions
+        function resampleAudio(samples, fromRate, toRate) {
+            if (fromRate === toRate) {
+                return samples;
+            }
+
+            const ratio = toRate / fromRate;
+            const newLength = Math.ceil(samples.length * ratio);
+            const resampled = new Float32Array(newLength);
+
+            for (let i = 0; i < newLength; i++) {
+                const srcIdx = i / ratio;
+                const srcIdxFloor = Math.floor(srcIdx);
+                const srcIdxCeil = srcIdxFloor + 1;
+                const fraction = srcIdx - srcIdxFloor;
+
+                if (srcIdxCeil < samples.length) {
+                    // Linear interpolation
+                    resampled[i] = samples[srcIdxFloor] * (1 - fraction) + samples[srcIdxCeil] * fraction;
+                } else {
+                    resampled[i] = samples[srcIdxFloor];
+                }
+            }
+
+            return resampled;
+        }
+
         function showStatus(elementId, message, type) {
             const el = document.getElementById(elementId);
             el.textContent = message;
@@ -635,6 +677,7 @@
 
             let offset = 12;
             let audioData = null;
+            let sampleRate = SAMPLE_RATE; // Default to 16kHz
 
             while (offset < view.byteLength) {
                 const chunkId = view.getUint32(offset, false);
@@ -643,7 +686,7 @@
                 if (chunkId === 0x666d7420) { // 'fmt '
                     const audioFormat = view.getUint16(offset + 8, true);
                     const numChannels = view.getUint16(offset + 10, true);
-                    const sampleRate = view.getUint32(offset + 12, true);
+                    sampleRate = view.getUint32(offset + 12, true);
                     const bitsPerSample = view.getUint16(offset + 22, true);
 
                     if (audioFormat !== 1) {
@@ -664,7 +707,11 @@
                 offset += 8 + chunkSize;
             }
 
-            return audioData;
+            // Return both audio data and sample rate
+            return {
+                data: audioData,
+                sampleRate: sampleRate
+            };
         }
 
         // Update character count on load
