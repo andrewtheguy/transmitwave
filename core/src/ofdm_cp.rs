@@ -1,6 +1,7 @@
 use crate::error::{AudioModemError, Result};
-use crate::{NUM_SUBCARRIERS, SAMPLES_PER_SYMBOL};
+use crate::{NUM_SUBCARRIERS, SAMPLES_PER_SYMBOL, MIN_FREQUENCY, SUBCARRIER_SPACING, SAMPLE_RATE};
 use rustfft::{num_complex::Complex, FftPlanner};
+use std::f32::consts::PI;
 
 /// OFDM with Cyclic Prefix (CP) for ISI immunity
 ///
@@ -53,9 +54,16 @@ impl OfdmModulatorCp {
         // Create frequency domain symbols (BPSK: 1.0 for true, -1.0 for false)
         let mut freq_domain = vec![Complex::new(0.0, 0.0); SAMPLES_PER_SYMBOL];
 
+        // Place subcarriers at the configured frequency range
+        let sample_rate = SAMPLE_RATE as f32;
         for (i, &bit) in bits.iter().enumerate() {
             let amplitude = if bit { 1.0 } else { -1.0 };
-            freq_domain[i] = Complex::new(amplitude, 0.0);
+            let frequency = MIN_FREQUENCY + (i as f32) * SUBCARRIER_SPACING;
+            // Convert frequency to FFT bin
+            let bin = ((frequency / sample_rate) * SAMPLES_PER_SYMBOL as f32) as usize;
+            if bin < SAMPLES_PER_SYMBOL {
+                freq_domain[bin] = Complex::new(amplitude, 0.0);
+            }
         }
 
         // IFFT to get time domain samples
@@ -135,12 +143,18 @@ impl OfdmDemodulatorCp {
         let fft = self.fft_planner.plan_fft_forward(SAMPLES_PER_SYMBOL);
         fft.process(&mut freq_domain);
 
-        // Extract bits by threshold (BPSK detection)
+        // Extract bits by threshold (BPSK detection) at configured subcarrier frequencies
         let mut bits = Vec::new();
+        let sample_rate = SAMPLE_RATE as f32;
         for i in 0..NUM_SUBCARRIERS {
-            // Threshold at 0: positive real part = 1, negative = 0
-            let bit = freq_domain[i].re > 0.0;
-            bits.push(bit);
+            let frequency = MIN_FREQUENCY + (i as f32) * SUBCARRIER_SPACING;
+            // Convert frequency to FFT bin
+            let bin = ((frequency / sample_rate) * SAMPLES_PER_SYMBOL as f32) as usize;
+            if bin < SAMPLES_PER_SYMBOL {
+                // Threshold at 0: positive real part = 1, negative = 0
+                let bit = freq_domain[bin].re > 0.0;
+                bits.push(bit);
+            }
         }
 
         Ok(bits)
