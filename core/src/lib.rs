@@ -9,11 +9,13 @@ pub mod framing;
 pub mod sync;
 pub mod encoder;
 pub mod decoder;
+pub mod spread;
 
 pub use encoder::Encoder;
 pub use decoder::Decoder;
 pub use error::{AudioModemError, Result};
 pub use sync::{detect_preamble, detect_postamble};
+pub use spread::{SpreadSpectrumSpreader, SpreadSpectrumDespreader};
 
 // Configuration constants
 pub const SAMPLE_RATE: usize = 16000;
