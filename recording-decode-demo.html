@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Modem - Microphone Recording & Decode</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 0.95em;
+        }
+
+        input[type="range"], input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            flex: 1;
+            min-width: 120px;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: scale(1.02);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 2px solid #e0e0e0;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #e0e0e0;
+            border-color: #667eea;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status.show {
+            display: flex;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        .status::before {
+            content: '';
+            width: 20px;
+            height: 20px;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .status.success::before {
+            content: '✓';
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .status.error::before {
+            content: '✕';
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .status.info::before {
+            content: 'ⓘ';
+            font-size: 16px;
+        }
+
+        .status.warning::before {
+            content: '⚠';
+            font-size: 16px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(102, 126, 234, 0.3);
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+            font-size: 13px;
+        }
+
+        .stat-item {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 6px;
+            border-left: 3px solid #667eea;
+        }
+
+        .stat-label {
+            color: #999;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            margin-bottom: 3px;
+        }
+
+        .stat-value {
+            color: #333;
+            font-size: 16px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+        }
+
+        .timeline {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            font-size: 13px;
+        }
+
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .timeline-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        .timeline-icon {
+            font-size: 16px;
+            min-width: 20px;
+        }
+
+        .timeline-text {
+            flex: 1;
+            color: #666;
+        }
+
+        .timeline-time {
+            font-weight: 600;
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        .info-box {
+            background: #f5f5f5;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .info-box strong {
+            color: #333;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎤 Audio Modem - Live Recording Decoder</h1>
+            <p class="subtitle">Record from microphone, detect preamble/postamble, and decode audio</p>
+        </header>
+
+        <div class="card">
+            <h2>🎙️ Recording Controls</h2>
+
+            <div class="form-group">
+                <label for="detectionThreshold">Detection Threshold: <strong id="thresholdValue">0.40</strong></label>
+                <input type="range" id="detectionThreshold" min="0.1" max="0.9" step="0.05" value="0.40">
+                <small style="color: #999;">Higher = stricter detection, Lower = more sensitive</small>
+            </div>
+
+            <div class="button-group">
+                <button class="btn-primary" id="startBtn">Start Recording</button>
+                <button class="btn-secondary" id="stopBtn" disabled>Stop Recording</button>
+                <button class="btn-secondary" id="resetBtn">Reset</button>
+            </div>
+
+            <div id="recordingStatus" class="status"></div>
+
+            <div class="progress-bar">
+                <div class="progress-fill" id="timeoutProgress"></div>
+            </div>
+
+            <div class="timeline" id="timeline">
+                <div style="color: #999; font-style: italic;">Timeline events will appear here...</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📊 Detection Status</h2>
+
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-label">Recording Time</div>
+                    <div class="stat-value" id="recordingTime">0.00s</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Buffer Size</div>
+                    <div class="stat-value" id="bufferSize">0 samples</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Preamble Status</div>
+                    <div class="stat-value" id="preambleStatus">Not detected</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Postamble Status</div>
+                    <div class="stat-value" id="postambleStatus">Not detected</div>
+                </div>
+            </div>
+
+            <div id="detectionStatus" class="status"></div>
+        </div>
+
+        <div class="card">
+            <h2>🔤 Decoded Message</h2>
+
+            <div class="form-group" id="decodedMessageContainer" style="display: none;">
+                <label for="decodedMessage">Result:</label>
+                <textarea id="decodedMessage" readonly style="min-height: 100px; font-family: 'Courier New', monospace; background: #f9f9f9; border: 1px solid #ddd; padding: 10px; border-radius: 4px;"></textarea>
+            </div>
+
+            <div id="decodeStatus" class="status"></div>
+
+            <div class="info-box">
+                <strong>ℹ️ How it works:</strong><br>
+                1. Click "Start Recording" to capture audio from your microphone<br>
+                2. The demo detects the preamble (ascending chirp 200→4000Hz)<br>
+                3. Once detected, it waits for the postamble (descending chirp 4000→200Hz)<br>
+                4. The audio segment between preamble and postamble is extracted<br>
+                5. Audio is resampled to 16kHz mono if needed<br>
+                6. WASM decoder extracts the original message<br>
+                Session times out after 30 seconds of recording
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { WasmDecoder, MicrophoneListener, PostambleDetector } from './wasm/pkg/testaudio_wasm.js';
+
+        let wasmReady = false;
+        let audioContext = null;
+        let mediaStream = null;
+        let scriptProcessor = null;
+        let microphoneListener = null;
+        let postambleDetector = null;
+
+        const TIMEOUT_SECONDS = 30;
+        const SAMPLE_RATE = 16000;
+
+        let recordingStartTime = null;
+        let timeoutStartTime = null;
+        let recordingActive = false;
+        let preambleDetected = false;
+        let postambleDetected = false;
+        let recordedSamples = [];
+        let preamblePosition = -1;
+        let postamblePosition = -1;
+        let timelineEvents = [];
+
+        // DOM Elements
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const detectionThreshold = document.getElementById('detectionThreshold');
+        const thresholdValue = document.getElementById('thresholdValue');
+        const recordingStatus = document.getElementById('recordingStatus');
+        const detectionStatus = document.getElementById('detectionStatus');
+        const decodeStatus = document.getElementById('decodeStatus');
+        const recordingTime = document.getElementById('recordingTime');
+        const bufferSize = document.getElementById('bufferSize');
+        const preambleStatus = document.getElementById('preambleStatus');
+        const postambleStatus = document.getElementById('postambleStatus');
+        const timeline = document.getElementById('timeline');
+        const decodedMessage = document.getElementById('decodedMessage');
+        const decodedMessageContainer = document.getElementById('decodedMessageContainer');
+        const timeoutProgress = document.getElementById('timeoutProgress');
+
+        // Initialize WASM
+        init().then(() => {
+            wasmReady = true;
+            console.log('WASM initialized successfully');
+            showStatus('recordingStatus', 'WASM ready. Click "Start Recording" to begin.', 'info');
+        }).catch(err => {
+            console.error('Failed to initialize WASM:', err);
+            showStatus('recordingStatus', 'Error initializing WASM module', 'error');
+        });
+
+        // Threshold slider
+        detectionThreshold.addEventListener('input', (e) => {
+            thresholdValue.textContent = parseFloat(e.target.value).toFixed(2);
+        });
+
+        // Start recording
+        startBtn.addEventListener('click', async () => {
+            if (!wasmReady) {
+                showStatus('recordingStatus', 'WASM module not ready', 'error');
+                return;
+            }
+
+            try {
+                // Get microphone access
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                // Initialize detectors
+                const threshold = parseFloat(detectionThreshold.value);
+                microphoneListener = new MicrophoneListener(threshold);
+                postambleDetector = new PostambleDetector(threshold);
+
+                // Create script processor for audio capture
+                const sourceNode = audioContext.createMediaStreamSource(mediaStream);
+                scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
+
+                sourceNode.connect(scriptProcessor);
+                scriptProcessor.connect(audioContext.destination);
+
+                // Recording state
+                recordingActive = true;
+                preambleDetected = false;
+                postambleDetected = false;
+                recordedSamples = [];
+                recordingStartTime = Date.now();
+                timeoutStartTime = Date.now();
+                timelineEvents = [];
+
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                detectionThreshold.disabled = true;
+
+                showStatus('recordingStatus', 'Recording... Waiting for preamble detection', 'info');
+                addTimelineEvent('🎙️', 'Recording started');
+
+                // Process audio data
+                scriptProcessor.onaudioprocess = (event) => {
+                    const inputData = event.inputData.getChannelData(0);
+                    recordedSamples.push(...Array.from(inputData));
+
+                    // Check timeout
+                    const elapsedSeconds = (Date.now() - timeoutStartTime) / 1000;
+                    updateTimeoutProgress(elapsedSeconds);
+
+                    if (elapsedSeconds > TIMEOUT_SECONDS) {
+                        stopRecording();
+                        showStatus('recordingStatus', 'Recording timeout after 30 seconds', 'warning');
+                        addTimelineEvent('⏱️', 'Timeout: 30 seconds reached');
+                        return;
+                    }
+
+                    // Detect preamble
+                    if (!preambleDetected) {
+                        const pos = microphoneListener.add_samples(Array.from(inputData));
+                        if (pos >= 0) {
+                            preambleDetected = true;
+                            preamblePosition = recordedSamples.length - inputData.length + pos;
+                            preambleStatus.textContent = '✓ Detected';
+                            preambleStatus.style.color = '#28a745';
+                            addTimelineEvent('📍', `Preamble detected at ${(preamblePosition / SAMPLE_RATE).toFixed(2)}s`);
+                            showStatus('detectionStatus', 'Preamble detected! Waiting for postamble...', 'success');
+                        }
+                    }
+
+                    // Detect postamble after preamble
+                    if (preambleDetected && !postambleDetected) {
+                        const pos = postambleDetector.add_samples(Array.from(inputData));
+                        if (pos >= 0) {
+                            postambleDetected = true;
+                            postamblePosition = recordedSamples.length - inputData.length + pos;
+                            postambleStatus.textContent = '✓ Detected';
+                            postambleStatus.style.color = '#28a745';
+                            addTimelineEvent('🏁', `Postamble detected at ${(postamblePosition / SAMPLE_RATE).toFixed(2)}s`);
+                            showStatus('detectionStatus', 'Postamble detected! Decoding...', 'success');
+
+                            // Extract and decode
+                            setTimeout(() => {
+                                stopRecording();
+                                decodeMessage();
+                            }, 100);
+                        }
+                    }
+
+                    // Update stats
+                    const elapsed = (Date.now() - recordingStartTime) / 1000;
+                    recordingTime.textContent = elapsed.toFixed(2) + 's';
+                    bufferSize.textContent = recordedSamples.length + ' samples';
+                };
+
+            } catch (err) {
+                console.error('Error accessing microphone:', err);
+                showStatus('recordingStatus', 'Error: ' + err.message, 'error');
+            }
+        });
+
+        // Stop recording
+        stopBtn.addEventListener('click', stopRecording);
+
+        function stopRecording() {
+            recordingActive = false;
+            stopBtn.disabled = true;
+            startBtn.disabled = false;
+            detectionThreshold.disabled = false;
+
+            if (scriptProcessor) {
+                scriptProcessor.disconnect();
+            }
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+            }
+
+            addTimelineEvent('⏹️', 'Recording stopped');
+        }
+
+        // Reset
+        resetBtn.addEventListener('click', () => {
+            stopRecording();
+            recordedSamples = [];
+            preambleDetected = false;
+            postambleDetected = false;
+            recordingTime.textContent = '0.00s';
+            bufferSize.textContent = '0 samples';
+            preambleStatus.textContent = 'Not detected';
+            preambleStatus.style.color = '#666';
+            postambleStatus.textContent = 'Not detected';
+            postambleStatus.style.color = '#666';
+            decodedMessageContainer.style.display = 'none';
+            decodedMessage.value = '';
+            timelineEvents = [];
+            timeline.innerHTML = '<div style="color: #999; font-style: italic;">Timeline events will appear here...</div>';
+            recordingStatus.innerHTML = '';
+            recordingStatus.classList.remove('show');
+            detectionStatus.innerHTML = '';
+            detectionStatus.classList.remove('show');
+            decodeStatus.innerHTML = '';
+            decodeStatus.classList.remove('show');
+            timeoutProgress.style.width = '0%';
+        });
+
+        function decodeMessage() {
+            if (recordedSamples.length === 0) {
+                showStatus('decodeStatus', 'No audio data to decode', 'error');
+                return;
+            }
+
+            try {
+                // Extract segment between preamble and postamble
+                let startIdx = preamblePosition + 8000; // Skip preamble (0.5s at 16kHz)
+                let endIdx = postamblePosition;
+
+                if (startIdx >= endIdx) {
+                    showStatus('decodeStatus', 'Invalid audio segment', 'error');
+                    return;
+                }
+
+                const audioSegment = recordedSamples.slice(startIdx, endIdx);
+                addTimelineEvent('✂️', `Extracted ${audioSegment.length} samples (${(audioSegment.length / SAMPLE_RATE).toFixed(2)}s)`);
+
+                // Decode
+                const decoder = new WasmDecoder();
+                const decodedBytes = decoder.decode(audioSegment);
+                const decodedStr = new TextDecoder().decode(new Uint8Array(decodedBytes));
+
+                decodedMessage.value = decodedStr;
+                decodedMessageContainer.style.display = 'block';
+
+                addTimelineEvent('✓', `Decoded: "${decodedStr}"`);
+                showStatus('decodeStatus', `Successfully decoded: "${decodedStr}"`, 'success');
+
+            } catch (err) {
+                console.error('Decoding error:', err);
+                showStatus('decodeStatus', 'Decoding failed: ' + err.message, 'error');
+                addTimelineEvent('✕', `Decode error: ${err.message}`);
+            }
+        }
+
+        function showStatus(elementId, message, type) {
+            const el = document.getElementById(elementId);
+            el.textContent = message;
+            el.className = `status show ${type}`;
+        }
+
+        function addTimelineEvent(icon, text) {
+            const elapsed = recordingStartTime ? ((Date.now() - recordingStartTime) / 1000).toFixed(2) : '0.00';
+            timelineEvents.push({ icon, text, time: elapsed });
+
+            if (timelineEvents.length === 1) {
+                timeline.innerHTML = '';
+            }
+
+            const item = document.createElement('div');
+            item.className = 'timeline-item';
+            item.innerHTML = `
+                <div class="timeline-icon">${icon}</div>
+                <div class="timeline-text">${text}</div>
+                <div class="timeline-time">${elapsed}s</div>
+            `;
+            timeline.appendChild(item);
+
+            // Scroll to bottom
+            timeline.scrollTop = timeline.scrollHeight;
+        }
+
+        function updateTimeoutProgress(seconds) {
+            const percentage = Math.min((seconds / TIMEOUT_SECONDS) * 100, 100);
+            timeoutProgress.style.width = percentage + '%';
+        }
+    </script>
+</body>
+</html>
