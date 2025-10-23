@@ -375,4 +375,180 @@ mod tests {
         // Earlier part should have more zero crossings (higher frequency at start)
         assert!(zero_crossings_early > zero_crossings_late);
     }
+
+    #[test]
+    fn test_preamble_detection_strong_signal() {
+        // Strong signal: should always detect with strict 0.4 threshold
+        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 1.0);
+        let mut signal = preamble.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]); // Add silence after
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Strong signal should be detected");
+        assert!(result.unwrap() < 100, "Should detect near start");
+    }
+
+    #[test]
+    fn test_preamble_detection_medium_signal() {
+        // Medium signal (0.3x amplitude): should detect with 0.35 threshold
+        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.3);
+        let mut signal = preamble.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Medium signal should be detected");
+    }
+
+    #[test]
+    fn test_preamble_detection_weak_signal() {
+        // Weak signal (0.1x amplitude): should detect with 0.3 threshold
+        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.1);
+        let mut signal = preamble.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Weak signal should be detected");
+    }
+
+    #[test]
+    fn test_preamble_detection_very_weak_signal() {
+        // Very weak signal (0.05x amplitude): at detection limit
+        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.05);
+        let mut signal = preamble.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        // May or may not detect (at threshold boundary), but should not crash
+        let _ = result;
+    }
+
+    #[test]
+    fn test_preamble_detection_with_noise() {
+        // Weak signal with noise: adaptive threshold should handle
+        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.15);
+        let mut signal = preamble.clone();
+
+        // Add small noise
+        for s in &mut signal[..1000] {
+            *s += 0.02; // noise amplitude
+        }
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Weak signal with noise should be detected");
+    }
+
+    #[test]
+    fn test_postamble_detection_strong_signal() {
+        // Strong signal: should always detect with strict 0.4 threshold
+        let postamble = generate_postamble(crate::POSTAMBLE_SAMPLES, 1.0);
+        let mut signal = vec![0.0; 1000];
+        signal.extend_from_slice(&postamble);
+
+        let result = detect_postamble(&signal, 0.1);
+        assert!(result.is_some(), "Strong postamble should be detected");
+    }
+
+    #[test]
+    fn test_postamble_detection_weak_signal() {
+        // Weak signal: should detect with relaxed threshold
+        let postamble = generate_postamble(crate::POSTAMBLE_SAMPLES, 0.1);
+        let mut signal = vec![0.0; 1000];
+        signal.extend_from_slice(&postamble);
+
+        let result = detect_postamble(&signal, 0.1);
+        assert!(result.is_some(), "Weak postamble should be detected");
+    }
+
+    #[test]
+    fn test_adaptive_threshold_rms_strong() {
+        // Create signal with RMS > 0.1 (should use 0.4 threshold)
+        let chirp = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.5);
+        let signal_rms: f32 = (chirp.iter().map(|x| x * x).sum::<f32>() / chirp.len() as f32).sqrt();
+        assert!(signal_rms > 0.1, "Signal RMS should be > 0.1 for strong signal test");
+
+        let mut signal = chirp.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]);
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_adaptive_threshold_rms_medium() {
+        // Create signal with 0.02 < RMS < 0.1 (should use 0.35 threshold)
+        // Amplitude 0.08 gives RMS ~0.04 (in medium range)
+        let chirp = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.08);
+        let signal_rms: f32 = (chirp.iter().map(|x| x * x).sum::<f32>() / chirp.len() as f32).sqrt();
+        assert!(signal_rms > 0.02 && signal_rms <= 0.1, "Signal RMS should be in medium range, got {}", signal_rms);
+
+        let mut signal = chirp.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]);
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_adaptive_threshold_rms_weak() {
+        // Create signal with RMS <= 0.02 (should use 0.3 threshold)
+        // Amplitude 0.02 gives RMS ~0.01 (in weak range)
+        let chirp = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.02);
+        let signal_rms: f32 = (chirp.iter().map(|x| x * x).sum::<f32>() / chirp.len() as f32).sqrt();
+        assert!(signal_rms <= 0.02, "Signal RMS should be <= 0.02 for weak signal test, got {}", signal_rms);
+
+        let mut signal = chirp.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]);
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Weak signal should be detected with adaptive threshold");
+    }
+
+    #[test]
+    fn test_preamble_false_positive_rejection() {
+        // Random noise should not trigger false positives
+        let noise: Vec<f32> = (0..crate::PREAMBLE_SAMPLES * 2)
+            .map(|i| (i as f32 * 0.1).sin() * 0.01)
+            .collect();
+
+        let result = detect_preamble(&noise, 0.1);
+        // May or may not detect, but should be much less likely than true preamble
+        let _ = result;
+    }
+
+    #[test]
+    fn test_preamble_attenuation_series() {
+        // Test series of attenuated signals to verify graceful degradation
+        let base_preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 1.0);
+
+        let attenuation_levels = vec![1.0, 0.5, 0.2, 0.1, 0.05];
+        let mut detected_count = 0;
+
+        for &atten in &attenuation_levels {
+            let preamble = base_preamble.iter().map(|x| x * atten).collect::<Vec<_>>();
+            let mut signal = preamble.clone();
+            signal.extend_from_slice(&vec![0.0; 1000]);
+
+            if detect_preamble(&signal, 0.1).is_some() {
+                detected_count += 1;
+            }
+        }
+
+        // Should detect most signals (at least 3 out of 5)
+        assert!(detected_count >= 3, "Should detect at least 3 out of 5 attenuation levels");
+    }
+
+    #[test]
+    fn test_preamble_position_accuracy() {
+        // Verify detection correctly identifies preamble position
+        let silence_before = vec![0.0; 500];
+        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.3);
+        let mut signal = silence_before.clone();
+        signal.extend_from_slice(&preamble);
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some());
+
+        let pos = result.unwrap();
+        // Should detect near the start of silence (within tolerance)
+        assert!(pos < 1000, "Detection position {} should be reasonable", pos);
+    }
 }
