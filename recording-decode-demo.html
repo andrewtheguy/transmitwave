@@ -538,12 +538,12 @@
                         } else {
                             // Update buffer status for debugging
                             const bufferSecs = (microphoneListener.buffer_size() / SAMPLE_RATE).toFixed(2);
-                            const recordedSecs = (recordedSamples.length / SAMPLE_RATE).toFixed(1);
-                            if (recordedSamples.length % 16000 === 0) { // Update every ~1 second
+                            const recordedSecs = (recordedSamples.length / actualSampleRate).toFixed(1);
+                            if (recordedSamples.length % (actualSampleRate / 2) === 0) { // Update every ~0.5 second
                                 const thresh = parseFloat(detectionThreshold.value).toFixed(2);
-                                preambleStatus.textContent = `Listening... (${recordedSecs}s recorded, ${bufferSecs}s analyzed, threshold: ${thresh})`;
+                                preambleStatus.textContent = `Listening... (${recordedSecs}s recorded, threshold: ${thresh})`;
                                 preambleStatus.style.color = '#666';
-                                console.log(`Detection debug: recorded=${recordedSecs}s, buffer=${bufferSecs}s, threshold=${thresh}`);
+                                console.log(`Detection debug: recorded=${recordedSamples.length} samples @ ${actualSampleRate}Hz = ${recordedSecs}s, threshold=${thresh}`);
                             }
                         }
                     }
@@ -569,8 +569,9 @@
 
                     // Update stats
                     const elapsed = (Date.now() - recordingStartTime) / 1000;
-                    recordingTime.textContent = elapsed.toFixed(2) + 's';
-                    bufferSize.textContent = recordedSamples.length + ' samples';
+                    const recordedDuration = (recordedSamples.length / actualSampleRate).toFixed(2);
+                    recordingTime.textContent = recordedDuration + 's';
+                    bufferSize.textContent = recordedSamples.length + ` samples (${recordedDuration}s @ ${actualSampleRate}Hz)`;
                 };
 
             } catch (err) {
