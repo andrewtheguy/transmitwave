@@ -8,7 +8,9 @@
       "Bash(cargo run:*)",
       "Bash(cargo test:*)",
       "Bash(timeout 120 cargo test:*)",
-      "Bash(wasm-pack build:*)"
+      "Bash(wasm-pack build:*)",
+      "Bash(awk:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []
