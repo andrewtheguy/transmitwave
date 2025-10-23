@@ -27,18 +27,10 @@ pub fn generate_chirp(
     samples
 }
 
-/// Generates postamble (short sync pattern)
+/// Generates postamble (descending chirp from 4000 Hz to 200 Hz)
+/// Mirrors the preamble pattern but in reverse
 pub fn generate_postamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
-    let sample_rate = SAMPLE_RATE as f32;
-    let freq = 2000.0; // Fixed frequency for postamble
-
-    let mut samples = vec![0.0; duration_samples];
-    for n in 0..duration_samples {
-        let t = n as f32 / sample_rate;
-        let phase = 2.0 * PI * freq * t;
-        samples[n] = amplitude * phase.sin();
-    }
-    samples
+    generate_chirp(duration_samples, 4000.0, 200.0, amplitude)
 }
 
 /// Detect preamble by correlating with expected chirp
@@ -86,38 +78,46 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
     }
 }
 
-/// Detect postamble (end of frame marker)
+/// Detect postamble by correlating with expected descending chirp
 pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usize> {
-    if samples.len() < 400 {
+    if samples.len() < 800 {
         return None;
     }
 
-    // Look for 2kHz tone with simple energy detection
-    let sample_rate = SAMPLE_RATE as f32;
-    let freq = 2000.0;
-    let window = 400; // ~25ms window
+    // Generate expected descending chirp (4000 Hz to 200 Hz)
+    // Use 800 samples matching POSTAMBLE_SAMPLES (50ms at 16kHz)
+    let chirp = generate_chirp(800, 4000.0, 200.0, 1.0);
 
+    // Compute correlation with energy normalization
     let mut best_pos = 0;
-    let mut best_energy = 0.0;
+    let mut best_ratio = 0.0;
 
+    let window = 800;
     for i in 0..=samples.len().saturating_sub(window) {
-        let mut energy_in_band = 0.0;
+        let mut corr = 0.0;
+        let mut sample_energy = 0.0;
 
         for j in 0..window {
-            let t = (i + j) as f32 / sample_rate;
-            let phase = 2.0 * PI * freq * t;
-            let expected = phase.sin();
-            energy_in_band += (samples[i + j] * expected).abs();
+            corr += samples[i + j] * chirp[j];
+            sample_energy += samples[i + j] * samples[i + j];
         }
+        corr = corr.abs();
 
-        if energy_in_band > best_energy {
-            best_energy = energy_in_band;
+        // Normalize correlation by sample energy
+        let ratio = if sample_energy > 0.0 {
+            corr / sample_energy.sqrt()
+        } else {
+            0.0
+        };
+
+        if ratio > best_ratio {
+            best_ratio = ratio;
             best_pos = i;
         }
     }
 
-    // Lower threshold for detection
-    if best_energy > 10.0 {
+    // Accept if we found a reasonable match
+    if best_ratio > 0.01 {
         Some(best_pos)
     } else {
         None

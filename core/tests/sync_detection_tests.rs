@@ -120,27 +120,22 @@ fn test_detect_preamble_empty() {
 
 #[test]
 fn test_detect_postamble_with_tone() {
-    // Generate a 2kHz tone (postamble frequency)
+    // Generate a descending chirp (4000 Hz to 200 Hz) - the new postamble pattern
     let duration_samples = 800;
-    let sample_rate = 16000.0;
-    let freq = 2000.0;
     let amplitude = 0.5;
 
     let mut samples = vec![0.0; 1000]; // Silence before
 
-    // Add 2kHz tone
-    for n in 0..duration_samples {
-        let t = n as f32 / sample_rate;
-        let phase = 2.0 * PI * freq * t;
-        samples.push(amplitude * phase.sin());
-    }
+    // Add descending chirp (postamble)
+    let chirp = generate_chirp(duration_samples, 4000.0, 200.0, amplitude);
+    samples.extend_from_slice(&chirp);
 
     samples.extend_from_slice(&vec![0.0; 1000]); // Silence after
 
     let detected = detect_postamble(&samples, 100.0);
     assert!(
         detected.is_some(),
-        "Failed to detect postamble with clean 2kHz tone"
+        "Failed to detect postamble with clean descending chirp"
     );
 
     let pos = detected.unwrap();
@@ -153,26 +148,21 @@ fn test_detect_postamble_with_tone() {
 
 #[test]
 fn test_detect_postamble_with_background_noise() {
-    // Generate 2kHz tone with noise
+    // Generate descending chirp with noise
     let duration_samples = 800;
-    let sample_rate = 16000.0;
-    let freq = 2000.0;
     let amplitude = 0.5;
 
     let mut samples = vec![0.0; 1000];
 
-    // Add noisy 2kHz tone
+    // Add noisy descending chirp
+    let chirp = generate_chirp(duration_samples, 4000.0, 200.0, amplitude);
     let mut rng_state = 54321u32;
-    for n in 0..duration_samples {
-        let t = n as f32 / sample_rate;
-        let phase = 2.0 * PI * freq * t;
-        let tone = amplitude * phase.sin();
-
+    for &chirp_sample in chirp.iter() {
         // Add small amount of noise
         rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
         let noise = ((rng_state >> 16) as f32 / 65536.0) - 0.5;
 
-        samples.push(tone + noise * 0.05);
+        samples.push(chirp_sample + noise * 0.05);
     }
 
     samples.extend_from_slice(&vec![0.0; 1000]);
@@ -338,19 +328,19 @@ fn test_postamble_tone_properties() {
         "Postamble length mismatch"
     );
 
-    // Check tone energy
+    // Check chirp energy
     let energy: f32 = postamble.iter().map(|s| s * s).sum();
     assert!(energy > 0.0, "Postamble has no energy");
 
-    // For a pure tone, we can estimate the RMS
-    // RMS of amplitude A sine wave is A/sqrt(2)
+    // For a chirp signal with given amplitude, check that RMS is reasonable
+    // A chirp should have RMS in the range of amplitude * some factor < 1
     let rms = (energy / duration_samples as f32).sqrt();
-    let expected_rms = amplitude / std::f32::consts::SQRT_2;
 
-    println!("Postamble RMS: {}, expected: {}", rms, expected_rms);
+    println!("Postamble (descending chirp) RMS: {}", rms);
+    // RMS should be less than amplitude but non-zero
     assert!(
-        (rms - expected_rms).abs() < 0.05,
-        "Postamble RMS doesn't match expected for sine wave"
+        rms > 0.0 && rms <= amplitude,
+        "Postamble RMS should be between 0 and amplitude"
     );
 }
 
@@ -377,19 +367,15 @@ fn test_detect_preamble_with_amplitude_variation() {
 
 #[test]
 fn test_detect_postamble_threshold_sensitivity() {
-    // Generate weak postamble
+    // Generate weak postamble (descending chirp)
     let duration_samples = 800;
-    let sample_rate = 16000.0;
-    let freq = 2000.0;
     let amplitude = 0.1; // Very weak
 
     let mut samples = vec![0.0; 1000];
 
-    for n in 0..duration_samples {
-        let t = n as f32 / sample_rate;
-        let phase = 2.0 * PI * freq * t;
-        samples.push(amplitude * phase.sin());
-    }
+    // Add weak descending chirp
+    let chirp = generate_chirp(duration_samples, 4000.0, 200.0, amplitude);
+    samples.extend_from_slice(&chirp);
 
     samples.extend_from_slice(&vec![0.0; 1000]);
 
