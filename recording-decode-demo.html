@@ -451,6 +451,33 @@
         const decodedMessageContainer = document.getElementById('decodedMessageContainer');
         const timeoutProgress = document.getElementById('timeoutProgress');
 
+        // Resample audio to 16kHz using linear interpolation
+        function resampleAudio(samples, fromRate, toRate) {
+            if (fromRate === toRate) {
+                return samples;
+            }
+
+            const ratio = toRate / fromRate;
+            const newLength = Math.ceil(samples.length * ratio);
+            const resampled = new Float32Array(newLength);
+
+            for (let i = 0; i < newLength; i++) {
+                const srcIdx = i / ratio;
+                const srcIdxFloor = Math.floor(srcIdx);
+                const srcIdxCeil = srcIdxFloor + 1;
+                const fraction = srcIdx - srcIdxFloor;
+
+                if (srcIdxCeil < samples.length) {
+                    // Linear interpolation
+                    resampled[i] = samples[srcIdxFloor] * (1 - fraction) + samples[srcIdxCeil] * fraction;
+                } else {
+                    resampled[i] = samples[srcIdxFloor];
+                }
+            }
+
+            return resampled;
+        }
+
         // Initialize WASM
         init().then(() => {
             wasmReady = true;
@@ -550,15 +577,25 @@
             }
 
             try {
-                showStatus('detectionStatus', 'Detecting preamble...', 'info');
+                showStatus('detectionStatus', 'Resampling to 16kHz...', 'info');
                 const threshold = parseFloat(detectionThreshold.value);
+
+                // Resample to 16kHz for detection and decoding
+                const resampledSamples = resampleAudio(recordedSamples, actualSampleRate, SAMPLE_RATE);
+                const resampledDuration = (resampledSamples.length / SAMPLE_RATE).toFixed(2);
+                addTimelineEvent('🔄', `Resampled to 16kHz: ${resampledSamples.length} samples (${resampledDuration}s)`);
+
+                // Update stats with resampled size
+                bufferSize.textContent = resampledSamples.length + ` samples (${resampledDuration}s @ ${SAMPLE_RATE}Hz, resampled from ${actualSampleRate}Hz)`;
+
+                showStatus('detectionStatus', 'Detecting preamble...', 'info');
 
                 // Create fresh detectors
                 const listener = new MicrophoneListener(threshold);
                 const detector = new PostambleDetector(threshold);
 
-                // Try to find preamble
-                const preamblePos = listener.add_samples(recordedSamples);
+                // Try to find preamble in resampled audio
+                const preamblePos = listener.add_samples(resampledSamples);
                 if (preamblePos === -1) {
                     showStatus('detectionStatus', 'Preamble not detected. Try lowering the threshold.', 'error');
                     addTimelineEvent('✕', 'Preamble detection failed');
@@ -573,15 +610,15 @@
                 console.log(`Preamble detected at position: ${preamblePos}`);
 
                 // Try to find postamble starting from after preamble
-                // Need enough samples for postamble detection (typically POSTAMBLE_SAMPLES = 8000 for 0.5s at 16kHz)
+                // Need enough samples for postamble detection (8000 samples for 0.5s at 16kHz)
                 const postambleSearchStart = preamblePos + 8000; // Skip preamble
-                if (postambleSearchStart >= recordedSamples.length) {
+                if (postambleSearchStart >= resampledSamples.length) {
                     showStatus('detectionStatus', 'Not enough audio after preamble for postamble detection', 'error');
                     addTimelineEvent('✕', 'Insufficient audio for postamble detection');
                     return;
                 }
 
-                const postambleSegment = recordedSamples.slice(postambleSearchStart);
+                const postambleSegment = resampledSamples.slice(postambleSearchStart);
                 const postamblePos = detector.add_samples(postambleSegment);
                 if (postamblePos === -1) {
                     showStatus('detectionStatus', 'Postamble not detected. Try lowering the threshold.', 'error');
@@ -595,6 +632,10 @@
                 postambleStatus.style.color = '#4CAF50';
                 addTimelineEvent('✓', `Postamble detected at sample ${postamblePosition}`);
                 console.log(`Postamble detected at position: ${postamblePosition}`);
+
+                // Store resampled samples for decoding
+                recordedSamples = resampledSamples;
+                actualSampleRate = SAMPLE_RATE;
 
                 // Both detected, now decode
                 showStatus('detectionStatus', 'Both preamble and postamble detected! Ready to decode.', 'success');
