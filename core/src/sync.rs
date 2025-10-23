@@ -70,8 +70,8 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
         }
     }
 
-    // Accept if we found a reasonable match (lower threshold to be more permissive)
-    if best_ratio > 0.01 {
+    // Accept if we found a very strong match (strict threshold for accurate position detection)
+    if best_ratio > 0.12 {
         Some(best_pos)
     } else {
         None
@@ -116,8 +116,8 @@ pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usi
         }
     }
 
-    // Accept if we found a reasonable match
-    if best_ratio > 0.01 {
+    // Accept if we found a very strong match (strict threshold for accurate position detection)
+    if best_ratio > 0.12 {
         Some(best_pos)
     } else {
         None

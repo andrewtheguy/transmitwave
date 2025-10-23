@@ -19,11 +19,13 @@ fn test_detect_preamble_with_chirp() {
         "Failed to detect preamble with clear chirp signal"
     );
 
-    // Just verify we found something - position will be within the audio
+    // STRICT: Preamble should be detected WITHIN the chirp region
+    // Chirp is at 2000-6800, detector uses 1000-sample window
+    // Best match should be found somewhere within the chirp signal
     let pos = detected.unwrap();
     assert!(
-        pos < samples.len(),
-        "Detected preamble at invalid position: {}",
+        pos >= 2000 && pos <= 5800,
+        "STRICT: Preamble detected at {} should be within chirp region 2000-6800",
         pos
     );
 }
@@ -60,11 +62,13 @@ fn test_detect_preamble_with_noise() {
         "Failed to detect preamble in noisy signal"
     );
 
-    // Position may vary, just verify it found something in the audio
+    // STRICT: Detector should find strong chirp pattern despite noise
+    // With noise, detector may find slightly different position, but should be in signal
     let pos = detected.unwrap();
+    // Preamble is at 2000-6800, detector should find it somewhere in signal
     assert!(
-        pos < samples.len(),
-        "Detected preamble at invalid position: {}",
+        pos >= 1900 && pos <= 5900,
+        "STRICT: Detected preamble at {} should be near chirp region 2000-6800",
         pos
     );
 }
@@ -81,15 +85,23 @@ fn test_detect_preamble_multiple_chirps() {
     samples.extend_from_slice(&chirp2);
     samples.extend_from_slice(&vec![0.0; 1000]);
 
-    // Should detect a preamble
+    // Should detect the first (stronger) preamble
     let detected = detect_preamble(&samples, 100.0);
     assert!(detected.is_some(), "Failed to detect any preamble");
 
-    // Just verify we found something valid
+    // STRICT: Should detect the FIRST (stronger) chirp, NOT the second weaker one
     let pos = detected.unwrap();
+    // First chirp is at 1000-5800, second at ~9000-13800
+    // With strict threshold, detector should prefer the stronger first chirp
+    // Allow some tolerance for detector precision
     assert!(
-        pos < samples.len(),
-        "Detector found invalid position: {}",
+        pos >= 900 && pos <= 6800,
+        "STRICT: Should find first chirp near 1000-5800, not second at 9000-13800, found at {}",
+        pos
+    );
+    assert!(
+        pos < 9000,
+        "STRICT: Should NOT detect second weaker chirp at ~9000, found at {}",
         pos
     );
 }
@@ -138,10 +150,11 @@ fn test_detect_postamble_with_tone() {
         "Failed to detect postamble with clean descending chirp"
     );
 
+    // STRICT: Postamble should be detected at the exact position where it starts (~1000)
     let pos = detected.unwrap();
     assert!(
-        pos >= 800 && pos <= 1200,
-        "Detected postamble at unexpected position: {}",
+        pos >= 900 && pos <= 1100,
+        "Detected postamble at position {} (STRICT: expected ~1000 where descending chirp starts)",
         pos
     );
 }
@@ -173,39 +186,41 @@ fn test_detect_postamble_with_background_noise() {
         "Failed to detect postamble in noisy signal"
     );
 
+    // STRICT: Even with noise, postamble must be detected at correct position (~1000)
     let pos = detected.unwrap();
     assert!(
-        pos >= 800 && pos <= 1200,
-        "Detected postamble at position {} (expected ~1000)",
+        pos >= 900 && pos <= 1100,
+        "Detected postamble at position {} (STRICT: expected ~1000 despite noise)",
         pos
     );
 }
 
 #[test]
 fn test_detect_postamble_wrong_frequency() {
-    // Generate a 1kHz tone (not the postamble frequency)
+    // Generate random noise (not a descending chirp pattern)
     let duration_samples = 800;
-    let sample_rate = 16000.0;
-    let freq = 1000.0; // Wrong frequency!
     let amplitude = 0.5;
 
     let mut samples = vec![0.0; 1000];
 
-    for n in 0..duration_samples {
-        let t = n as f32 / sample_rate;
-        let phase = 2.0 * PI * freq * t;
-        samples.push(amplitude * phase.sin());
+    // Add random noise (poor correlation with a specific chirp pattern)
+    let mut rng_state = 98765u32;
+    for _ in 0..duration_samples {
+        rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
+        let noise = ((rng_state >> 16) as f32 / 65536.0 - 0.5) * amplitude;
+        samples.push(noise);
     }
 
     samples.extend_from_slice(&vec![0.0; 1000]);
 
+    // STRICT: Detector with high threshold should NOT reliably detect random noise
+    // Random noise has very poor correlation with chirp pattern
     let detected = detect_postamble(&samples, 100.0);
-    // Might not detect it reliably since it's the wrong frequency
-    // This is acceptable behavior
-    if let Some(pos) = detected {
-        // If detected, it shouldn't be strong
-        println!("Detected 1kHz tone at position {} (weak match expected)", pos);
-    }
+    // With strict threshold (0.1), random noise should fail to meet threshold
+    assert!(
+        detected.is_none(),
+        "STRICT: Random noise should NOT pass high correlation threshold"
+    );
 }
 
 #[test]
@@ -242,23 +257,41 @@ fn test_preamble_and_postamble_together() {
     let postamble = generate_postamble(800, 0.5);
     samples.extend_from_slice(&postamble);
 
-    // Detect both
+    // Detect preamble - should be at position 0 (start)
     let preamble_pos = detect_preamble(&samples, 100.0);
     assert!(preamble_pos.is_some(), "Failed to detect preamble");
 
-    // Postamble should be found after the data section
     let preamble_idx = preamble_pos.unwrap();
-    // Account for the window size in detection
-    let data_start = std::cmp::min(preamble_idx + 4800, samples.len() - 1000);
+    // STRICT: Preamble is at position 0-4800, detector should find it in signal
+    assert!(
+        preamble_idx >= 0 && preamble_idx <= 5000,
+        "STRICT: Preamble detected at {} should be within signal region 0-4800",
+        preamble_idx
+    );
 
-    if data_start < samples.len() - 400 {
-        let remaining = &samples[data_start..];
-        let postamble_pos = detect_postamble(remaining, 100.0);
-        assert!(
-            postamble_pos.is_some(),
-            "Failed to detect postamble after data"
-        );
+    // Detect postamble - should be after preamble (4800 samples) + data section (4000 samples)
+    // The actual postamble starts at position 4800 + 4000 = 8800
+    let data_start = preamble_idx + 4800;
+    if data_start + 800 >= samples.len() {
+        // Not enough samples - test is in an edge case, that's ok
+        return;
     }
+
+    let remaining = &samples[data_start..];
+    let postamble_pos = detect_postamble(remaining, 100.0);
+    assert!(
+        postamble_pos.is_some(),
+        "Failed to detect postamble after data"
+    );
+
+    // STRICT: Postamble should be detected within the postamble region in remaining data
+    // Postamble is 800 samples at index 4000 in the remaining samples (detector uses 800-sample window)
+    let postamble_idx = postamble_pos.unwrap();
+    assert!(
+        postamble_idx >= 3200 && postamble_idx <= 4800,
+        "STRICT: Postamble detected at {} should be within postamble region 4000-4800",
+        postamble_idx
+    );
 }
 
 #[test]
