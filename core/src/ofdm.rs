@@ -40,8 +40,10 @@ impl OfdmModulator {
         fft.process(&mut time_domain);
 
         // Extract real parts and normalize
+        // Amplify by 4x to lift signal above acoustic recording noise floor
+        // This ensures OFDM tail regions remain visible during recording/transmission
         let mut samples = vec![0.0; SAMPLES_PER_SYMBOL];
-        let scale = 1.0 / (SAMPLES_PER_SYMBOL as f32).sqrt();
+        let scale = 4.0 / (SAMPLES_PER_SYMBOL as f32).sqrt();
         for (i, sample) in time_domain.iter().enumerate() {
             samples[i] = sample.re * scale;
         }
