@@ -589,18 +589,8 @@
                 return;
             }
 
-            // Resample to 16kHz if necessary
-            let samplesToSave = recordedSamples;
-            let sampleRateForWav = actualSampleRate;
-
-            if (actualSampleRate !== 16000) {
-                console.log(`Resampling from ${actualSampleRate}Hz to 16000Hz`);
-                samplesToSave = resampleAudio(recordedSamples, actualSampleRate, 16000);
-                sampleRateForWav = 16000;
-                addTimelineEvent('🔄', `Resampled from ${actualSampleRate}Hz to 16kHz`);
-            }
-
-            const wavBlob = createWavBlob(samplesToSave, sampleRateForWav);
+            // Save at actual sample rate to preserve duration
+            const wavBlob = createWavBlob(recordedSamples, actualSampleRate);
             const url = URL.createObjectURL(wavBlob);
             const a = document.createElement('a');
             a.href = url;
@@ -610,8 +600,8 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            const durationSecs = (samplesToSave.length / sampleRateForWav).toFixed(2);
-            addTimelineEvent('💾', `Downloaded ${durationSecs}s of audio at ${sampleRateForWav}Hz`);
+            const durationSecs = (recordedSamples.length / actualSampleRate).toFixed(2);
+            addTimelineEvent('💾', `Downloaded ${durationSecs}s of audio at ${actualSampleRate}Hz`);
             showStatus('recordingStatus', 'WAV file downloaded', 'success');
         });
 
@@ -693,28 +683,6 @@
                 showStatus('decodeStatus', 'Decoding failed: ' + err.message, 'error');
                 addTimelineEvent('✕', `Decode error: ${err.message}`);
             }
-        }
-
-        function resampleAudio(samples, fromRate, toRate) {
-            const ratio = toRate / fromRate;
-            const newLength = Math.round(samples.length * ratio);
-            const resampled = new Float32Array(newLength);
-
-            // Simple linear interpolation resampling
-            for (let i = 0; i < newLength; i++) {
-                const position = i / ratio;
-                const index = Math.floor(position);
-                const fraction = position - index;
-
-                if (index + 1 < samples.length) {
-                    // Linear interpolation between two samples
-                    resampled[i] = samples[index] * (1 - fraction) + samples[index + 1] * fraction;
-                } else {
-                    resampled[i] = samples[index] || 0;
-                }
-            }
-
-            return Array.from(resampled);
         }
 
         function createWavBlob(samples, sampleRate) {
