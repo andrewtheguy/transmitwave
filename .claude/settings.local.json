@@ -18,7 +18,8 @@
       "Bash(git restore:*)",
       "Bash(git commit:*)",
       "Bash(cmp:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(./target/debug/testaudio-cli:*)"
     ],
     "deny": [],
     "ask": []
