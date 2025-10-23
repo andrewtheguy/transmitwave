@@ -10,7 +10,8 @@
       "Bash(timeout 120 cargo test:*)",
       "Bash(wasm-pack build:*)",
       "Bash(awk:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []

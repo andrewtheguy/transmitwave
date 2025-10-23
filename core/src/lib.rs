@@ -13,6 +13,7 @@ pub mod decoder;
 pub use encoder::Encoder;
 pub use decoder::Decoder;
 pub use error::{AudioModemError, Result};
+pub use sync::{detect_preamble, detect_postamble};
 
 // Configuration constants
 pub const SAMPLE_RATE: usize = 16000;
