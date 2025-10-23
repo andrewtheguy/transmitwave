@@ -141,3 +141,6 @@ mod tests {
         assert!(audio.len() > 0);
     }
 }
+
+// Note: Full encode/decode roundtrip tests are in integration_test.rs
+// since they require decoder which depends on full pipeline

@@ -1,4 +1,4 @@
-use testaudio_core::{Decoder, Encoder};
+use testaudio_core::{Decoder, Encoder, DecoderChunked, EncoderChunked};
 
 #[test]
 fn test_encode_decode_round_trip() {
@@ -302,4 +302,34 @@ fn test_encode_decode_binary_with_data_noise() {
     let decoded_data = decoder.decode(&samples).expect("Failed to decode");
 
     assert_eq!(decoded_data, original_data, "Binary data with noise round-trip failed");
+}
+
+#[test]
+fn test_encode_decode_chunked_simple() {
+    let original_data = b"Hi";
+
+    let mut encoder = EncoderChunked::new(32, 2).expect("Failed to create chunked encoder");
+    let samples = encoder.encode(original_data).expect("Failed to encode");
+
+    assert!(!samples.is_empty(), "No samples generated");
+
+    let mut decoder = DecoderChunked::new(32).expect("Failed to create chunked decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Chunked round-trip failed for simple data");
+}
+
+#[test]
+fn test_encode_decode_chunked_48bits() {
+    let original_data = b"Hello";
+
+    let mut encoder = EncoderChunked::new(48, 3).expect("Failed to create chunked encoder");
+    let samples = encoder.encode(original_data).expect("Failed to encode");
+
+    assert!(!samples.is_empty(), "No samples generated");
+
+    let mut decoder = DecoderChunked::new(48).expect("Failed to create chunked decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Chunked round-trip failed for 48-bit chunks");
 }

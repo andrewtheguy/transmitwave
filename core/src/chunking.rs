@@ -15,31 +15,34 @@ fn calculate_crc16(data: &[u8]) -> u16 {
     (crc & 0xFFFF) as u16
 }
 
-/// Chunk header: chunk_id (16 bits) + total_chunks (16 bits) + crc16 (16 bits)
+/// Chunk header: chunk_id (16 bits) + total_chunks (16 bits) + payload_len (8 bits) + crc16 (16 bits)
 #[derive(Clone, Debug)]
 pub struct ChunkHeader {
     pub chunk_id: u16,
     pub total_chunks: u16,
+    pub payload_len: u8, // Original payload length (for last chunk to know padding)
     pub crc16: u16,
 }
 
 impl ChunkHeader {
     /// Create new chunk header
-    pub fn new(chunk_id: u16, total_chunks: u16, crc16: u16) -> Self {
+    pub fn new(chunk_id: u16, total_chunks: u16, payload_len: u8, crc16: u16) -> Self {
         Self {
             chunk_id,
             total_chunks,
+            payload_len,
             crc16,
         }
     }
 
-    /// Encode header to bytes (6 bytes total)
+    /// Encode header to bytes (7 bytes total)
     pub fn to_bytes(&self) -> Vec<u8> {
         vec![
             (self.chunk_id >> 8) as u8,
             self.chunk_id as u8,
             (self.total_chunks >> 8) as u8,
             self.total_chunks as u8,
+            self.payload_len,
             (self.crc16 >> 8) as u8,
             self.crc16 as u8,
         ]
@@ -47,15 +50,17 @@ impl ChunkHeader {
 
     /// Decode header from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
-        if data.len() < 6 {
+        if data.len() < 7 {
             return Err(AudioModemError::InvalidFrameSize);
         }
         let chunk_id = ((data[0] as u16) << 8) | (data[1] as u16);
         let total_chunks = ((data[2] as u16) << 8) | (data[3] as u16);
-        let crc16 = ((data[4] as u16) << 8) | (data[5] as u16);
+        let payload_len = data[4];
+        let crc16 = ((data[5] as u16) << 8) | (data[6] as u16);
         Ok(Self {
             chunk_id,
             total_chunks,
+            payload_len,
             crc16,
         })
     }
@@ -72,7 +77,8 @@ impl Chunk {
     /// Create new chunk with header and data
     pub fn new(chunk_id: u16, total_chunks: u16, data: Vec<u8>) -> Self {
         let crc16 = calculate_crc16(&data);
-        let header = ChunkHeader::new(chunk_id, total_chunks, crc16);
+        let payload_len = data.len() as u8;
+        let header = ChunkHeader::new(chunk_id, total_chunks, payload_len, crc16);
         Self { header, data }
     }
 
@@ -213,13 +219,14 @@ mod tests {
 
     #[test]
     fn test_chunk_header_encode_decode() {
-        let header = ChunkHeader::new(5, 10, 0xABCD);
+        let header = ChunkHeader::new(5, 10, 6, 0xABCD);
         let bytes = header.to_bytes();
-        assert_eq!(bytes.len(), 6);
+        assert_eq!(bytes.len(), 7);
 
         let decoded = ChunkHeader::from_bytes(&bytes).unwrap();
         assert_eq!(decoded.chunk_id, 5);
         assert_eq!(decoded.total_chunks, 10);
+        assert_eq!(decoded.payload_len, 6);
         assert_eq!(decoded.crc16, 0xABCD);
     }
 

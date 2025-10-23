@@ -20,7 +20,8 @@
       "Bash(cmp:*)",
       "Bash(git checkout:*)",
       "Bash(./target/debug/testaudio-cli:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(/Users/it3/codes/andrew/testaudio/target/release/testaudio encode-chunked:*)"
     ],
     "deny": [],
     "ask": []

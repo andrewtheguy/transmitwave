@@ -49,42 +49,80 @@ impl DecoderChunked {
 
         let data_end = data_start + postamble_pos;
 
-        // Demodulate and collect chunks
-        let mut collected_chunks: HashMap<u16, Vec<Chunk>> = HashMap::new();
-        let mut total_chunks: Option<u16> = None;
+        // Demodulate all symbols and collect all bits
+        let mut all_bits = Vec::new();
         let mut pos = data_start;
 
-        // Stream through OFDM symbols
         while pos + SAMPLES_PER_SYMBOL <= data_end {
             let symbol_bits = self.ofdm.demodulate(&samples[pos..])?;
+            all_bits.extend_from_slice(&symbol_bits);
             pos += SAMPLES_PER_SYMBOL;
+        }
 
-            // Try to decode chunk from accumulated bits
-            if let Ok(chunk) = self.try_decode_chunk(&symbol_bits) {
-                // Validate chunk CRC
-                if chunk.validate_crc() {
-                    // Update total_chunks from first valid chunk
-                    if total_chunks.is_none() {
-                        total_chunks = Some(chunk.header.total_chunks);
+        // Convert all bits to bytes
+        let mut all_bytes = Vec::new();
+        for chunk in all_bits.chunks(8) {
+            if chunk.len() == 8 {
+                let mut byte = 0u8;
+                for (i, &bit) in chunk.iter().enumerate() {
+                    if bit {
+                        byte |= 1 << (7 - i);
                     }
+                }
+                all_bytes.push(byte);
+            }
+        }
 
-                    let chunk_id = chunk.header.chunk_id;
+        // Process FEC chunks to extract encoded data chunks
+        let mut collected_chunks: HashMap<u16, Vec<Chunk>> = HashMap::new();
+        let mut total_chunks: Option<u16> = None;
 
-                    // Store chunk
-                    collected_chunks
-                        .entry(chunk_id)
-                        .or_insert_with(Vec::new)
-                        .push(chunk);
+        let mut byte_pos = 0;
+        while byte_pos + RS_TOTAL_BYTES <= all_bytes.len() {
+            // Decode FEC chunk (takes 255 bytes, returns 223 bytes)
+            let fec_chunk = &all_bytes[byte_pos..byte_pos + RS_TOTAL_BYTES];
 
-                    // Check if we have all chunks needed for early termination
-                    if let Some(total) = total_chunks {
-                        if self.have_all_chunks(&collected_chunks, total) {
-                            // Early termination: we have all chunks, exit before postamble
-                            return self.reassemble_and_return(&collected_chunks);
+            if let Ok(decoded_bytes) = self.fec.decode(fec_chunk) {
+                // Try to extract chunk from decoded data
+                // decoded_bytes is 223 bytes with chunk at start + padding
+                // Chunk is: 7 bytes header + chunk_bits/8 bytes data
+                let chunk_data_bytes = self.chunk_bits / 8;
+                let chunk_total_bytes = 7 + chunk_data_bytes;
+
+                if decoded_bytes.len() >= chunk_total_bytes {
+                    // Extract only the chunk portion (ignore padding from FEC)
+                    let chunk_portion = &decoded_bytes[0..chunk_total_bytes];
+
+                    // Try to parse chunk header
+                    if let Ok(chunk) = Chunk::from_bytes(chunk_portion) {
+                        // Validate CRC
+                        if chunk.validate_crc() {
+                            // Update total_chunks from first valid chunk
+                            if total_chunks.is_none() {
+                                total_chunks = Some(chunk.header.total_chunks);
+                            }
+
+                            let chunk_id = chunk.header.chunk_id;
+
+                            // Store chunk
+                            collected_chunks
+                                .entry(chunk_id)
+                                .or_insert_with(Vec::new)
+                                .push(chunk);
+
+                            // Check if we have all chunks needed for early termination
+                            if let Some(total) = total_chunks {
+                                if self.have_all_chunks(&collected_chunks, total) {
+                                    // Early termination: we have all chunks
+                                    return self.reassemble_and_return(&collected_chunks);
+                                }
+                            }
                         }
                     }
                 }
             }
+
+            byte_pos += RS_TOTAL_BYTES;
         }
 
         // If we reach here, try to reassemble from whatever chunks we collected
@@ -96,39 +134,6 @@ impl DecoderChunked {
 
         // Not enough chunks collected
         Err(AudioModemError::InvalidFrameSize)
-    }
-
-    /// Try to decode a chunk from bits (this needs to be built from bit stream)
-    fn try_decode_chunk(&self, symbol_bits: &[bool]) -> Result<Chunk> {
-        // Convert bits to bytes
-        let mut bytes = Vec::new();
-        for chunk in symbol_bits.chunks(8) {
-            if chunk.len() == 8 {
-                let mut byte = 0u8;
-                for (i, &bit) in chunk.iter().enumerate() {
-                    if bit {
-                        byte |= 1 << (7 - i);
-                    }
-                }
-                bytes.push(byte);
-            }
-        }
-
-        // Pad to multiple of RS_TOTAL_BYTES for FEC decoding
-        while bytes.len() % RS_TOTAL_BYTES != 0 {
-            bytes.push(0);
-        }
-
-        if bytes.len() < RS_TOTAL_BYTES {
-            return Err(AudioModemError::InvalidFrameSize);
-        }
-
-        // Decode first FEC chunk (one chunk = 6 bytes header + 4/6/8 bytes data)
-        let fec_chunk = &bytes[0..RS_TOTAL_BYTES];
-        let decoded_chunk = self.fec.decode(fec_chunk)?;
-
-        // Decode chunk from bytes
-        Chunk::from_bytes(&decoded_chunk)
     }
 
     /// Check if we have all chunks needed (0..total_chunks-1)
@@ -166,12 +171,19 @@ impl DecoderChunked {
         // Sort by chunk_id to reassemble in order
         chunks_vec.sort_by_key(|c| c.header.chunk_id);
 
-        // Calculate original data length from last chunk
-        // This is a simplified approach - in a real system, you'd store the length
-        let original_len = chunks_vec
-            .iter()
-            .map(|c| c.data.len())
-            .sum::<usize>();
+        // Calculate original data length from chunks' payload_len field
+        // The payload_len in each chunk header tells us the actual data size (without padding)
+        let mut original_len = 0usize;
+
+        for (i, chunk) in chunks_vec.iter().enumerate() {
+            if i == chunks_vec.len() - 1 {
+                // Last chunk: use payload_len from header (includes padding info)
+                original_len += chunk.header.payload_len as usize;
+            } else {
+                // Non-last chunks: all data is real (no padding)
+                original_len += chunk.data.len();
+            }
+        }
 
         self.chunk_decoder.reassemble_chunks(&chunks_vec, original_len)
     }
