@@ -11,7 +11,14 @@
       "Bash(wasm-pack build:*)",
       "Bash(awk:*)",
       "Bash(curl:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(git add:*)",
+      "Bash(git restore:*)",
+      "Bash(git commit:*)",
+      "Bash(cmp:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []
