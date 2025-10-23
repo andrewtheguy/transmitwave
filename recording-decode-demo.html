@@ -428,6 +428,7 @@
         let preamblePosition = -1;
         let postamblePosition = -1;
         let timelineEvents = [];
+        let actualSampleRate = SAMPLE_RATE; // Will be updated from AudioContext
 
         // DOM Elements
         const startBtn = document.getElementById('startBtn');
@@ -474,6 +475,11 @@
                 // Get microphone access
                 mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                // Store actual sample rate for recording
+                actualSampleRate = audioContext.sampleRate;
+                console.log(`AudioContext sample rate: ${actualSampleRate}Hz`);
+                addTimelineEvent('📊', `AudioContext sample rate: ${actualSampleRate}Hz`);
 
                 // Initialize detectors
                 const threshold = parseFloat(detectionThreshold.value);
@@ -583,7 +589,18 @@
                 return;
             }
 
-            const wavBlob = createWavBlob(recordedSamples, SAMPLE_RATE);
+            // Resample to 16kHz if necessary
+            let samplesToSave = recordedSamples;
+            let sampleRateForWav = actualSampleRate;
+
+            if (actualSampleRate !== 16000) {
+                console.log(`Resampling from ${actualSampleRate}Hz to 16000Hz`);
+                samplesToSave = resampleAudio(recordedSamples, actualSampleRate, 16000);
+                sampleRateForWav = 16000;
+                addTimelineEvent('🔄', `Resampled from ${actualSampleRate}Hz to 16kHz`);
+            }
+
+            const wavBlob = createWavBlob(samplesToSave, sampleRateForWav);
             const url = URL.createObjectURL(wavBlob);
             const a = document.createElement('a');
             a.href = url;
@@ -593,7 +610,8 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            addTimelineEvent('💾', `Downloaded ${(recordedSamples.length / SAMPLE_RATE).toFixed(2)}s of audio`);
+            const durationSecs = (samplesToSave.length / sampleRateForWav).toFixed(2);
+            addTimelineEvent('💾', `Downloaded ${durationSecs}s of audio at ${sampleRateForWav}Hz`);
             showStatus('recordingStatus', 'WAV file downloaded', 'success');
         });
 
@@ -675,6 +693,28 @@
                 showStatus('decodeStatus', 'Decoding failed: ' + err.message, 'error');
                 addTimelineEvent('✕', `Decode error: ${err.message}`);
             }
+        }
+
+        function resampleAudio(samples, fromRate, toRate) {
+            const ratio = toRate / fromRate;
+            const newLength = Math.round(samples.length * ratio);
+            const resampled = new Float32Array(newLength);
+
+            // Simple linear interpolation resampling
+            for (let i = 0; i < newLength; i++) {
+                const position = i / ratio;
+                const index = Math.floor(position);
+                const fraction = position - index;
+
+                if (index + 1 < samples.length) {
+                    // Linear interpolation between two samples
+                    resampled[i] = samples[index] * (1 - fraction) + samples[index + 1] * fraction;
+                } else {
+                    resampled[i] = samples[index] || 0;
+                }
+            }
+
+            return Array.from(resampled);
         }
 
         function createWavBlob(samples, sampleRate) {
