@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, detect_preamble, detect_postamble};
+use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, EncoderChunked, DecoderChunked, detect_preamble, detect_postamble};
 
 /// Default WASM Encoder (now uses spread spectrum)
 #[wasm_bindgen]
@@ -250,6 +250,62 @@ impl PostambleDetector {
     #[wasm_bindgen]
     pub fn set_threshold(&mut self, threshold: f32) {
         self.threshold = threshold.max(0.0).min(1.0);
+    }
+}
+
+/// Chunked WASM Encoder for reliable transmission with interleaved redundancy
+#[wasm_bindgen]
+pub struct WasmEncoderChunked {
+    inner: EncoderChunked,
+}
+
+#[wasm_bindgen]
+impl WasmEncoderChunked {
+    /// Create new chunked encoder
+    /// chunk_bits: 32, 48, or 64 bits per chunk
+    /// interleave_factor: how many times to repeat each chunk (2-5 recommended)
+    #[wasm_bindgen(constructor)]
+    pub fn new(chunk_bits: usize, interleave_factor: usize) -> Result<WasmEncoderChunked, JsValue> {
+        EncoderChunked::new(chunk_bits, interleave_factor)
+            .map(|encoder| WasmEncoderChunked { inner: encoder })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Encode binary data into audio samples with chunking and interleaving
+    /// Takes a Uint8Array and returns Float32Array of audio samples
+    #[wasm_bindgen]
+    pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>, JsValue> {
+        self.inner
+            .encode(data)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+/// Chunked WASM Decoder for receiving redundant interleaved chunks with early termination
+#[wasm_bindgen]
+pub struct WasmDecoderChunked {
+    inner: DecoderChunked,
+}
+
+#[wasm_bindgen]
+impl WasmDecoderChunked {
+    /// Create new chunked decoder
+    /// chunk_bits: 32, 48, or 64 bits per chunk (must match encoder)
+    #[wasm_bindgen(constructor)]
+    pub fn new(chunk_bits: usize) -> Result<WasmDecoderChunked, JsValue> {
+        DecoderChunked::new(chunk_bits)
+            .map(|decoder| WasmDecoderChunked { inner: decoder })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Decode audio samples back to binary data with early termination
+    /// Decoder exits as soon as all chunks are successfully collected
+    /// Takes a Float32Array and returns Uint8Array of decoded data
+    #[wasm_bindgen]
+    pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .decode(samples)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
 

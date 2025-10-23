@@ -8,7 +8,7 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, resample_audio, stereo_to_mono, SAMPLE_RATE};
+use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, EncoderChunked, DecoderChunked, resample_audio, stereo_to_mono, SAMPLE_RATE};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
@@ -123,6 +123,40 @@ enum Commands {
         no_spread: bool,
     },
 
+    /// Encode binary data to WAV audio file with chunking and interleaving
+    EncodeChunked {
+        /// Input binary file
+        #[arg(value_name = "INPUT.BIN")]
+        input: PathBuf,
+
+        /// Output WAV file
+        #[arg(value_name = "OUTPUT.WAV")]
+        output: PathBuf,
+
+        /// Chunk size in bits: 32, 48, or 64 (default: 48)
+        #[arg(short, long, default_value = "48")]
+        chunk_bits: usize,
+
+        /// Interleave factor: how many times to repeat each chunk (default: 3)
+        #[arg(short, long, default_value = "3")]
+        interleave: usize,
+    },
+
+    /// Decode WAV file to binary data with chunking
+    DecodeChunked {
+        /// Input WAV file
+        #[arg(value_name = "INPUT.WAV")]
+        input: PathBuf,
+
+        /// Output binary file
+        #[arg(value_name = "OUTPUT.BIN")]
+        output: PathBuf,
+
+        /// Chunk size in bits: 32, 48, or 64 (must match encoder)
+        #[arg(short, long, default_value = "48")]
+        chunk_bits: usize,
+    },
+
     /// Start web server for encode/decode operations
     Server {
         /// Port to listen on (default: 8000)
@@ -155,6 +189,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     decode_spread_command(&input, &output, chip_duration)?
                 }
+            }
+            Commands::EncodeChunked { input, output, chunk_bits, interleave } => {
+                encode_chunked_command(&input, &output, chunk_bits, interleave)?
+            }
+            Commands::DecodeChunked { input, output, chunk_bits } => {
+                decode_chunked_command(&input, &output, chunk_bits)?
             }
             Commands::Server { port } => {
                 return start_web_server(port);
@@ -656,4 +696,103 @@ async fn handler_decode(
             }),
         )),
     }
+}
+
+fn encode_chunked_command(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+    chunk_bits: usize,
+    interleave_factor: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Read input binary file
+    let data = std::fs::read(input_path)?;
+    println!("Read {} bytes from {}", data.len(), input_path.display());
+
+    // Create encoder and encode data
+    let mut encoder = EncoderChunked::new(chunk_bits, interleave_factor)?;
+    let samples = encoder.encode(&data)?;
+    println!(
+        "Encoded (chunked, {} bits/chunk, {}x interleave) to {} audio samples",
+        chunk_bits,
+        interleave_factor,
+        samples.len()
+    );
+
+    // Write WAV file (16-bit PCM)
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: SAMPLE_RATE as u32,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let file = File::create(output_path)?;
+    let mut writer = hound::WavWriter::new(file, spec)?;
+
+    // Convert f32 samples to i16 range [-32768, 32767]
+    for sample in samples {
+        let clamped = sample.max(-1.0).min(1.0);
+        let i16_sample = (clamped * 32767.0) as i16;
+        writer.write_sample(i16_sample)?;
+    }
+    writer.finalize()?;
+
+    println!("Wrote {} to {}", output_path.display(), output_path.display());
+    Ok(())
+}
+
+fn decode_chunked_command(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+    chunk_bits: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Read WAV file
+    let file = File::open(input_path)?;
+    let mut reader = hound::WavReader::new(file)?;
+
+    let spec = reader.spec();
+    println!(
+        "Read WAV: {} Hz, {} channels, {} bits",
+        spec.sample_rate, spec.channels, spec.bits_per_sample
+    );
+
+    // Extract samples
+    let samples: Vec<f32> = reader
+        .into_samples::<i16>()
+        .filter_map(|s| s.ok().map(|sample| sample as f32 / 32768.0))
+        .collect();
+    println!("Extracted {} samples", samples.len());
+
+    // Handle stereo -> mono conversion
+    let mut audio_samples = samples;
+    if spec.channels == 2 {
+        println!("Converting stereo to mono...");
+        audio_samples = stereo_to_mono(&audio_samples);
+        println!("Converted to {} mono samples", audio_samples.len());
+    }
+
+    // Resample if needed
+    if spec.sample_rate != SAMPLE_RATE as u32 {
+        println!(
+            "Resampling from {} Hz to {} Hz...",
+            spec.sample_rate, SAMPLE_RATE
+        );
+        audio_samples = resample_audio(
+            &audio_samples,
+            spec.sample_rate as usize,
+            SAMPLE_RATE,
+        );
+        println!("Resampled to {} samples", audio_samples.len());
+    }
+
+    // Decode
+    let mut decoder = DecoderChunked::new(chunk_bits)?;
+    let decoded_data = decoder.decode(&audio_samples)?;
+    println!("Decoded {} bytes", decoded_data.len());
+
+    // Write output binary file
+    std::fs::write(output_path, &decoded_data)?;
+    println!("Wrote {} bytes to {}", decoded_data.len(), output_path.display());
+
+    Ok(())
 }
