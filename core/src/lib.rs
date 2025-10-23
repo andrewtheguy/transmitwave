@@ -10,12 +10,14 @@ pub mod sync;
 pub mod encoder;
 pub mod decoder;
 pub mod spread;
+pub mod trellis;
 
 pub use encoder::Encoder;
 pub use decoder::Decoder;
 pub use error::{AudioModemError, Result};
 pub use sync::{detect_preamble, detect_postamble};
 pub use spread::{SpreadSpectrumSpreader, SpreadSpectrumDespreader};
+pub use trellis::{ConvolutionalEncoder, ViterbiDecoder};
 
 // Configuration constants
 pub const SAMPLE_RATE: usize = 16000;

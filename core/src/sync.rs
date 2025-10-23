@@ -154,8 +154,205 @@ mod tests {
     }
 
     #[test]
+    fn test_barker_code_values() {
+        let barker = barker_code();
+        let expected = vec![1, 1, 1, -1, -1, 1, -1, 1, 1, -1, 1];
+        assert_eq!(barker, expected);
+    }
+
+    #[test]
+    fn test_barker_autocorrelation() {
+        let barker = barker_code();
+        // Autocorrelation at lag 0 should be 11 (sum of squares)
+        let autocorr: i32 = barker.iter().map(|&x| (x as i32) * (x as i32)).sum();
+        assert_eq!(autocorr, 11);
+    }
+
+    #[test]
+    fn test_barker_sidelobe_property() {
+        let barker = barker_code();
+        // Test correlation with shifted versions
+        // Verify that autocorrelation is much larger than sidelobes
+        let mut max_sidelobe = 0i32;
+        let mut avg_sidelobe = 0i32;
+        for lag in 1..11 {
+            let correlation: i32 = barker[..11 - lag]
+                .iter()
+                .zip(barker[lag..].iter())
+                .map(|(a, b)| (*a as i32) * (*b as i32))
+                .sum();
+            let abs_corr = correlation.abs();
+            max_sidelobe = max_sidelobe.max(abs_corr);
+            avg_sidelobe += abs_corr;
+        }
+        avg_sidelobe /= 10;
+        // Autocorrelation (11) should be >> sidelobes
+        assert!(max_sidelobe < 11, "Max sidelobe {} should be < autocorr 11", max_sidelobe);
+        assert!(avg_sidelobe < 11, "Avg sidelobe {} should be < autocorr 11", avg_sidelobe);
+    }
+
+    #[test]
+    fn test_barker_code_symmetry() {
+        let barker = barker_code();
+        // Check that alternating signs create the Barker structure
+        let alternations = barker
+            .windows(2)
+            .filter(|w| w[0] != w[1])
+            .count();
+        assert!(alternations >= 5, "Barker should have multiple sign changes");
+    }
+
+    #[test]
+    fn test_barker_chip_spreading() {
+        let barker = barker_code();
+        // Each Barker chip (±1) can spread one information bit
+        assert_eq!(barker.iter().all(|&x| x == 1 || x == -1), true);
+
+        // Test spreading a single bit across Barker sequence
+        let bit = true;
+        let bit_val: i8 = if bit { 1 } else { -1 };
+        let spread: Vec<i8> = barker.iter().map(|&x| x * bit_val).collect();
+        assert_eq!(spread.len(), 11);
+    }
+
+    #[test]
+    fn test_barker_despread_clean() {
+        let barker = barker_code();
+        let bit = true;
+        let bit_val = if bit { 1.0 } else { -1.0 };
+
+        // Spread the bit
+        let spread: Vec<f32> = barker.iter().map(|&x| (x as f32) * bit_val).collect();
+
+        // Despread by correlating with Barker
+        let correlation: f32 = spread
+            .iter()
+            .zip(barker.iter())
+            .map(|(&s, &b)| s * (b as f32))
+            .sum();
+
+        // Correlation should be close to 11 (autocorrelation peak)
+        assert!(correlation > 10.0);
+    }
+
+    #[test]
+    fn test_barker_despread_with_noise() {
+        let barker = barker_code();
+        let bit = true;
+        let bit_val = if bit { 1.0 } else { -1.0 };
+
+        // Spread and add noise
+        let spread: Vec<f32> = barker
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| {
+                let noise = ((i as f32 * 0.789) % 1.0) * 0.2 - 0.1; // ±10% noise
+                (x as f32) * bit_val + noise
+            })
+            .collect();
+
+        // Despread by correlating with Barker
+        let correlation: f32 = spread
+            .iter()
+            .zip(barker.iter())
+            .map(|(&s, &b)| s * (b as f32))
+            .sum();
+
+        // Should still detect positive correlation despite noise
+        assert!(correlation > 5.0, "Correlation with noise: {}", correlation);
+    }
+
+    #[test]
+    fn test_barker_as_matched_filter() {
+        let barker = barker_code();
+        // Create signal with Barker repeated (10 repetitions = 110 samples)
+
+        // Create signal with Barker repeated
+        let mut signal = Vec::new();
+        for _ in 0..10 {
+            for &chip in &barker {
+                signal.push(chip as f32);
+            }
+        }
+
+        // Correlate with single Barker sequence
+        let correlation: f32 = signal
+            .iter()
+            .zip(barker.iter().cycle())
+            .map(|(&s, &b)| s * (b as f32))
+            .sum();
+
+        // Should have very high correlation (10 * autocorr)
+        assert!(correlation > 100.0);
+    }
+
+    #[test]
+    fn test_barker_mismatch_detection() {
+        let barker = barker_code();
+        // Create a random sequence
+        let random_seq: Vec<i8> = vec![1, -1, 1, 1, -1, 1, -1, -1, 1, -1, -1];
+
+        // Correlate random with Barker
+        let correlation: i32 = random_seq
+            .iter()
+            .zip(barker.iter())
+            .map(|(a, b)| (*a as i32) * (*b as i32))
+            .sum();
+
+        // Correlation with non-matching sequence should be lower
+        // (not guaranteed to be low, but statistically likely)
+        assert!(correlation.abs() < 10);
+    }
+
+    #[test]
     fn test_chirp_generation() {
         let chirp = generate_chirp(1600, 200.0, 4000.0, 1.0);
         assert_eq!(chirp.len(), 1600);
+    }
+
+    #[test]
+    fn test_chirp_amplitude() {
+        let chirp = generate_chirp(1600, 200.0, 4000.0, 0.5);
+        let max_val = chirp.iter().map(|x| x.abs()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        assert!(max_val <= 0.6 && max_val >= 0.4, "Max amplitude: {}", max_val);
+    }
+
+    #[test]
+    fn test_chirp_frequency_sweep() {
+        let chirp = generate_chirp(1600, 200.0, 4000.0, 1.0);
+
+        // Compute zero crossings as proxy for frequency
+        let zero_crossings_early = chirp[..400]
+            .windows(2)
+            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
+            .count();
+
+        let zero_crossings_late = chirp[1200..]
+            .windows(2)
+            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
+            .count();
+
+        // Later part should have more zero crossings (higher frequency)
+        assert!(zero_crossings_late > zero_crossings_early);
+    }
+
+    #[test]
+    fn test_postamble_descending() {
+        let postamble = generate_postamble(1600, 1.0);
+        assert_eq!(postamble.len(), 1600);
+
+        // Postamble should be reverse frequency sweep
+        let zero_crossings_early = postamble[..400]
+            .windows(2)
+            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
+            .count();
+
+        let zero_crossings_late = postamble[1200..]
+            .windows(2)
+            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
+            .count();
+
+        // Earlier part should have more zero crossings (higher frequency at start)
+        assert!(zero_crossings_early > zero_crossings_late);
     }
 }
