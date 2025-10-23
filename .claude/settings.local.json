@@ -6,7 +6,8 @@
       "mcp__fetch__fetch_html",
       "Bash(cargo build:*)",
       "Bash(cargo run:*)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(timeout 120 cargo test:*)"
     ],
     "deny": [],
     "ask": []

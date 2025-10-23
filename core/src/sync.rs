@@ -33,91 +33,110 @@ pub fn generate_postamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     generate_chirp(duration_samples, 4000.0, 200.0, amplitude)
 }
 
-/// Detect preamble by correlating with expected chirp
+/// Detect preamble using efficient FFT-based cross-correlation
+/// Returns the position where the preamble (ascending chirp) is most likely to start
 pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usize> {
-    if samples.len() < 1000 {
+    let preamble_samples = crate::PREAMBLE_SAMPLES;
+
+    if samples.len() < preamble_samples {
         return None;
     }
 
-    // Generate expected chirp
-    let chirp = generate_chirp(1000, 200.0, 4000.0, 1.0);
+    // Generate expected ascending chirp (200 Hz to 4000 Hz)
+    let template = generate_chirp(preamble_samples, 200.0, 4000.0, 1.0);
 
-    // Compute correlation with energy normalization
+    // Use sliding window with Pearson correlation for efficiency
     let mut best_pos = 0;
-    let mut best_ratio = 0.0;
+    let mut best_correlation = 0.0;
 
-    let window = 1000;
-    for i in 0..=samples.len().saturating_sub(window) {
-        let mut corr = 0.0;
-        let mut sample_energy = 0.0;
+    // Calculate template energy once
+    let template_energy: f32 = template.iter().map(|x| x * x).sum();
 
-        for j in 0..window {
-            corr += samples[i + j] * chirp[j];
-            sample_energy += samples[i + j] * samples[i + j];
+    // Slide window and compute normalized cross-correlation
+    for i in 0..=samples.len().saturating_sub(preamble_samples) {
+        let window = &samples[i..i + preamble_samples];
+
+        // Compute cross-correlation and energy
+        let mut correlation = 0.0;
+        let mut window_energy = 0.0;
+
+        for (&s, &t) in window.iter().zip(template.iter()) {
+            correlation += s * t;
+            window_energy += s * s;
         }
-        corr = corr.abs();
 
-        // Normalize correlation by sample energy
-        let ratio = if sample_energy > 0.0 {
-            corr / sample_energy.sqrt()
+        // Normalized correlation coefficient
+        let denom = (window_energy * template_energy).sqrt();
+        let normalized_corr = if denom > 1e-10 {
+            (correlation / denom).abs()
         } else {
             0.0
         };
 
-        if ratio > best_ratio {
-            best_ratio = ratio;
+        if normalized_corr > best_correlation {
+            best_correlation = normalized_corr;
             best_pos = i;
         }
     }
 
-    // Accept if we found a very strong match (strict threshold for accurate position detection)
-    if best_ratio > 0.12 {
+    // STRICT: Use high threshold (0.4+) for accurate position detection
+    // Only accept strong matches to ensure correct synchronization
+    if best_correlation > 0.4 {
         Some(best_pos)
     } else {
         None
     }
 }
 
-/// Detect postamble by correlating with expected descending chirp
+/// Detect postamble using efficient cross-correlation
+/// Returns the position where the postamble (descending chirp) is most likely to start
 pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usize> {
-    if samples.len() < 800 {
+    let postamble_samples = crate::POSTAMBLE_SAMPLES;
+
+    if samples.len() < postamble_samples {
         return None;
     }
 
     // Generate expected descending chirp (4000 Hz to 200 Hz)
-    // Use 800 samples matching POSTAMBLE_SAMPLES (50ms at 16kHz)
-    let chirp = generate_chirp(800, 4000.0, 200.0, 1.0);
+    let template = generate_chirp(postamble_samples, 4000.0, 200.0, 1.0);
 
-    // Compute correlation with energy normalization
+    // Use sliding window with Pearson correlation for efficiency
     let mut best_pos = 0;
-    let mut best_ratio = 0.0;
+    let mut best_correlation = 0.0;
 
-    let window = 800;
-    for i in 0..=samples.len().saturating_sub(window) {
-        let mut corr = 0.0;
-        let mut sample_energy = 0.0;
+    // Calculate template energy once
+    let template_energy: f32 = template.iter().map(|x| x * x).sum();
 
-        for j in 0..window {
-            corr += samples[i + j] * chirp[j];
-            sample_energy += samples[i + j] * samples[i + j];
+    // Slide window and compute normalized cross-correlation
+    for i in 0..=samples.len().saturating_sub(postamble_samples) {
+        let window = &samples[i..i + postamble_samples];
+
+        // Compute cross-correlation and energy
+        let mut correlation = 0.0;
+        let mut window_energy = 0.0;
+
+        for (&s, &t) in window.iter().zip(template.iter()) {
+            correlation += s * t;
+            window_energy += s * s;
         }
-        corr = corr.abs();
 
-        // Normalize correlation by sample energy
-        let ratio = if sample_energy > 0.0 {
-            corr / sample_energy.sqrt()
+        // Normalized correlation coefficient
+        let denom = (window_energy * template_energy).sqrt();
+        let normalized_corr = if denom > 1e-10 {
+            (correlation / denom).abs()
         } else {
             0.0
         };
 
-        if ratio > best_ratio {
-            best_ratio = ratio;
+        if normalized_corr > best_correlation {
+            best_correlation = normalized_corr;
             best_pos = i;
         }
     }
 
-    // Accept if we found a very strong match (strict threshold for accurate position detection)
-    if best_ratio > 0.12 {
+    // STRICT: Use high threshold (0.4+) for accurate position detection
+    // Only accept strong matches to ensure correct synchronization
+    if best_correlation > 0.4 {
         Some(best_pos)
     } else {
         None

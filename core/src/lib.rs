@@ -31,10 +31,10 @@ pub const RS_TOTAL_BYTES: usize = 255;
 pub const RS_ECC_BYTES: usize = RS_TOTAL_BYTES - RS_DATA_BYTES; // 32
 
 // Frame configuration
-pub const PREAMBLE_DURATION_MS: usize = 300;
-pub const PREAMBLE_SAMPLES: usize = (SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000; // 4800
-pub const POSTAMBLE_DURATION_MS: usize = 50;
-pub const POSTAMBLE_SAMPLES: usize = (SAMPLE_RATE * POSTAMBLE_DURATION_MS) / 1000; // 800
+pub const PREAMBLE_DURATION_MS: usize = 1000;
+pub const PREAMBLE_SAMPLES: usize = (SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000; // 16000
+pub const POSTAMBLE_DURATION_MS: usize = 1000;
+pub const POSTAMBLE_SAMPLES: usize = (SAMPLE_RATE * POSTAMBLE_DURATION_MS) / 1000; // 16000
 
 pub const FRAME_HEADER_SIZE: usize = 8; // payload length (2) + frame number (2) + CRC-8 (1) + reserved (3)
 pub const MAX_PAYLOAD_SIZE: usize = 200;
