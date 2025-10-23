@@ -343,6 +343,7 @@
             <div class="button-group">
                 <button class="btn-primary" id="startBtn">Start Recording</button>
                 <button class="btn-secondary" id="stopBtn" disabled>Stop Recording</button>
+                <button class="btn-secondary" id="downloadBtn" disabled>📥 Download WAV</button>
                 <button class="btn-secondary" id="resetBtn">Reset</button>
             </div>
 
@@ -431,6 +432,7 @@
         // DOM Elements
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
         const resetBtn = document.getElementById('resetBtn');
         const detectionThreshold = document.getElementById('detectionThreshold');
         const thresholdValue = document.getElementById('thresholdValue');
@@ -574,10 +576,32 @@
         // Stop recording
         stopBtn.addEventListener('click', stopRecording);
 
+        // Download recorded audio as WAV
+        downloadBtn.addEventListener('click', () => {
+            if (recordedSamples.length === 0) {
+                showStatus('recordingStatus', 'No audio data to download', 'error');
+                return;
+            }
+
+            const wavBlob = createWavBlob(recordedSamples, SAMPLE_RATE);
+            const url = URL.createObjectURL(wavBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `recording-${Date.now()}.wav`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            addTimelineEvent('💾', `Downloaded ${(recordedSamples.length / SAMPLE_RATE).toFixed(2)}s of audio`);
+            showStatus('recordingStatus', 'WAV file downloaded', 'success');
+        });
+
         function stopRecording() {
             recordingActive = false;
             stopBtn.disabled = true;
             startBtn.disabled = false;
+            downloadBtn.disabled = recordedSamples.length === 0;
             detectionThreshold.disabled = false;
 
             if (scriptProcessor) {
@@ -604,6 +628,7 @@
             postambleStatus.style.color = '#666';
             decodedMessageContainer.style.display = 'none';
             decodedMessage.value = '';
+            downloadBtn.disabled = true;
             timelineEvents = [];
             timeline.innerHTML = '<div style="color: #999; font-style: italic;">Timeline events will appear here...</div>';
             recordingStatus.innerHTML = '';
@@ -650,6 +675,52 @@
                 showStatus('decodeStatus', 'Decoding failed: ' + err.message, 'error');
                 addTimelineEvent('✕', `Decode error: ${err.message}`);
             }
+        }
+
+        function createWavBlob(samples, sampleRate) {
+            const numChannels = 1;
+            const bitsPerSample = 16;
+            const bytesPerSample = bitsPerSample / 8;
+            const blockAlign = numChannels * bytesPerSample;
+
+            const audioData = new Int16Array(samples.length);
+            const volume = 0.8; // Prevent clipping
+            for (let i = 0; i < samples.length; i++) {
+                const sample = Math.max(-1, Math.min(1, samples[i]));
+                audioData[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+            }
+
+            const dataSize = audioData.length * bytesPerSample;
+            const buffer = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(buffer);
+
+            // WAV header
+            const writeString = (offset, string) => {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            };
+
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * blockAlign, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitsPerSample, true);
+            writeString(36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            // Audio data
+            for (let i = 0; i < audioData.length; i++) {
+                view.setInt16(44 + i * 2, audioData[i], true);
+            }
+
+            return new Blob([buffer], { type: 'audio/wav' });
         }
 
         function showStatus(elementId, message, type) {
