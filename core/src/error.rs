@@ -31,6 +31,9 @@ pub enum AudioModemError {
 
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
+
+    #[error("FEC error: {0}")]
+    FecError(String),
 }
 
 pub type Result<T> = std::result::Result<T, AudioModemError>;
