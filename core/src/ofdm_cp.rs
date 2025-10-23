@@ -1,7 +1,6 @@
 use crate::error::{AudioModemError, Result};
 use crate::{NUM_SUBCARRIERS, SAMPLES_PER_SYMBOL, MIN_FREQUENCY, SUBCARRIER_SPACING, SAMPLE_RATE};
 use rustfft::{num_complex::Complex, FftPlanner};
-use std::f32::consts::PI;
 
 /// OFDM with Cyclic Prefix (CP) for ISI immunity
 ///
