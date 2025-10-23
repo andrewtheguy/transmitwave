@@ -734,26 +734,14 @@
             }
 
             try {
-                showStatus('decodeStatus', 'Decoding audio segment...', 'info');
+                showStatus('decodeStatus', 'Decoding audio...', 'info');
 
-                // Extract segment between preamble and postamble
-                // Skip 0.5s (8000 samples at 16kHz) after preamble to skip preamble pattern itself
-                let startIdx = preamblePosition + 8000;
-                let endIdx = postamblePosition;
+                // The WASM decoder expects the FULL audio including preamble and postamble
+                // It will detect them internally. Don't strip them!
+                // recordedSamples already contains the full resampled audio from detection
 
-                if (startIdx >= endIdx) {
-                    showStatus('decodeStatus', 'Invalid audio segment', 'error');
-                    addTimelineEvent('✕', 'Audio segment is invalid');
-                    return;
-                }
-
-                const audioSegment = recordedSamples.slice(startIdx, endIdx);
-                const segmentDuration = (audioSegment.length / actualSampleRate).toFixed(2);
-                addTimelineEvent('✂️', `Extracted ${audioSegment.length} samples (${segmentDuration}s) between markers`);
-
-                // Decode
                 const decoder = new WasmDecoder();
-                const decodedBytes = decoder.decode(audioSegment);
+                const decodedBytes = decoder.decode(recordedSamples);
                 const decodedStr = new TextDecoder().decode(new Uint8Array(decodedBytes));
 
                 decodedMessage.value = decodedStr;
