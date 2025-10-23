@@ -182,9 +182,9 @@ cargo test
 # Navigate to project root
 cd /Users/it3/codes/andrew/testaudio
 
-# Build WASM module
+# Build WASM module (use wrapper script for browser compatibility)
 cd wasm
-wasm-pack build --target web
+bash build.sh
 cd ..
 
 # Start demo server
@@ -193,12 +193,14 @@ python3 -m http.server 8000
 # Open browser to http://localhost:8000/demo.html
 ```
 
+**Important**: Always use `bash build.sh` instead of `wasm-pack build --target web` directly. The build script automatically applies necessary browser compatibility fixes.
+
 ### Development Workflow
 
 ```bash
 # Make changes to Rust code (core/ or wasm/)
-# Rebuild WASM:
-cd wasm && wasm-pack build --target web
+# Rebuild WASM using the wrapper script:
+cd wasm && bash build.sh
 
 # Reload browser page (F5 or Cmd+R)
 # Changes take effect immediately
@@ -206,10 +208,20 @@ cd wasm && wasm-pack build --target web
 
 ## 🐛 Troubleshooting
 
+### "Failed to resolve module specifier 'env'" Error
+**Cause**: WASM module was built directly with `wasm-pack` instead of the build wrapper.
+
+**Solution**: Rebuild WASM using the wrapper script:
+```bash
+cd wasm && bash build.sh
+```
+
+This automatically applies browser compatibility fixes after building.
+
 ### "WASM module not found" Error
 **Solution**: Ensure WASM is built:
 ```bash
-cd wasm && wasm-pack build --target web
+cd wasm && bash build.sh
 ```
 
 ### "Invalid WAV file format" Error
