@@ -344,6 +344,7 @@
                 <button class="btn-primary" id="startBtn">Start Recording</button>
                 <button class="btn-secondary" id="stopBtn" disabled>Stop Recording</button>
                 <button class="btn-secondary" id="downloadBtn" disabled>📥 Download WAV</button>
+                <button class="btn-primary" id="detectBtn" disabled>🔍 Detect & Decode</button>
                 <button class="btn-secondary" id="resetBtn">Reset</button>
             </div>
 
@@ -434,6 +435,7 @@
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const downloadBtn = document.getElementById('downloadBtn');
+        const detectBtn = document.getElementById('detectBtn');
         const resetBtn = document.getElementById('resetBtn');
         const detectionThreshold = document.getElementById('detectionThreshold');
         const thresholdValue = document.getElementById('thresholdValue');
@@ -509,7 +511,7 @@
                 showStatus('recordingStatus', 'Recording... Waiting for preamble detection', 'info');
                 addTimelineEvent('🎙️', 'Recording started');
 
-                // Process audio data
+                // Process audio data - just record everything
                 scriptProcessor.onaudioprocess = (event) => {
                     const inputData = event.inputBuffer.getChannelData(0);
                     recordedSamples.push(...Array.from(inputData));
@@ -525,56 +527,7 @@
                         return;
                     }
 
-                    // Detect preamble - only after we have enough samples, and use a separate detection pass
-                    if (!preambleDetected && recordedSamples.length >= 8000) {
-                        // Do detection on recorded samples directly, don't use microphoneListener buffer
-                        const recentStart = Math.max(0, recordedSamples.length - 16000);
-                        const recentSamples = recordedSamples.slice(recentStart);
-
-                        const pos = microphoneListener.add_samples(recentSamples);
-                        if (pos >= 0) {
-                            preambleDetected = true;
-                            preamblePosition = recentStart + pos;
-                            preambleStatus.textContent = '✓ Detected';
-                            preambleStatus.style.color = '#28a745';
-                            addTimelineEvent('📍', `Preamble detected at ${(preamblePosition / actualSampleRate).toFixed(2)}s`);
-                            showStatus('detectionStatus', 'Preamble detected! Waiting for postamble...', 'success');
-                        } else {
-                            // Update buffer status for debugging
-                            const recordedSecs = (recordedSamples.length / actualSampleRate).toFixed(1);
-                            if (recordedSamples.length % (actualSampleRate / 2) === 0) { // Update every ~0.5 second
-                                const thresh = parseFloat(detectionThreshold.value).toFixed(2);
-                                preambleStatus.textContent = `Listening... (${recordedSecs}s recorded, threshold: ${thresh})`;
-                                preambleStatus.style.color = '#666';
-                                console.log(`Detection debug: recorded=${recordedSamples.length} samples @ ${actualSampleRate}Hz = ${recordedSecs}s, threshold=${thresh}`);
-                            }
-                        }
-                    }
-
-                    // Detect postamble after preamble
-                    if (preambleDetected && !postambleDetected) {
-                        const recentStart = Math.max(0, recordedSamples.length - 16000);
-                        const recentSamples = recordedSamples.slice(recentStart);
-
-                        const pos = postambleDetector.add_samples(recentSamples);
-                        if (pos >= 0) {
-                            postambleDetected = true;
-                            postamblePosition = recentStart + pos;
-                            postambleStatus.textContent = '✓ Detected';
-                            postambleStatus.style.color = '#28a745';
-                            addTimelineEvent('🏁', `Postamble detected at ${(postamblePosition / actualSampleRate).toFixed(2)}s`);
-                            showStatus('detectionStatus', 'Postamble detected! Decoding...', 'success');
-
-                            // Extract and decode
-                            setTimeout(() => {
-                                stopRecording();
-                                decodeMessage();
-                            }, 100);
-                        }
-                    }
-
                     // Update stats
-                    const elapsed = (Date.now() - recordingStartTime) / 1000;
                     const recordedDuration = (recordedSamples.length / actualSampleRate).toFixed(2);
                     recordingTime.textContent = recordedDuration + 's';
                     bufferSize.textContent = recordedSamples.length + ` samples (${recordedDuration}s @ ${actualSampleRate}Hz)`;
@@ -588,6 +541,71 @@
 
         // Stop recording
         stopBtn.addEventListener('click', stopRecording);
+
+        // Detect preamble and postamble, then decode
+        detectBtn.addEventListener('click', async () => {
+            if (recordedSamples.length === 0) {
+                showStatus('detectionStatus', 'No audio data to detect', 'error');
+                return;
+            }
+
+            try {
+                showStatus('detectionStatus', 'Detecting preamble...', 'info');
+                const threshold = parseFloat(detectionThreshold.value);
+
+                // Create fresh detectors
+                const listener = new MicrophoneListener(threshold);
+                const detector = new PostambleDetector(threshold);
+
+                // Try to find preamble
+                const preamblePos = listener.add_samples(recordedSamples);
+                if (preamblePos === -1) {
+                    showStatus('detectionStatus', 'Preamble not detected. Try lowering the threshold.', 'error');
+                    addTimelineEvent('✕', 'Preamble detection failed');
+                    return;
+                }
+
+                preambleDetected = true;
+                preamblePosition = preamblePos;
+                preambleStatus.textContent = `Detected at sample ${preamblePos}`;
+                preambleStatus.style.color = '#4CAF50';
+                addTimelineEvent('✓', `Preamble detected at sample ${preamblePos}`);
+                console.log(`Preamble detected at position: ${preamblePos}`);
+
+                // Try to find postamble starting from after preamble
+                // Need enough samples for postamble detection (typically POSTAMBLE_SAMPLES = 8000 for 0.5s at 16kHz)
+                const postambleSearchStart = preamblePos + 8000; // Skip preamble
+                if (postambleSearchStart >= recordedSamples.length) {
+                    showStatus('detectionStatus', 'Not enough audio after preamble for postamble detection', 'error');
+                    addTimelineEvent('✕', 'Insufficient audio for postamble detection');
+                    return;
+                }
+
+                const postambleSegment = recordedSamples.slice(postambleSearchStart);
+                const postamblePos = detector.add_samples(postambleSegment);
+                if (postamblePos === -1) {
+                    showStatus('detectionStatus', 'Postamble not detected. Try lowering the threshold.', 'error');
+                    addTimelineEvent('✕', 'Postamble detection failed');
+                    return;
+                }
+
+                postambleDetected = true;
+                postamblePosition = postambleSearchStart + postamblePos;
+                postambleStatus.textContent = `Detected at sample ${postamblePosition}`;
+                postambleStatus.style.color = '#4CAF50';
+                addTimelineEvent('✓', `Postamble detected at sample ${postamblePosition}`);
+                console.log(`Postamble detected at position: ${postamblePosition}`);
+
+                // Both detected, now decode
+                showStatus('detectionStatus', 'Both preamble and postamble detected! Ready to decode.', 'success');
+                decodeMessage();
+
+            } catch (err) {
+                console.error('Detection error:', err);
+                showStatus('detectionStatus', 'Detection error: ' + err.message, 'error');
+                addTimelineEvent('✕', `Detection error: ${err.message}`);
+            }
+        });
 
         // Download recorded audio as WAV
         downloadBtn.addEventListener('click', () => {
@@ -617,6 +635,7 @@
             stopBtn.disabled = true;
             startBtn.disabled = false;
             downloadBtn.disabled = recordedSamples.length === 0;
+            detectBtn.disabled = recordedSamples.length === 0;
             detectionThreshold.disabled = false;
 
             if (scriptProcessor) {
@@ -644,6 +663,7 @@
             decodedMessageContainer.style.display = 'none';
             decodedMessage.value = '';
             downloadBtn.disabled = true;
+            detectBtn.disabled = true;
             timelineEvents = [];
             timeline.innerHTML = '<div style="color: #999; font-style: italic;">Timeline events will appear here...</div>';
             recordingStatus.innerHTML = '';
@@ -661,18 +681,28 @@
                 return;
             }
 
+            if (!preambleDetected || !postambleDetected) {
+                showStatus('decodeStatus', 'Preamble and postamble must be detected first. Click "Detect & Decode".', 'error');
+                return;
+            }
+
             try {
+                showStatus('decodeStatus', 'Decoding audio segment...', 'info');
+
                 // Extract segment between preamble and postamble
-                let startIdx = preamblePosition + 8000; // Skip preamble (0.5s at 16kHz)
+                // Skip 0.5s (8000 samples at 16kHz) after preamble to skip preamble pattern itself
+                let startIdx = preamblePosition + 8000;
                 let endIdx = postamblePosition;
 
                 if (startIdx >= endIdx) {
                     showStatus('decodeStatus', 'Invalid audio segment', 'error');
+                    addTimelineEvent('✕', 'Audio segment is invalid');
                     return;
                 }
 
                 const audioSegment = recordedSamples.slice(startIdx, endIdx);
-                addTimelineEvent('✂️', `Extracted ${audioSegment.length} samples (${(audioSegment.length / SAMPLE_RATE).toFixed(2)}s)`);
+                const segmentDuration = (audioSegment.length / actualSampleRate).toFixed(2);
+                addTimelineEvent('✂️', `Extracted ${audioSegment.length} samples (${segmentDuration}s) between markers`);
 
                 // Decode
                 const decoder = new WasmDecoder();
