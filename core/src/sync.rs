@@ -79,9 +79,19 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
         }
     }
 
-    // STRICT: Use high threshold (0.4+) for accurate position detection
-    // Only accept strong matches to ensure correct synchronization
-    if best_correlation > 0.4 {
+    // Adaptive threshold: scale based on overall signal amplitude
+    // For strong signals (high amplitude): use strict 0.4 threshold
+    // For weak signals (low amplitude): lower threshold to ~0.3
+    let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
+    let threshold = if signal_rms > 0.1 {
+        0.4  // Strong signal: strict detection
+    } else if signal_rms > 0.02 {
+        0.35 // Medium signal: moderate threshold
+    } else {
+        0.3  // Weak signal: relaxed threshold for low-amplitude recordings
+    };
+
+    if best_correlation > threshold {
         Some(best_pos)
     } else {
         None
@@ -134,9 +144,19 @@ pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usi
         }
     }
 
-    // STRICT: Use high threshold (0.4+) for accurate position detection
-    // Only accept strong matches to ensure correct synchronization
-    if best_correlation > 0.4 {
+    // Adaptive threshold: scale based on overall signal amplitude
+    // For strong signals (high amplitude): use strict 0.4 threshold
+    // For weak signals (low amplitude): lower threshold to ~0.3
+    let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
+    let threshold = if signal_rms > 0.1 {
+        0.4  // Strong signal: strict detection
+    } else if signal_rms > 0.02 {
+        0.35 // Medium signal: moderate threshold
+    } else {
+        0.3  // Weak signal: relaxed threshold for low-amplitude recordings
+    };
+
+    if best_correlation > threshold {
         Some(best_pos)
     } else {
         None
