@@ -58,19 +58,23 @@ fn encode_command(input_path: &PathBuf, output_path: &PathBuf) -> Result<(), Box
     let samples = encoder.encode(&data)?;
     println!("Encoded to {} audio samples", samples.len());
 
-    // Write WAV file
+    // Write WAV file (16-bit PCM)
     let spec = WavSpec {
         channels: 1,
         sample_rate: testaudio_core::SAMPLE_RATE as u32,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
     };
 
     let file = File::create(output_path)?;
     let mut writer = hound::WavWriter::new(file, spec)?;
 
+    // Convert f32 samples to i16 range [-32768, 32767]
     for sample in samples {
-        writer.write_sample(sample)?;
+        // Clamp to [-1.0, 1.0] range to avoid overflow, then scale to i16
+        let clamped = sample.max(-1.0).min(1.0);
+        let i16_sample = (clamped * 32767.0) as i16;
+        writer.write_sample(i16_sample)?;
     }
     writer.finalize()?;
 
@@ -89,9 +93,26 @@ fn decode_command(input_path: &PathBuf, output_path: &PathBuf) -> Result<(), Box
         spec.sample_rate, spec.channels, spec.bits_per_sample
     );
 
-    // Extract samples
-    let samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
-    let samples = samples?;
+    // Extract samples (handle both 16-bit and 32-bit float formats)
+    let samples = match spec.bits_per_sample {
+        16 => {
+            // Convert i16 to f32
+            let int_samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
+            int_samples?
+                .into_iter()
+                .map(|s| s as f32 / 32768.0)
+                .collect()
+        }
+        32 => {
+            // Already f32
+            let float_samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
+            float_samples?
+        }
+        _ => {
+            return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample).into());
+        }
+    };
+
     println!("Extracted {} samples", samples.len());
 
     // Decode
