@@ -218,3 +218,88 @@ fn test_encode_decode_max_size_with_silence_and_noise() {
 
     assert_eq!(decoded_data, original_data, "Max payload with silence round-trip failed");
 }
+
+// Tests with noise added directly to the encoded data
+#[test]
+fn test_encode_decode_with_light_data_noise() {
+    let original_data = b"Hello, Audio Modem!";
+
+    let mut encoder = Encoder::new().expect("Failed to create encoder");
+    let mut samples = encoder.encode(original_data).expect("Failed to encode");
+
+    // Add 5% amplitude noise directly to the encoded data
+    let mut rng_state = 11111u32;
+    for sample in samples.iter_mut() {
+        rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
+        let noise = ((rng_state >> 16) as f32 / 65536.0 - 0.5) * 0.05; // 5% noise
+        *sample += noise;
+    }
+
+    let mut decoder = Decoder::new().expect("Failed to create decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Light data noise round-trip failed");
+}
+
+#[test]
+fn test_encode_decode_with_moderate_data_noise() {
+    let original_data = b"Hello, Audio Modem!";
+
+    let mut encoder = Encoder::new().expect("Failed to create encoder");
+    let mut samples = encoder.encode(original_data).expect("Failed to encode");
+
+    // Add 10% amplitude noise directly to the encoded data
+    let mut rng_state = 22222u32;
+    for sample in samples.iter_mut() {
+        rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
+        let noise = ((rng_state >> 16) as f32 / 65536.0 - 0.5) * 0.10; // 10% noise
+        *sample += noise;
+    }
+
+    let mut decoder = Decoder::new().expect("Failed to create decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Moderate data noise round-trip failed");
+}
+
+#[test]
+fn test_encode_decode_with_heavy_data_noise() {
+    let original_data = b"Hello, Audio Modem!";
+
+    let mut encoder = Encoder::new().expect("Failed to create encoder");
+    let mut samples = encoder.encode(original_data).expect("Failed to encode");
+
+    // Add 20% amplitude noise directly to the encoded data
+    let mut rng_state = 33333u32;
+    for sample in samples.iter_mut() {
+        rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
+        let noise = ((rng_state >> 16) as f32 / 65536.0 - 0.5) * 0.20; // 20% noise
+        *sample += noise;
+    }
+
+    let mut decoder = Decoder::new().expect("Failed to create decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Heavy data noise round-trip failed");
+}
+
+#[test]
+fn test_encode_decode_binary_with_data_noise() {
+    let original_data = vec![0, 1, 2, 255, 128, 64, 32, 16, 8, 4, 2, 1, 0];
+
+    let mut encoder = Encoder::new().expect("Failed to create encoder");
+    let mut samples = encoder.encode(&original_data).expect("Failed to encode");
+
+    // Add 10% amplitude noise to binary data
+    let mut rng_state = 44444u32;
+    for sample in samples.iter_mut() {
+        rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
+        let noise = ((rng_state >> 16) as f32 / 65536.0 - 0.5) * 0.10;
+        *sample += noise;
+    }
+
+    let mut decoder = Decoder::new().expect("Failed to create decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Binary data with noise round-trip failed");
+}
