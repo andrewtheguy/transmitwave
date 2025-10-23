@@ -220,10 +220,100 @@ impl ViterbiDecoder {
         Ok(best_path.bits.clone())
     }
 
-    /// Decode hard bits (0.0/1.0) using Viterbi
+    /// Decode hard bits (0.0/1.0) using Viterbi with Hamming distance metric
+    /// More efficient than soft decoding for hard bit inputs
     pub fn decode_hard(&self, hard_bits: &[bool]) -> Result<Vec<bool>> {
-        let soft_bits: Vec<f32> = hard_bits.iter().map(|&b| if b { 1.0 } else { 0.0 }).collect();
-        self.decode_soft(&soft_bits)
+        if hard_bits.len() < 2 {
+            return Err(AudioModemError::InsufficientData);
+        }
+
+        // Ensure even number of bits (2 output bits per state transition)
+        if hard_bits.len() % 2 != 0 {
+            return Err(AudioModemError::InvalidInputSize);
+        }
+
+        let num_symbols = hard_bits.len() / 2;
+
+        // Initialize Trellis: start state is 0
+        let mut current_paths = vec![TrellisPath {
+            state: 0,
+            metric: 0.0,
+            bits: Vec::new(),
+        }];
+
+        // Fill with dummy paths for unused states
+        for state in 1..self.num_states {
+            current_paths.push(TrellisPath {
+                state: state as u8,
+                metric: f32::INFINITY,
+                bits: Vec::new(),
+            });
+        }
+
+        // Process each pair of received bits using Hamming distance
+        for symbol_idx in 0..num_symbols {
+            let bit_idx = symbol_idx * 2;
+            let received_bit1 = hard_bits[bit_idx];
+            let received_bit2 = hard_bits[bit_idx + 1];
+            let received: u8 = ((if received_bit1 { 1u8 } else { 0u8 }) << 1)
+                | (if received_bit2 { 1u8 } else { 0u8 });
+
+            let mut next_paths: Vec<Option<TrellisPath>> = vec![None; self.num_states];
+
+            // For each current state
+            for current_path in &current_paths {
+                if current_path.metric == f32::INFINITY {
+                    continue;
+                }
+
+                // Try both possible input bits
+                for input_bit in [false, true] {
+                    // Calculate next state
+                    let next_state = self.get_next_state(current_path.state, input_bit);
+
+                    // Get expected output bits as a byte
+                    let (out1, out2) = self.get_output_bits(current_path.state, input_bit);
+                    let expected: u8 =
+                        ((if out1 { 1u8 } else { 0u8 }) << 1) | (if out2 { 1u8 } else { 0u8 });
+
+                    // Calculate branch metric using Hamming distance
+                    let branch_metric = self.hamming_distance(expected, received);
+
+                    let new_metric = current_path.metric + branch_metric;
+
+                    // Update path if better
+                    if next_paths[next_state as usize].is_none()
+                        || new_metric < next_paths[next_state as usize].as_ref().unwrap().metric
+                    {
+                        let mut new_bits = current_path.bits.clone();
+                        new_bits.push(input_bit);
+
+                        next_paths[next_state as usize] = Some(TrellisPath {
+                            state: next_state,
+                            metric: new_metric,
+                            bits: new_bits,
+                        });
+                    }
+                }
+            }
+
+            // Transition to next step
+            current_paths = next_paths.into_iter().flatten().collect();
+
+            // Keep only top states to limit memory
+            if current_paths.len() > 16 {
+                current_paths.sort_by(|a, b| a.metric.partial_cmp(&b.metric).unwrap_or(Ordering::Equal));
+                current_paths.truncate(16);
+            }
+        }
+
+        // Find best final path (should end in state 0 after termination)
+        let best_path = current_paths
+            .iter()
+            .min_by(|a, b| a.metric.partial_cmp(&b.metric).unwrap_or(Ordering::Equal))
+            .ok_or(AudioModemError::FecError("No valid path found".to_string()))?;
+
+        Ok(best_path.bits.clone())
     }
 }
 
