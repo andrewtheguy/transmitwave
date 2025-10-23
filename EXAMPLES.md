@@ -6,10 +6,10 @@
 
 ```bash
 # Create some test data
-echo "Hello, World!" > message.txt
+echo "Hello, World!" > tmp/message.txt
 
 # Encode to WAV audio file
-cargo run -p testaudio-cli --bin testaudio -- encode message.txt message.wav
+cargo run -p testaudio-cli --bin testaudio -- encode tmp/message.txt tmp/message.wav
 
 # Output:
 # Read 14 bytes from message.txt
@@ -21,7 +21,7 @@ cargo run -p testaudio-cli --bin testaudio -- encode message.txt message.wav
 
 ```bash
 # Decode the WAV file
-cargo run -p testaudio-cli --bin testaudio -- decode message.wav recovered.txt
+cargo run -p testaudio-cli --bin testaudio -- decode tmp/message.wav tmp/recovered.txt
 
 # Output:
 # Read WAV: 16000 Hz, 1 channels, 32 bits
