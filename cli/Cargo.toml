@@ -1,0 +1,15 @@
+[package]
+name = "testaudio-cli"
+version = "0.1.0"
+edition = "2021"
+default-run = "testaudio"
+
+[[bin]]
+name = "testaudio"
+path = "src/main.rs"
+
+[dependencies]
+testaudio-core = { path = "../core" }
+hound = "3"
+clap = { version = "4", features = ["derive"] }
+thiserror = "1"

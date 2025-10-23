@@ -1,0 +1,11 @@
+[package]
+name = "testaudio-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustfft = "6"
+realfft = "3"
+reed-solomon-erasure = "6"
+thiserror = "1"
+bytemuck = "1"
