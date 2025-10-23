@@ -503,7 +503,7 @@
 
                 // Process audio data
                 scriptProcessor.onaudioprocess = (event) => {
-                    const inputData = event.inputData.getChannelData(0);
+                    const inputData = event.inputBuffer.getChannelData(0);
                     recordedSamples.push(...Array.from(inputData));
 
                     // Check timeout
