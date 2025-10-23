@@ -335,9 +335,9 @@
             <h2>🎙️ Recording Controls</h2>
 
             <div class="form-group">
-                <label for="detectionThreshold">Detection Threshold: <strong id="thresholdValue">0.40</strong></label>
-                <input type="range" id="detectionThreshold" min="0.1" max="0.9" step="0.05" value="0.40">
-                <small style="color: #999;">Higher = stricter detection, Lower = more sensitive</small>
+                <label for="detectionThreshold">Detection Threshold: <strong id="thresholdValue">0.25</strong></label>
+                <input type="range" id="detectionThreshold" min="0.1" max="0.9" step="0.05" value="0.25">
+                <small style="color: #999;">Higher = stricter detection, Lower = more sensitive (Recommended: 0.25-0.35 for microphone recording)</small>
             </div>
 
             <div class="button-group">
@@ -517,8 +517,8 @@
                         return;
                     }
 
-                    // Detect preamble
-                    if (!preambleDetected) {
+                    // Detect preamble - check entire buffer for robustness
+                    if (!preambleDetected && recordedSamples.length >= 8000) {
                         const pos = microphoneListener.add_samples(Array.from(inputData));
                         if (pos >= 0) {
                             preambleDetected = true;
@@ -527,6 +527,16 @@
                             preambleStatus.style.color = '#28a745';
                             addTimelineEvent('📍', `Preamble detected at ${(preamblePosition / SAMPLE_RATE).toFixed(2)}s`);
                             showStatus('detectionStatus', 'Preamble detected! Waiting for postamble...', 'success');
+                        } else {
+                            // Update buffer status for debugging
+                            const bufferSecs = (microphoneListener.buffer_size() / SAMPLE_RATE).toFixed(2);
+                            const recordedSecs = (recordedSamples.length / SAMPLE_RATE).toFixed(1);
+                            if (recordedSamples.length % 16000 === 0) { // Update every ~1 second
+                                const thresh = parseFloat(detectionThreshold.value).toFixed(2);
+                                preambleStatus.textContent = `Listening... (${recordedSecs}s recorded, ${bufferSecs}s analyzed, threshold: ${thresh})`;
+                                preambleStatus.style.color = '#666';
+                                console.log(`Detection debug: recorded=${recordedSecs}s, buffer=${bufferSecs}s, threshold=${thresh}`);
+                            }
                         }
                     }
 
