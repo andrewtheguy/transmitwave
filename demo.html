@@ -531,11 +531,21 @@
 
                 let audioData = wavResult.data;
                 const originalSampleRate = wavResult.sampleRate;
+                const originalChannels = wavResult.channels;
+                const processingSteps = [];
+
+                // Convert stereo to mono if needed
+                if (originalChannels === 2) {
+                    processingSteps.push(`Stereo → Mono`);
+                    audioData = stereoToMono(audioData);
+                } else if (originalChannels !== 1) {
+                    throw new Error(`Unsupported channel count: ${originalChannels}. Only mono and stereo supported.`);
+                }
 
                 // Resample to 16kHz if needed
                 if (originalSampleRate !== SAMPLE_RATE) {
+                    processingSteps.push(`${originalSampleRate}Hz → ${SAMPLE_RATE}Hz`);
                     audioData = resampleAudio(audioData, originalSampleRate, SAMPLE_RATE);
-                    showStatus('decodeStatus', `Resampling from ${originalSampleRate}Hz to ${SAMPLE_RATE}Hz...`, 'info');
                 }
 
                 const decoder = new WasmDecoder();
@@ -546,8 +556,8 @@
                 decodedTextContainer.style.display = 'block';
 
                 const duration = (audioData.length / SAMPLE_RATE).toFixed(2);
-                const sampleRateInfo = originalSampleRate !== SAMPLE_RATE
-                    ? ` (resampled from ${originalSampleRate}Hz)`
+                const processingInfo = processingSteps.length > 0
+                    ? ` (${processingSteps.join(', ')})`
                     : '';
                 decodeStats.innerHTML = `
                     <div class="stat-item">
@@ -555,8 +565,8 @@
                         <div class="stat-value">${duration}s</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-label">Sample Rate</div>
-                        <div class="stat-value">${SAMPLE_RATE}Hz${sampleRateInfo}</div>
+                        <div class="stat-label">Format</div>
+                        <div class="stat-value">${SAMPLE_RATE}Hz Mono${processingInfo}</div>
                     </div>
                     <div class="stat-item">
                         <div class="stat-label">Samples</div>
@@ -585,6 +595,18 @@
         });
 
         // Helper functions
+        function stereoToMono(samples) {
+            // Downsample stereo to mono by averaging both channels
+            const mono = new Float32Array(samples.length / 2);
+            for (let i = 0; i < mono.length; i++) {
+                // Interleaved stereo: [L, R, L, R, ...]
+                const left = samples[i * 2];
+                const right = samples[i * 2 + 1];
+                mono[i] = (left + right) / 2.0;
+            }
+            return mono;
+        }
+
         function resampleAudio(samples, fromRate, toRate) {
             if (fromRate === toRate) {
                 return samples;
@@ -678,6 +700,7 @@
             let offset = 12;
             let audioData = null;
             let sampleRate = SAMPLE_RATE; // Default to 16kHz
+            let numChannels = 1; // Default to mono
 
             while (offset < view.byteLength) {
                 const chunkId = view.getUint32(offset, false);
@@ -685,7 +708,7 @@
 
                 if (chunkId === 0x666d7420) { // 'fmt '
                     const audioFormat = view.getUint16(offset + 8, true);
-                    const numChannels = view.getUint16(offset + 10, true);
+                    numChannels = view.getUint16(offset + 10, true);
                     sampleRate = view.getUint32(offset + 12, true);
                     const bitsPerSample = view.getUint16(offset + 22, true);
 
@@ -707,10 +730,11 @@
                 offset += 8 + chunkSize;
             }
 
-            // Return both audio data and sample rate
+            // Return audio data, sample rate, and number of channels
             return {
                 data: audioData,
-                sampleRate: sampleRate
+                sampleRate: sampleRate,
+                channels: numChannels
             };
         }
 

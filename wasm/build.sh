@@ -1,6 +1,8 @@
 #!/bin/bash
 # Build WASM and apply necessary fixes for browser compatibility
 
+cd "$(dirname "$0")"
+
 echo "Building WASM with wasm-pack..."
 wasm-pack build --target web
 
