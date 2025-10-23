@@ -12,6 +12,8 @@ pub mod encoder;
 pub mod encoder_cp;
 pub mod decoder;
 pub mod decoder_cp;
+pub mod encoder_spread;
+pub mod decoder_spread;
 pub mod spread;
 pub mod trellis;
 
@@ -19,6 +21,8 @@ pub use encoder::Encoder;
 pub use encoder_cp::EncoderCp;
 pub use decoder::Decoder;
 pub use decoder_cp::DecoderCp;
+pub use encoder_spread::EncoderSpread;
+pub use decoder_spread::DecoderSpread;
 pub use error::{AudioModemError, Result};
 pub use sync::{detect_preamble, detect_postamble};
 pub use spread::{SpreadSpectrumSpreader, SpreadSpectrumDespreader};
