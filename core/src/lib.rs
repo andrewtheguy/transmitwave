@@ -32,8 +32,8 @@ pub const SAMPLES_PER_SYMBOL: usize = (SAMPLE_RATE * SYMBOL_DURATION_MS) / 1000;
 // OFDM configuration
 pub const NUM_SUBCARRIERS: usize = 48;
 pub const SUBCARRIER_SPACING: f32 = 79.0; // Hz
-pub const MIN_FREQUENCY: f32 = 200.0; // Hz
-pub const MAX_FREQUENCY: f32 = 4000.0; // Hz
+pub const MIN_FREQUENCY: f32 = 600.0; // Hz (raised from 200.0 for higher pitch)
+pub const MAX_FREQUENCY: f32 = 4400.0; // Hz (raised from 4000.0)
 
 // FEC configuration
 pub const RS_DATA_BYTES: usize = 223;
