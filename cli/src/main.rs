@@ -207,7 +207,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if DEFAULT_ENCODER_TYPE == "chunked" {
                     encode_chunked_command(&input, &output, chunk_bits, interleave)?
                 } else {
-                    encode_spread_command(&input, &output, chunk_bits)?
+                    encode_spread_command(&input, &output, cli.chip_duration)?
                 }
             }
             Commands::Decode { input, output, chunk_bits, no_spread } => {
@@ -216,7 +216,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if DEFAULT_DECODER_TYPE == "chunked" {
                     decode_chunked_command(&input, &output, chunk_bits)?
                 } else {
-                    decode_spread_command(&input, &output, chunk_bits)?
+                    decode_spread_command(&input, &output, cli.chip_duration)?
                 }
             }
             Commands::EncodeChunked { input, output, chunk_bits, interleave } => {
