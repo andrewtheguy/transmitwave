@@ -41,10 +41,10 @@ fn generate_prn_noise(seed: u32, duration_samples: usize, amplitude: f32) -> Vec
 // SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
 // ============================================================================
 // Toggle this constant to switch between different synchronization signal types:
-//   - PreambleType::PrnNoise (blends in better with the sound of the payload)
 //   - PreambleType::Chirp    (frequency sweep from low to high, better detection in noisy environments)
+//   - PreambleType::PrnNoise (blends in better with the sound of the payload)
 //
-// This controls what `generate_preamble_noise()` and `generate_postamble_noise()`
+// This controls what `generate_preamble()` and `generate_postamble_signal()`
 // actually generate, allowing easy comparison between signal types.
 const PREAMBLE_TYPE: PreambleType = PreambleType::Chirp;
 
@@ -512,14 +512,6 @@ mod tests {
         assert!(zero_crossings_early > zero_crossings_late);
     }
 
-    // ========================================================================
-    // SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
-    // ========================================================================
-    // Toggle this constant to switch between signal types for testing:
-    //   - SignalType::PrnNoise (current: recommended)
-    //   - SignalType::Chirp    (legacy)
-    const TEST_SIGNAL_TYPE: SignalType = SignalType::PrnNoise;
-
     #[derive(Debug, Clone, Copy, PartialEq)]
     enum SignalType {
         PrnNoise,  // Pseudo-random bipolar noise (different seeds for pre/post)
@@ -528,16 +520,16 @@ mod tests {
 
     // Helper functions for signal-agnostic testing
     fn create_preamble(amplitude: f32) -> Vec<f32> {
-        match TEST_SIGNAL_TYPE {
-            SignalType::PrnNoise => generate_preamble(crate::PREAMBLE_SAMPLES, amplitude),
-            SignalType::Chirp => generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, amplitude),
+        match PREAMBLE_TYPE {
+            PreambleType::PrnNoise => generate_preamble(crate::PREAMBLE_SAMPLES, amplitude),
+            PreambleType::Chirp => generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, amplitude),
         }
     }
 
     fn create_postamble(amplitude: f32) -> Vec<f32> {
-        match TEST_SIGNAL_TYPE {
-            SignalType::PrnNoise => generate_postamble_signal(crate::POSTAMBLE_SAMPLES, amplitude),
-            SignalType::Chirp => generate_postamble_chirp(crate::POSTAMBLE_SAMPLES, amplitude),
+        match PREAMBLE_TYPE {
+            PreambleType::PrnNoise => generate_postamble_signal(crate::POSTAMBLE_SAMPLES, amplitude),
+            PreambleType::Chirp => generate_postamble_chirp(crate::POSTAMBLE_SAMPLES, amplitude),
         }
     }
 
