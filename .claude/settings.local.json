@@ -32,7 +32,8 @@
       "Bash(gtimeout 120 cargo test:*)",
       "Bash(timeout 5 npm run dev:*)",
       "Bash(tree:*)",
-      "Bash(./build.sh)"
+      "Bash(./build.sh)",
+      "Read(//private/tmp/**)"
     ],
     "deny": [],
     "ask": []

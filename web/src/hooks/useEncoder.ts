@@ -29,7 +29,17 @@ export const useEncoder = (): UseEncoderResult => {
       const blob = createWavBlob(samples, 16000, 1)
       return blob
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Encoding failed'
+      let message = 'Encoding failed'
+
+      if (err instanceof Error) {
+        message = err.message
+      } else if (typeof err === 'string') {
+        message = err
+      } else if (err && typeof err === 'object' && 'message' in err) {
+        message = String((err as any).message)
+      }
+
+      console.error('Encode error details:', err)
       setError(message)
       return null
     } finally {

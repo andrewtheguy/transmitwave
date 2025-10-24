@@ -8,27 +8,19 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, resample_audio, stereo_to_mono, SAMPLE_RATE};
+use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, DecoderFsk, EncoderFsk, resample_audio, stereo_to_mono, SAMPLE_RATE};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
-// Change these constants to switch encoder/decoder defaults across CLI, web, and WASM
+// Default mode: FSK (Four-Frequency Shift Keying) for maximum reliability
+// CLI options: --spread for spread spectrum, --no-spread for legacy mode
 // ============================================================================
-
-/// Spread spectrum chip duration
-const DEFAULT_SPREAD_CHIP_DURATION: usize = 2;
 
 #[derive(Serialize, Deserialize)]
 struct EncodeRequest {
     data: String, // base64-encoded input data
-    #[serde(default = "default_chip_duration")]
-    chip_duration: usize,
-}
-
-fn default_chip_duration() -> usize {
-    DEFAULT_SPREAD_CHIP_DURATION
 }
 
 #[derive(Serialize, Deserialize)]
@@ -42,8 +34,6 @@ struct EncodeResponse {
 #[derive(Serialize, Deserialize)]
 struct DecodeRequest {
     wav_base64: String, // base64-encoded WAV file
-    #[serde(default = "default_chip_duration")]
-    chip_duration: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -83,6 +73,10 @@ struct Cli {
     #[arg(long)]
     no_spread: bool,
 
+    /// Use spread spectrum mode (default is FSK, use this to explicitly enable spread spectrum)
+    #[arg(long)]
+    spread: bool,
+
     /// Start web server on port 8000
     #[arg(long)]
     server: bool,
@@ -108,6 +102,10 @@ enum Commands {
         /// Use legacy encoder without chunking
         #[arg(long)]
         no_spread: bool,
+
+        /// Use spread spectrum mode (default is FSK)
+        #[arg(long)]
+        spread: bool,
     },
 
     /// Decode WAV file to binary data
@@ -124,6 +122,10 @@ enum Commands {
         /// Use legacy decoder without chunking
         #[arg(long)]
         no_spread: bool,
+
+        /// Use spread spectrum mode (default is FSK)
+        #[arg(long)]
+        spread: bool,
     },
 
 
@@ -147,16 +149,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
-            Commands::Encode { input, output, no_spread } => {
+            Commands::Encode { input, output, no_spread, spread } => {
                 if no_spread {
-                    encode_legacy_command(&input, &output)? } else {
+                    encode_legacy_command(&input, &output)?
+                } else if spread {
                     encode_spread_command(&input, &output, cli.chip_duration)?
+                } else {
+                    // Default: FSK
+                    encode_fsk_command(&input, &output)?
                 }
             }
-            Commands::Decode { input, output, no_spread } => {
+            Commands::Decode { input, output, no_spread, spread } => {
                 if no_spread {
-                    decode_legacy_command(&input, &output)? } else {
+                    decode_legacy_command(&input, &output)?
+                } else if spread {
                     decode_spread_command(&input, &output, cli.chip_duration)?
+                } else {
+                    // Default: FSK
+                    decode_fsk_command(&input, &output)?
                 }
             }
             Commands::Server { port } => {
@@ -182,13 +192,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if mode == "encode" || mode == "enc" {
             if cli.no_spread {
-                encode_legacy_command(&input, &output)? } else {
+                encode_legacy_command(&input, &output)?
+            } else if cli.spread {
                 encode_spread_command(&input, &output, cli.chip_duration)?
+            } else {
+                // Default: FSK
+                encode_fsk_command(&input, &output)?
             }
         } else if mode == "decode" || mode == "dec" {
             if cli.no_spread {
-                decode_legacy_command(&input, &output)? } else {
+                decode_legacy_command(&input, &output)?
+            } else if cli.spread {
                 decode_spread_command(&input, &output, cli.chip_duration)?
+            } else {
+                // Default: FSK
+                decode_fsk_command(&input, &output)?
             }
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
@@ -400,12 +418,114 @@ fn decode_spread_command(
     Ok(())
 }
 
+fn encode_fsk_command(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Read input binary file
+    let data = std::fs::read(input_path)?;
+    println!("Read {} bytes from {}", data.len(), input_path.display());
+
+    // Create FSK encoder and encode data
+    let mut encoder = EncoderFsk::new()?;
+    let samples = encoder.encode(&data)?;
+    println!(
+        "Encoded with 4-FSK to {} audio samples",
+        samples.len()
+    );
+
+    // Write WAV file (16-bit PCM)
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: testaudio_core::SAMPLE_RATE as u32,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let file = File::create(output_path)?;
+    let mut writer = hound::WavWriter::new(file, spec)?;
+
+    // Convert f32 samples to i16 range [-32768, 32767]
+    for sample in samples {
+        // Clamp to [-1.0, 1.0] range to avoid overflow, then scale to i16
+        let clamped = sample.max(-1.0).min(1.0);
+        let i16_sample = (clamped * 32767.0) as i16;
+        writer.write_sample(i16_sample)?;
+    }
+    writer.finalize()?;
+
+    println!("Wrote {} to {}", output_path.display(), spec.channels);
+    Ok(())
+}
+
+fn decode_fsk_command(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Read WAV file
+    let file = File::open(input_path)?;
+    let mut reader = hound::WavReader::new(file)?;
+
+    let spec = reader.spec();
+    println!(
+        "Read WAV: {} Hz, {} channels, {} bits",
+        spec.sample_rate, spec.channels, spec.bits_per_sample
+    );
+
+    // Extract samples (handle both 16-bit and 32-bit float formats)
+    let mut samples = match spec.bits_per_sample {
+        16 => {
+            // Convert i16 to f32
+            let int_samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
+            int_samples?
+                .into_iter()
+                .map(|s| s as f32 / 32768.0)
+                .collect()
+        }
+        32 => {
+            // Already f32
+            let float_samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
+            float_samples?
+        }
+        _ => {
+            return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample).into());
+        }
+    };
+
+    println!("Extracted {} samples", samples.len());
+
+    // Convert to mono if stereo
+    if spec.channels == 2 {
+        println!("Converting stereo to mono...");
+        samples = stereo_to_mono(&samples);
+        println!("Converted to {} mono samples", samples.len());
+    }
+
+    // Resample to 16kHz if needed
+    if spec.sample_rate != SAMPLE_RATE as u32 {
+        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
+        samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
+        println!("Resampled to {} samples", samples.len());
+    }
+
+    // Decode with FSK
+    let mut decoder = DecoderFsk::new()?;
+    let data = decoder.decode(&samples)?;
+    println!("Decoded {} bytes with 4-FSK", data.len());
+
+    // Write binary file
+    std::fs::write(output_path, &data)?;
+    println!("Wrote {} to {}", data.len(), output_path.display());
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting testaudio server on http://localhost:{}", port);
     println!("Endpoints:");
-    println!("  POST /encode - Encode binary data to WAV with spread spectrum");
-    println!("  POST /decode - Decode WAV to binary data with spread spectrum");
+    println!("  POST /encode - Encode binary data to WAV with FSK (Four-Frequency Shift Keying)");
+    println!("  POST /decode - Decode WAV to binary data with FSK");
     println!("  GET / - Server status");
 
     let app = Router::new()
@@ -421,7 +541,7 @@ async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handler_status() -> String {
-    "testaudio server with spread spectrum encoding/decoding - Ready".to_string()
+    "testaudio server with FSK (Four-Frequency Shift Keying) encoding/decoding - Ready".to_string()
 }
 
 async fn handler_encode(
@@ -451,8 +571,8 @@ async fn handler_encode(
         ));
     }
 
-    // Use spread spectrum encoder
-    let encode_result = EncoderSpread::new(req.chip_duration)
+    // Use FSK encoder (default for maximum reliability)
+    let encode_result = EncoderFsk::new()
         .map_err(|e| e.to_string())
         .and_then(|mut encoder| {
             encoder.encode(&data)
@@ -612,8 +732,8 @@ async fn handler_decode(
                 }
             };
 
-            // Use spread spectrum decoder
-            let decode_result = DecoderSpread::new(req.chip_duration)
+            // Use FSK decoder (default for maximum reliability)
+            let decode_result = DecoderFsk::new()
                 .map_err(|e| e.to_string())
                 .and_then(|mut decoder| {
                     decoder.decode(&samples)
