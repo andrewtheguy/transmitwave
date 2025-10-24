@@ -1,7 +1,9 @@
 use testaudio_core::sync::{
     detect_preamble, detect_postamble, generate_chirp, generate_postamble, barker_code,
 };
-use testaudio_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
+use testaudio_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, fft_correlate_1d, Mode};
+use rand::SeedableRng;
+use rand_distr::Normal;
 
 #[test]
 fn test_detect_preamble_with_chirp() {
@@ -247,4 +249,114 @@ fn test_postamble_generation() {
 
     let energy: f32 = postamble.iter().map(|s| s * s).sum();
     assert!(energy > 0.0, "Postamble should have non-zero energy");
+}
+
+#[test]
+fn test_fft_correlation_index_mapping_with_preamble() {
+    // Comment 10: Integration test ensuring sync.rs uses the correct FFT index mapping (i + L-1)
+    // Build a short synthetic signal where a template is inserted at known position i0
+
+    let template_len = PREAMBLE_SAMPLES;  // Use proper preamble length
+    let insert_pos = 500;  // Insert template at this position in signal
+
+    // Create template (proper preamble chirp)
+    let template = generate_chirp(template_len, 200.0, 4000.0, 0.5);
+
+    // Create signal with silence before and after
+    let mut signal = vec![0.0; insert_pos];
+    signal.extend_from_slice(&template);
+    signal.extend_from_slice(&vec![0.0; 1000]);
+
+    // Compute FFT correlation
+    let fft_result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
+
+    // Find peak index
+    let peak_idx = fft_result.iter()
+        .enumerate()
+        .filter(|(_, value)| !value.is_nan())
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .map(|(i, _)| i)
+        .expect("No valid peak found: all values were NaN");
+
+    // According to index mapping: window at position i maps to output index i + template_len - 1
+    // So if template inserted at position insert_pos, peak should be at insert_pos + template_len - 1
+    let expected_peak_idx = insert_pos + template_len - 1;
+
+    assert_eq!(peak_idx, expected_peak_idx,
+        "FFT correlation peak should be at i + L - 1 = {} + {} - 1 = {}, got {}",
+        insert_pos, template_len, expected_peak_idx, peak_idx);
+
+    // Now verify that detect_preamble returns the correct window start position
+    let detected = detect_preamble(&signal, 100.0);
+
+    assert!(detected.is_some(), "Preamble should be detected");
+    let detected_pos = detected.unwrap();
+
+    // The detection should find the start of the template
+    assert_eq!(detected_pos, insert_pos,
+        "Preamble should be detected at window start position {}, got {}",
+        insert_pos, detected_pos);
+}
+
+#[test]
+fn test_fft_correlation_index_mapping_with_preamble_noisy() {
+    // Comment 11: Noisy variant of the FFT index mapping test
+    // Verify that despite Gaussian noise, FFT peak and detection still map correctly
+
+    let template_len = PREAMBLE_SAMPLES;
+    let insert_pos = 500;
+
+    // Create clean template (preamble chirp)
+    let template = generate_chirp(template_len, 200.0, 4000.0, 0.5);
+
+    // Compute template RMS for SNR-relative noise scaling
+    let template_rms: f32 = (template.iter().map(|s| s * s).sum::<f32>() / template.len() as f32).sqrt();
+
+    // Create signal with template at known position
+    let mut signal = vec![0.0; insert_pos];
+    signal.extend_from_slice(&template);
+    signal.extend_from_slice(&vec![0.0; 1000]);
+
+    // Add Gaussian noise scaled to 20% of template RMS (SNR ≈ 13.98 dB)
+    let noise_std = template_rms * 0.2;
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+    let normal = Normal::new(0.0, noise_std).expect("Failed to create normal distribution");
+    use rand::distributions::Distribution;
+
+    for sample in &mut signal {
+        *sample += normal.sample(&mut rng);
+    }
+
+    // Verify: FFT correlation peak should still be at insert_pos + template_len - 1
+    let fft_result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
+
+    let peak_idx = fft_result.iter()
+        .enumerate()
+        .filter(|(_, value)| !value.is_nan())
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .map(|(i, _)| i)
+        .expect("No valid peak found in noisy signal");
+
+    let expected_peak_idx = insert_pos + template_len - 1;
+
+    // Allow ±1 sample tolerance for noisy conditions
+    let tolerance = 1;
+    assert!(
+        (peak_idx as i32 - expected_peak_idx as i32).abs() <= tolerance,
+        "FFT correlation peak with noise should be near i + L - 1 = {} + {} - 1 = {}, got {}",
+        insert_pos, template_len, expected_peak_idx, peak_idx
+    );
+
+    // Verify: detect_preamble should still find the template start (±1 sample tolerance)
+    let detected = detect_preamble(&signal, 100.0);
+
+    assert!(detected.is_some(), "Preamble should be detected in noisy signal");
+    let detected_pos = detected.unwrap();
+
+    // Allow ±1 sample tolerance for detection in noisy conditions
+    assert!(
+        (detected_pos as i32 - insert_pos as i32).abs() <= tolerance,
+        "Preamble in noisy signal should be detected near window start position {}, got {}",
+        insert_pos, detected_pos
+    );
 }
