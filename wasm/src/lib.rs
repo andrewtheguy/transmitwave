@@ -1,22 +1,22 @@
 use wasm_bindgen::prelude::*;
 use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, EncoderChunked, DecoderChunked, detect_preamble, detect_postamble};
 
-/// Default WASM Encoder (now uses spread spectrum)
+/// Default WASM Encoder (uses chunked encoding with interleaving)
 #[wasm_bindgen]
 pub struct WasmEncoder {
-    inner: EncoderSpread,
+    inner: EncoderChunked,
 }
 
 #[wasm_bindgen]
 impl WasmEncoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmEncoder, JsValue> {
-        EncoderSpread::new(2)
+        EncoderChunked::new(48, 3)
             .map(|encoder| WasmEncoder { inner: encoder })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Encode binary data into audio samples with spread spectrum
+    /// Encode binary data into audio samples with chunked encoding
     /// Takes a Uint8Array and returns Float32Array of audio samples
     #[wasm_bindgen]
     pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>, JsValue> {
@@ -26,23 +26,71 @@ impl WasmEncoder {
     }
 }
 
-/// Default WASM Decoder (now uses spread spectrum)
+/// Default WASM Decoder (uses chunked decoding with early termination)
 #[wasm_bindgen]
 pub struct WasmDecoder {
-    inner: DecoderSpread,
+    inner: DecoderChunked,
 }
 
 #[wasm_bindgen]
 impl WasmDecoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmDecoder, JsValue> {
-        DecoderSpread::new(2)
+        DecoderChunked::new(48)
             .map(|decoder| WasmDecoder { inner: decoder })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Decode audio samples back to binary data with spread spectrum
+    /// Decode audio samples back to binary data with chunked decoding
     /// Takes a Float32Array and returns Uint8Array of decoded data
+    #[wasm_bindgen]
+    pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .decode(samples)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+/// Spread spectrum WASM Encoder (for backwards compatibility)
+#[wasm_bindgen]
+pub struct WasmEncoderSpread {
+    inner: EncoderSpread,
+}
+
+#[wasm_bindgen]
+impl WasmEncoderSpread {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmEncoderSpread, JsValue> {
+        EncoderSpread::new(2)
+            .map(|encoder| WasmEncoderSpread { inner: encoder })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Encode binary data into audio samples with spread spectrum
+    #[wasm_bindgen]
+    pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>, JsValue> {
+        self.inner
+            .encode(data)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+/// Spread spectrum WASM Decoder (for backwards compatibility)
+#[wasm_bindgen]
+pub struct WasmDecoderSpread {
+    inner: DecoderSpread,
+}
+
+#[wasm_bindgen]
+impl WasmDecoderSpread {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmDecoderSpread, JsValue> {
+        DecoderSpread::new(2)
+            .map(|decoder| WasmDecoderSpread { inner: decoder })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Decode audio samples back to binary data with spread spectrum
     #[wasm_bindgen]
     pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
         self.inner

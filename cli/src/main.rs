@@ -85,7 +85,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Encode binary data to WAV audio file with spread spectrum
+    /// Encode binary data to WAV audio file with chunking (default)
     Encode {
         /// Input binary file
         #[arg(value_name = "INPUT.BIN")]
@@ -95,16 +95,20 @@ enum Commands {
         #[arg(value_name = "OUTPUT.WAV")]
         output: PathBuf,
 
-        /// Chip duration (samples per Barker chip, default: 2)
-        #[arg(short, long, default_value = "2")]
-        chip_duration: usize,
+        /// Chunk size in bits: 32, 48, or 64 (default: 48)
+        #[arg(short, long, default_value = "48")]
+        chunk_bits: usize,
 
-        /// Use legacy encoder without spread spectrum
+        /// Interleave factor: how many times to repeat each chunk (default: 3)
+        #[arg(short, long, default_value = "3")]
+        interleave: usize,
+
+        /// Use legacy encoder without chunking
         #[arg(long)]
         no_spread: bool,
     },
 
-    /// Decode WAV file to binary data with spread spectrum
+    /// Decode WAV file to binary data with chunking (default)
     Decode {
         /// Input WAV file
         #[arg(value_name = "INPUT.WAV")]
@@ -114,11 +118,11 @@ enum Commands {
         #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
 
-        /// Chip duration (samples per Barker chip, must match encoder)
-        #[arg(short, long, default_value = "2")]
-        chip_duration: usize,
+        /// Chunk size in bits: 32, 48, or 64 (must match encoder)
+        #[arg(short, long, default_value = "48")]
+        chunk_bits: usize,
 
-        /// Use legacy decoder without spread spectrum
+        /// Use legacy decoder without chunking
         #[arg(long)]
         no_spread: bool,
     },
@@ -176,18 +180,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
-            Commands::Encode { input, output, chip_duration, no_spread } => {
+            Commands::Encode { input, output, chunk_bits, interleave, no_spread } => {
                 if no_spread {
                     encode_legacy_command(&input, &output)?
                 } else {
-                    encode_spread_command(&input, &output, chip_duration)?
+                    encode_chunked_command(&input, &output, chunk_bits, interleave)?
                 }
             }
-            Commands::Decode { input, output, chip_duration, no_spread } => {
+            Commands::Decode { input, output, chunk_bits, no_spread } => {
                 if no_spread {
                     decode_legacy_command(&input, &output)?
                 } else {
-                    decode_spread_command(&input, &output, chip_duration)?
+                    decode_chunked_command(&input, &output, chunk_bits)?
                 }
             }
             Commands::EncodeChunked { input, output, chunk_bits, interleave } => {
@@ -221,13 +225,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if cli.no_spread {
                 encode_legacy_command(&input, &output)?
             } else {
-                encode_spread_command(&input, &output, cli.chip_duration)?
+                // Default: use chunked encoding
+                encode_chunked_command(&input, &output, 48, 3)?
             }
         } else if mode == "decode" || mode == "dec" {
             if cli.no_spread {
                 decode_legacy_command(&input, &output)?
             } else {
-                decode_spread_command(&input, &output, cli.chip_duration)?
+                // Default: use chunked decoding
+                decode_chunked_command(&input, &output, 48)?
             }
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
@@ -443,8 +449,8 @@ fn decode_spread_command(
 async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting testaudio server on http://localhost:{}", port);
     println!("Endpoints:");
-    println!("  POST /encode - Encode binary data to WAV with spread spectrum");
-    println!("  POST /decode - Decode WAV to binary data with spread spectrum");
+    println!("  POST /encode - Encode binary data to WAV with chunked encoding (default)");
+    println!("  POST /decode - Decode WAV to binary data with chunked decoding (default)");
     println!("  GET / - Server status");
 
     let app = Router::new()
@@ -460,7 +466,7 @@ async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handler_status() -> &'static str {
-    "testaudio server with spread spectrum encoding/decoding - Ready"
+    "testaudio server with chunked encoding/decoding (default) - Ready"
 }
 
 async fn handler_encode(
@@ -490,7 +496,8 @@ async fn handler_encode(
         ));
     }
 
-    match EncoderSpread::new(req.chip_duration) {
+    // Use chunked encoder by default
+    match EncoderChunked::new(48, 3) {
         Ok(mut encoder) => match encoder.encode(&data) {
             Ok(samples) => {
                 // Convert to WAV
@@ -654,7 +661,8 @@ async fn handler_decode(
                 }
             };
 
-            match DecoderSpread::new(req.chip_duration) {
+            // Use chunked decoder by default
+            match DecoderChunked::new(48) {
                 Ok(mut decoder) => match decoder.decode(&samples) {
                     Ok(decoded_data) => {
                         let data_base64 = base64::engine::general_purpose::STANDARD.encode(&decoded_data);
