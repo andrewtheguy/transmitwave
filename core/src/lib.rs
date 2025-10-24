@@ -35,6 +35,8 @@ pub use spread::{SpreadSpectrumSpreader, SpreadSpectrumDespreader};
 pub use trellis::{ConvolutionalEncoder, ViterbiDecoder};
 pub use resample::{resample_audio, stereo_to_mono};
 pub use chunking::{Chunk, ChunkEncoder, ChunkDecoder, interleave_chunks};
+pub use ofdm::{OfdmModulator, OfdmDemodulator};
+pub use fec::{FecEncoder, FecDecoder};
 
 // Configuration constants
 pub const SAMPLE_RATE: usize = 16000;

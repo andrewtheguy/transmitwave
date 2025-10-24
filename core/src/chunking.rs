@@ -82,6 +82,14 @@ impl Chunk {
         Self { header, data }
     }
 
+    /// Create a chunk with explicit payload length (for tracking unpadded size)
+    pub fn with_payload_len(chunk_id: u16, total_chunks: u16, data: Vec<u8>, actual_len: usize) -> Self {
+        let crc16 = calculate_crc16(&data);
+        let payload_len = (actual_len.min(255)) as u8;
+        let header = ChunkHeader::new(chunk_id, total_chunks, payload_len, crc16);
+        Self { header, data }
+    }
+
     /// Validate chunk CRC
     pub fn validate_crc(&self) -> bool {
         let calculated_crc = calculate_crc16(&self.data);
@@ -97,11 +105,11 @@ impl Chunk {
 
     /// Decode chunk from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
-        if data.len() < 6 {
+        if data.len() < 7 {
             return Err(AudioModemError::InvalidFrameSize);
         }
-        let header = ChunkHeader::from_bytes(&data[0..6])?;
-        let chunk_data = data[6..].to_vec();
+        let header = ChunkHeader::from_bytes(&data[0..7])?;
+        let chunk_data = data[7..].to_vec();
         Ok(Self {
             header,
             data: chunk_data,
@@ -135,6 +143,7 @@ impl ChunkEncoder {
         for i in 0..total_chunks {
             let start = i * chunk_bytes;
             let end = std::cmp::min(start + chunk_bytes, data.len());
+            let actual_len = end - start; // Original length before padding
             let mut chunk_data = data[start..end].to_vec();
 
             // Pad with zeros to chunk_bytes
@@ -142,7 +151,8 @@ impl ChunkEncoder {
                 chunk_data.push(0);
             }
 
-            let chunk = Chunk::new(i as u16, total_chunks as u16, chunk_data);
+            // Use with_payload_len to store the actual unpadded length
+            let chunk = Chunk::with_payload_len(i as u16, total_chunks as u16, chunk_data, actual_len);
             chunks.push(chunk);
         }
 
