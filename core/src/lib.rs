@@ -17,6 +17,9 @@ pub mod decoder_spread;
 pub mod spread;
 pub mod trellis;
 pub mod resample;
+pub mod chunking;
+pub mod encoder_chunked;
+pub mod decoder_chunked;
 
 pub use encoder::Encoder;
 pub use encoder_cp::EncoderCp;
@@ -24,11 +27,16 @@ pub use decoder::Decoder;
 pub use decoder_cp::DecoderCp;
 pub use encoder_spread::EncoderSpread;
 pub use decoder_spread::DecoderSpread;
+pub use encoder_chunked::EncoderChunked;
+pub use decoder_chunked::DecoderChunked;
 pub use error::{AudioModemError, Result};
 pub use sync::{detect_preamble, detect_postamble};
 pub use spread::{SpreadSpectrumSpreader, SpreadSpectrumDespreader};
 pub use trellis::{ConvolutionalEncoder, ViterbiDecoder};
 pub use resample::{resample_audio, stereo_to_mono};
+pub use chunking::{Chunk, ChunkEncoder, ChunkDecoder, interleave_chunks};
+pub use ofdm::{OfdmModulator, OfdmDemodulator};
+pub use fec::{FecEncoder, FecDecoder};
 
 // Configuration constants
 pub const SAMPLE_RATE: usize = 16000;
@@ -47,10 +55,11 @@ pub const RS_TOTAL_BYTES: usize = 255;
 pub const RS_ECC_BYTES: usize = RS_TOTAL_BYTES - RS_DATA_BYTES; // 32
 
 // Frame configuration
-pub const PREAMBLE_DURATION_MS: usize = 250;
-pub const PREAMBLE_SAMPLES: usize = (SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000; // 4000
-pub const POSTAMBLE_DURATION_MS: usize = 250;
-pub const POSTAMBLE_SAMPLES: usize = (SAMPLE_RATE * POSTAMBLE_DURATION_MS) / 1000; // 4000
+pub const SYNC_DURATION_MS: usize = 250;  // Preamble/postamble duration (1/4 second)
+pub const PREAMBLE_DURATION_MS: usize = SYNC_DURATION_MS;
+pub const PREAMBLE_SAMPLES: usize = (SAMPLE_RATE * SYNC_DURATION_MS) / 1000; // 4000
+pub const POSTAMBLE_DURATION_MS: usize = SYNC_DURATION_MS;
+pub const POSTAMBLE_SAMPLES: usize = (SAMPLE_RATE * SYNC_DURATION_MS) / 1000; // 4000
 
 pub const FRAME_HEADER_SIZE: usize = 8; // payload length (2) + frame number (2) + CRC-8 (1) + reserved (3)
 pub const MAX_PAYLOAD_SIZE: usize = 200;
