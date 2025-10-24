@@ -36,8 +36,9 @@ pub fn stereo_to_mono(samples: &[f32]) -> Vec<f32> {
 /// Resampled audio at the target sample rate
 ///
 /// # Example
-/// ```ignore
-/// let audio_48k = vec![0.1, 0.2, 0.3, ...]; // audio at 48kHz
+/// ```
+/// use testaudio_core::resample_audio;
+/// let audio_48k = vec![0.1, 0.2, 0.3, 0.4]; // audio at 48kHz
 /// let audio_16k = resample_audio(&audio_48k, 48000, 16000);
 /// ```
 pub fn resample_audio(samples: &[f32], from_rate: usize, to_rate: usize) -> Vec<f32> {
