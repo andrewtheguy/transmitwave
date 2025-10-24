@@ -9,7 +9,10 @@ pub enum AudioModemError {
     PostambleNotFound,
 
     #[error("CRC mismatch in frame header")]
-    CrcMismatch,
+    HeaderCrcMismatch,
+
+    #[error("CRC mismatch in frame payload")]
+    PayloadCrcMismatch,
 
     #[error("Reed-Solomon decode failure")]
     FecDecodeFailure,

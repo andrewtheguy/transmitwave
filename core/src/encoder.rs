@@ -1,9 +1,9 @@
 use crate::error::Result;
 use crate::fec::FecEncoder;
-use crate::framing::{Frame, FrameEncoder};
+use crate::framing::{Frame, FrameEncoder, crc16};
 use crate::ofdm::OfdmModulator;
 use crate::sync::{generate_chirp, generate_postamble};
-use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
+use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, NUM_SUBCARRIERS};
 
 pub struct Encoder {
     ofdm: OfdmModulator,
@@ -26,10 +26,12 @@ impl Encoder {
         }
 
         // Create frame
+        let payload = data.to_vec();
         let frame = Frame {
             payload_len: data.len() as u16,
             frame_num: 0,
-            payload: data.to_vec(),
+            payload: payload.clone(),
+            payload_crc: crc16(&payload),
         };
 
         let frame_data = FrameEncoder::encode(&frame)?;
@@ -55,8 +57,8 @@ impl Encoder {
         // Modulate data bits to OFDM symbols
         let mut samples = preamble;
 
-        // Process bits in OFDM symbol chunks (48 bits per symbol)
-        for symbol_bits in bits.chunks(48) {
+        // Process bits in OFDM symbol chunks (NUM_SUBCARRIERS bits per symbol)
+        for symbol_bits in bits.chunks(NUM_SUBCARRIERS) {
             let symbol_samples = self.ofdm.modulate(symbol_bits)?;
             samples.extend_from_slice(&symbol_samples);
         }

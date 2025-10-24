@@ -1,11 +1,37 @@
 use crate::error::{AudioModemError, Result};
 use crate::{FRAME_HEADER_SIZE, MAX_PAYLOAD_SIZE};
 
-fn simple_crc8(data: &[u8]) -> u8 {
-    let mut crc = 0u8;
+/// CRC-16-CCITT for payload integrity verification
+pub fn crc16(data: &[u8]) -> u16 {
+    let mut crc: u32 = 0xFFFF;
     for &byte in data {
-        crc = crc.wrapping_add(byte);
-        crc = crc.wrapping_mul(17);
+        crc ^= (byte as u32) << 8;
+        for _ in 0..8 {
+            crc <<= 1;
+            if crc & 0x10000 != 0 {
+                crc ^= 0x1021;
+            }
+        }
+    }
+    (crc & 0xFFFF) as u16
+}
+
+/// Proper CRC-8 using polynomial 0xD5 (255 = x^8 + x^7 + x^6 + x^4 + x^2 + 1)
+/// This is a standard polynomial with excellent error detection properties
+/// Detects all single-bit errors, many multi-bit patterns, and burst errors up to 7 bits
+fn crc8(data: &[u8]) -> u8 {
+    const POLYNOMIAL: u8 = 0xD5; // x^8 + x^7 + x^6 + x^4 + x^2 + 1
+    let mut crc = 0u8;
+
+    for &byte in data {
+        crc ^= byte;
+        for _ in 0..8 {
+            if (crc & 0x80) != 0 {
+                crc = (crc << 1) ^ POLYNOMIAL;
+            } else {
+                crc <<= 1;
+            }
+        }
     }
     crc
 }
@@ -14,13 +40,14 @@ pub struct Frame {
     pub payload_len: u16,
     pub frame_num: u16,
     pub payload: Vec<u8>,
+    pub payload_crc: u16, // CRC-16 of payload for end-to-end integrity check
 }
 
 pub struct FrameEncoder;
 pub struct FrameDecoder;
 
 impl FrameEncoder {
-    /// Encode frame with header and CRC
+    /// Encode frame with header CRC and payload CRC-16 for end-to-end integrity
     pub fn encode(frame: &Frame) -> Result<Vec<u8>> {
         if frame.payload.len() > MAX_PAYLOAD_SIZE {
             return Err(AudioModemError::InvalidFrameSize);
@@ -37,7 +64,7 @@ impl FrameEncoder {
         header[3] = frame.frame_num as u8;
 
         // Calculate and write CRC-8 of header (excluding CRC field itself)
-        let crc_checksum = simple_crc8(&header[..4]);
+        let crc_checksum = crc8(&header[..4]);
         header[4] = crc_checksum;
 
         // Reserved bytes
@@ -45,9 +72,14 @@ impl FrameEncoder {
         header[6] = 0;
         header[7] = 0;
 
-        // Combine header + payload
+        // Combine header + payload + payload CRC-16
         let mut encoded = header;
         encoded.extend_from_slice(&frame.payload);
+
+        // Calculate and append CRC-16 of payload (2 bytes, big-endian)
+        let payload_crc = crc16(&frame.payload);
+        encoded.push((payload_crc >> 8) as u8);
+        encoded.push(payload_crc as u8);
 
         Ok(encoded)
     }
@@ -68,29 +100,43 @@ impl FrameDecoder {
 
         // Verify CRC
         let expected_crc = data[4];
-        let computed_crc = simple_crc8(&data[..4]);
+        let computed_crc = crc8(&data[..4]);
 
         if expected_crc != computed_crc {
-            return Err(AudioModemError::CrcMismatch);
+            return Err(AudioModemError::HeaderCrcMismatch);
         }
 
         Ok((payload_len, frame_num))
     }
 
-    /// Decode complete frame (header + payload)
+    /// Decode complete frame (header + payload + payload CRC-16)
     pub fn decode(data: &[u8]) -> Result<Frame> {
         let (payload_len, frame_num) = Self::decode_header(data)?;
 
-        if data.len() < FRAME_HEADER_SIZE + payload_len as usize {
+        // Need at least: header + payload + 2 bytes for CRC-16
+        if data.len() < FRAME_HEADER_SIZE + payload_len as usize + 2 {
             return Err(AudioModemError::InvalidFrameSize);
         }
 
-        let payload = data[FRAME_HEADER_SIZE..FRAME_HEADER_SIZE + payload_len as usize].to_vec();
+        let payload_start = FRAME_HEADER_SIZE;
+        let payload_end = FRAME_HEADER_SIZE + payload_len as usize;
+        let payload = data[payload_start..payload_end].to_vec();
+
+        // Extract CRC-16 from last 2 bytes (big-endian)
+        let received_crc = ((data[payload_end] as u16) << 8) | (data[payload_end + 1] as u16);
+
+        // Recalculate CRC-16 over the payload
+        let computed_crc = crc16(&payload);
+
+        if received_crc != computed_crc {
+            return Err(AudioModemError::PayloadCrcMismatch);
+        }
 
         Ok(Frame {
             payload_len,
             frame_num,
             payload,
+            payload_crc: computed_crc,
         })
     }
 }
@@ -101,33 +147,93 @@ mod tests {
 
     #[test]
     fn test_frame_encode_decode() {
+        let payload = b"Hello".to_vec();
         let frame = Frame {
             payload_len: 5,
             frame_num: 1,
-            payload: b"Hello".to_vec(),
+            payload: payload.clone(),
+            payload_crc: crc16(&payload),
         };
 
         let encoded = FrameEncoder::encode(&frame).unwrap();
-        assert!(encoded.len() >= FRAME_HEADER_SIZE + 5);
+        assert!(encoded.len() >= FRAME_HEADER_SIZE + 5 + 2); // +2 for CRC-16
 
         let decoded = FrameDecoder::decode(&encoded).unwrap();
         assert_eq!(decoded.payload_len, 5);
         assert_eq!(decoded.frame_num, 1);
         assert_eq!(decoded.payload, b"Hello");
+        assert_eq!(decoded.payload_crc, crc16(b"Hello"));
     }
 
     #[test]
-    fn test_frame_crc_validation() {
+    fn test_frame_header_crc_validation() {
+        let payload = b"Hello".to_vec();
         let frame = Frame {
             payload_len: 5,
             frame_num: 1,
-            payload: b"Hello".to_vec(),
+            payload: payload.clone(),
+            payload_crc: crc16(&payload),
         };
 
         let mut encoded = FrameEncoder::encode(&frame).unwrap();
-        // Corrupt CRC
+        // Corrupt header CRC-8
         encoded[4] = encoded[4].wrapping_add(1);
 
-        assert!(FrameDecoder::decode(&encoded).is_err());
+        match FrameDecoder::decode(&encoded) {
+            Err(AudioModemError::HeaderCrcMismatch) => {}, // Expected
+            _ => panic!("Expected HeaderCrcMismatch error"),
+        }
+    }
+
+    #[test]
+    fn test_frame_payload_crc_validation() {
+        let payload = b"Hello".to_vec();
+        let frame = Frame {
+            payload_len: 5,
+            frame_num: 1,
+            payload: payload.clone(),
+            payload_crc: crc16(&payload),
+        };
+
+        let mut encoded = FrameEncoder::encode(&frame).unwrap();
+        // Corrupt payload byte (change 'H' to 'G')
+        encoded[FRAME_HEADER_SIZE] = b'G';
+
+        match FrameDecoder::decode(&encoded) {
+            Err(AudioModemError::PayloadCrcMismatch) => {}, // Expected
+            _ => panic!("Expected PayloadCrcMismatch error"),
+        }
+    }
+
+    #[test]
+    fn test_corrupted_payload_rejected() {
+        // Test case: "Hello World" (11 bytes)
+        let original_payload = b"Hello World".to_vec();
+        let frame = Frame {
+            payload_len: 11,
+            frame_num: 0,
+            payload: original_payload.clone(),
+            payload_crc: crc16(&original_payload),
+        };
+
+        let mut encoded = FrameEncoder::encode(&frame).unwrap();
+
+        // Try to pass "Hg|lo World" as corrupted data (same length, different chars)
+        // This simulates the bug: if we change 'e' to 'g' and 'l' to '|'
+        let corrupted_payload = b"Hg|lo World".to_vec();
+        assert_eq!(corrupted_payload.len(), 11); // Same length
+
+        // Replace the payload in the original encoded frame with corrupted payload
+        // but keep the wrong CRC that doesn't match the corrupted data
+        for i in 0..11 {
+            encoded[FRAME_HEADER_SIZE + i] = corrupted_payload[i];
+        }
+        // The last 2 bytes are still the original CRC which won't match "Hg|lo World"
+
+        // This should fail because the payload CRC won't match
+        match FrameDecoder::decode(&encoded) {
+            Err(AudioModemError::PayloadCrcMismatch) => {}, // Expected - payload was corrupted
+            _ => panic!("Expected PayloadCrcMismatch error for corrupted payload"),
+        }
     }
 }

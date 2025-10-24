@@ -14,7 +14,7 @@
 // The slowness is inherent to preamble/postamble detection, not a bug.
 // ============================================================================
 
-use testaudio_core::{Decoder, Encoder};
+use testaudio_core::{Decoder, Encoder, NUM_SUBCARRIERS};
 
 #[test]
 fn test_encode_decode_round_trip() {
@@ -324,14 +324,9 @@ fn test_ofdm_bit_roundtrip() {
     use testaudio_core::OfdmModulator;
     use testaudio_core::OfdmDemodulator;
 
-    let original_bits = vec![
-        true, false, true, false, true, false, true, false,
-        false, true, false, true, false, true, false, true,
-        true, true, false, false, true, true, false, false,
-        true, false, true, false, true, false, true, false,
-        false, false, false, false, true, true, true, true,
-        false, true, false, true, false, true, false, true,
-    ];
+    let original_bits: Vec<bool> = (0..NUM_SUBCARRIERS)
+        .map(|i| (i ^ (i >> 3)) & 1 != 0)
+        .collect();
 
     let mut modulator = OfdmModulator::new();
     let samples = modulator.modulate(&original_bits).expect("Failed to modulate");
@@ -412,11 +407,11 @@ fn test_ofdm_fec_bit_roundtrip() {
     }
     println!("Total bits: {}", bits.len());
 
-    // Split into OFDM symbols (48 bits per symbol)
+    // Split into OFDM symbols (NUM_SUBCARRIERS bits per symbol)
     let mut ofdm_samples = Vec::new();
     let mut modulator = OfdmModulator::new();
 
-    for symbol_bits in bits.chunks(48) {
+    for symbol_bits in bits.chunks(NUM_SUBCARRIERS) {
         let samples = modulator.modulate(symbol_bits).expect("Failed to modulate");
         ofdm_samples.extend(samples);
     }

@@ -186,7 +186,7 @@ impl ChunkDecoder {
 
         for chunk in chunks {
             if !chunk.validate_crc() {
-                return Err(AudioModemError::CrcMismatch);
+                return Err(AudioModemError::HeaderCrcMismatch);
             }
             result.extend_from_slice(&chunk.data);
         }
