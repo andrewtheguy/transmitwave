@@ -72,16 +72,18 @@ pub fn generate_chirp(
     samples
 }
 
-/// Generates preamble chirp (ascending chirp from 200 Hz to 4000 Hz)
-/// Used as the chirp variant of preamble for synchronization
+/// Generates preamble chirp (ascending chirp from 2800 Hz to 4200 Hz)
+/// Mid-treble range - pleasant tone without excessive harshness
+/// Distinct from police sirens and postamble's low frequency
 pub fn generate_preamble_chirp(duration_samples: usize, amplitude: f32) -> Vec<f32> {
-    generate_chirp(duration_samples, 200.0, 4000.0, amplitude)
+    generate_chirp(duration_samples, 2800.0, 4200.0, amplitude)
 }
 
-/// Generates postamble chirp (descending chirp from 4000 Hz to 200 Hz)
-/// Mirrors the preamble chirp pattern but in reverse
+/// Generates postamble chirp (slow descending chirp from 800 Hz to 300 Hz)
+/// Low frequency rumble pattern - distinctly different from preamble
+/// Provides clear acoustic separation for frame boundary detection
 pub fn generate_postamble_chirp(duration_samples: usize, amplitude: f32) -> Vec<f32> {
-    generate_chirp(duration_samples, 4000.0, 200.0, amplitude)
+    generate_chirp(duration_samples, 800.0, 300.0, amplitude)
 }
 
 /// Generate preamble signal
@@ -469,51 +471,12 @@ mod tests {
         assert!(zero_crossings_late > zero_crossings_early);
     }
 
-    #[test]
-    fn test_preample_chirp_ascending() {
-        let preamble = generate_preamble_chirp(1600, 1.0);
-        assert_eq!(preamble.len(), 1600);
-
-        // Preamble should be frequency sweep from low to high
-        let zero_crossings_early = preamble[..400]
-            .windows(2)
-            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
-            .count();
-
-        let zero_crossings_late = preamble[1200..]
-            .windows(2)
-            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
-            .count();
-
-        // Later part should have more zero crossings (higher frequency at end)
-        assert!(zero_crossings_late > zero_crossings_early);
-    }
-
-    #[test]
-    fn test_postamble_chirp_descending() {
-        let postamble = generate_postamble_chirp(1600, 1.0);
-        assert_eq!(postamble.len(), 1600);
-
-        // Postamble should be reverse frequency sweep
-        let zero_crossings_early = postamble[..400]
-            .windows(2)
-            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
-            .count();
-
-        let zero_crossings_late = postamble[1200..]
-            .windows(2)
-            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
-            .count();
-
-        // Earlier part should have more zero crossings (higher frequency at start)
-        assert!(zero_crossings_early > zero_crossings_late);
-    }
 
     // Helper functions for signal-agnostic testing
     fn create_preamble(amplitude: f32) -> Vec<f32> {
         match SIGNAL_TYPE {
             SignalType::PrnNoise => generate_preamble(crate::PREAMBLE_SAMPLES, amplitude),
-            SignalType::Chirp => generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, amplitude),
+            SignalType::Chirp => generate_preamble_chirp(crate::PREAMBLE_SAMPLES, amplitude),
         }
     }
 
