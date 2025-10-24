@@ -39,6 +39,7 @@ fn crc8(data: &[u8]) -> u8 {
 pub struct Frame {
     pub payload_len: u16,
     pub frame_num: u16,
+    pub fec_mode: u8, // FEC mode indicator (8, 16, or 32 parity bytes)
     pub payload: Vec<u8>,
     pub payload_crc: u16, // CRC-16 of payload for end-to-end integrity check
 }
@@ -67,8 +68,10 @@ impl FrameEncoder {
         let crc_checksum = crc8(&header[..4]);
         header[4] = crc_checksum;
 
+        // FEC mode byte (previously reserved)
+        header[5] = frame.fec_mode;
+
         // Reserved bytes
-        header[5] = 0;
         header[6] = 0;
         header[7] = 0;
 
@@ -87,7 +90,7 @@ impl FrameEncoder {
 
 impl FrameDecoder {
     /// Decode frame header and verify CRC
-    pub fn decode_header(data: &[u8]) -> Result<(u16, u16)> {
+    pub fn decode_header(data: &[u8]) -> Result<(u16, u16, u8)> {
         if data.len() < FRAME_HEADER_SIZE {
             return Err(AudioModemError::InvalidFrameSize);
         }
@@ -106,12 +109,15 @@ impl FrameDecoder {
             return Err(AudioModemError::HeaderCrcMismatch);
         }
 
-        Ok((payload_len, frame_num))
+        // Read FEC mode
+        let fec_mode = data[5];
+
+        Ok((payload_len, frame_num, fec_mode))
     }
 
     /// Decode complete frame (header + payload + payload CRC-16)
     pub fn decode(data: &[u8]) -> Result<Frame> {
-        let (payload_len, frame_num) = Self::decode_header(data)?;
+        let (payload_len, frame_num, fec_mode) = Self::decode_header(data)?;
 
         // Need at least: header + payload + 2 bytes for CRC-16
         if data.len() < FRAME_HEADER_SIZE + payload_len as usize + 2 {
@@ -135,6 +141,7 @@ impl FrameDecoder {
         Ok(Frame {
             payload_len,
             frame_num,
+            fec_mode,
             payload,
             payload_crc: computed_crc,
         })
@@ -151,6 +158,7 @@ mod tests {
         let frame = Frame {
             payload_len: 5,
             frame_num: 1,
+            fec_mode: 8,
             payload: payload.clone(),
             payload_crc: crc16(&payload),
         };
@@ -161,6 +169,7 @@ mod tests {
         let decoded = FrameDecoder::decode(&encoded).unwrap();
         assert_eq!(decoded.payload_len, 5);
         assert_eq!(decoded.frame_num, 1);
+        assert_eq!(decoded.fec_mode, 8);
         assert_eq!(decoded.payload, b"Hello");
         assert_eq!(decoded.payload_crc, crc16(b"Hello"));
     }
@@ -171,6 +180,7 @@ mod tests {
         let frame = Frame {
             payload_len: 5,
             frame_num: 1,
+            fec_mode: 8,
             payload: payload.clone(),
             payload_crc: crc16(&payload),
         };
@@ -191,6 +201,7 @@ mod tests {
         let frame = Frame {
             payload_len: 5,
             frame_num: 1,
+            fec_mode: 8,
             payload: payload.clone(),
             payload_crc: crc16(&payload),
         };
@@ -212,6 +223,7 @@ mod tests {
         let frame = Frame {
             payload_len: 11,
             frame_num: 0,
+            fec_mode: 8,
             payload: original_payload.clone(),
             payload_crc: crc16(&original_payload),
         };

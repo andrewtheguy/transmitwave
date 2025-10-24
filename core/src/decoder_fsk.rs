@@ -1,5 +1,5 @@
 use crate::error::{AudioModemError, Result};
-use crate::fec::FecDecoder;
+use crate::fec::{FecDecoder, FecMode};
 use crate::framing::FrameDecoder;
 use crate::fsk::FskDemodulator;
 use crate::sync::{detect_postamble, detect_preamble};
@@ -92,14 +92,58 @@ impl DecoderFsk {
         let frame_len = ((bytes[0] as u16) << 8) | (bytes[1] as u16);
         let mut byte_idx = 2;
 
-        // Decode shortened Reed-Solomon blocks
-        let mut decoded_data = Vec::new();
-        let mut remaining_len = frame_len as usize;
+        // First pass: decode the first block to get FEC mode from header
+        // We need to peek at the header to determine FEC mode
+        let first_chunk_len = (frame_len as usize).min(223);
+        let padding_needed_first = 223 - first_chunk_len;
+
+        // Try with different FEC modes to find the right one
+        // Start with Light (smallest overhead) and work up
+        let mut decoded_first_block = None;
+        let mut detected_fec_mode = FecMode::Light;
+
+        for mode in [FecMode::Light, FecMode::Medium, FecMode::Full] {
+            let parity_bytes = mode.parity_bytes();
+            let encoded_len = first_chunk_len + parity_bytes;
+
+            if byte_idx + encoded_len <= bytes.len() {
+                let shortened_block = &bytes[byte_idx..byte_idx + encoded_len];
+                let mut full_block = vec![0u8; padding_needed_first];
+                full_block.extend_from_slice(shortened_block);
+
+                // Try decoding with this FEC mode
+                if let Ok(decoded_chunk) = self.fec.decode_with_mode(&full_block, mode) {
+                    // Check if this produces a valid header
+                    let decoded_data = &decoded_chunk[padding_needed_first..];
+                    if decoded_data.len() >= 8 {
+                        if let Ok((_, _, fec_mode_byte)) = FrameDecoder::decode_header(decoded_data) {
+                            if let Ok(parsed_mode) = FecMode::from_u8(fec_mode_byte) {
+                                if parsed_mode == mode {
+                                    // Found the correct FEC mode!
+                                    decoded_first_block = Some((decoded_data.to_vec(), encoded_len));
+                                    detected_fec_mode = mode;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let (first_decoded, first_encoded_len) = decoded_first_block
+            .ok_or(AudioModemError::FecDecodeFailure)?;
+
+        // Now decode remaining blocks using the detected FEC mode
+        let mut decoded_data = first_decoded;
+        byte_idx += first_encoded_len;
+        let mut remaining_len = frame_len as usize - first_chunk_len;
 
         while remaining_len > 0 {
             let chunk_len = remaining_len.min(223);
             let padding_needed = 223 - chunk_len;
-            let encoded_len = chunk_len + 32; // actual data + parity
+            let parity_bytes = detected_fec_mode.parity_bytes();
+            let encoded_len = chunk_len + parity_bytes;
 
             // Check if we have enough bytes
             if byte_idx + encoded_len > bytes.len() {
@@ -114,8 +158,8 @@ impl DecoderFsk {
             let mut full_block = vec![0u8; padding_needed];
             full_block.extend_from_slice(shortened_block);
 
-            // Decode with RS
-            match self.fec.decode(&full_block) {
+            // Decode with RS using detected FEC mode
+            match self.fec.decode_with_mode(&full_block, detected_fec_mode) {
                 Ok(decoded_chunk) => {
                     // Remove the prepended zeros (padding)
                     decoded_data.extend_from_slice(&decoded_chunk[padding_needed..]);

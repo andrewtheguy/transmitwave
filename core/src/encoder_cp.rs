@@ -47,6 +47,7 @@ impl EncoderCp {
         let frame = Frame {
             payload_len: data.len() as u16,
             frame_num: 0,
+            fec_mode: 32, // Use full FEC for OFDM-CP (backward compatibility)
             payload: payload.clone(),
             payload_crc: crc16(&payload),
         };

@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::fec::FecEncoder;
+use crate::fec::{FecEncoder, FecMode};
 use crate::framing::{Frame, FrameEncoder, crc16};
 use crate::fsk::FskModulator;
 use crate::sync::{generate_preamble, generate_postamble_signal};
@@ -32,26 +32,33 @@ impl EncoderFsk {
     /// Encode binary data into audio samples using 4-FSK modulation
     /// Returns: preamble + (FSK symbols) + postamble
     ///
-    /// Uses shortened Reed-Solomon encoding to avoid transmitting unnecessary
-    /// padding bytes for small payloads, significantly reducing transmission time.
+    /// Uses variable Reed-Solomon parity based on payload size:
+    /// - Small payloads (< 20 bytes): 8 parity bytes (75% less overhead)
+    /// - Medium payloads (20-50 bytes): 16 parity bytes (50% less overhead)
+    /// - Large payloads (> 50 bytes): 32 parity bytes (full protection)
     pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>> {
         if data.len() > MAX_PAYLOAD_SIZE {
             return Err(crate::error::AudioModemError::InvalidInputSize);
         }
 
-        // Create frame with header and CRC
+        // Create frame with header and CRC (without FEC mode yet)
         let payload = data.to_vec();
+
+        // Determine FEC mode based on frame size (header + payload + CRC)
+        let frame_data_size = 8 + data.len() + 2; // header(8) + payload + crc16(2)
+        let fec_mode = FecMode::from_data_size(frame_data_size);
+
         let frame = Frame {
             payload_len: data.len() as u16,
             frame_num: 0,
+            fec_mode: fec_mode.to_u8(),
             payload: payload.clone(),
             payload_crc: crc16(&payload),
         };
 
         let frame_data = FrameEncoder::encode(&frame)?;
 
-        // Apply shortened Reed-Solomon FEC encoding
-        // For small payloads, we only transmit actual_data + parity, not full 223 bytes
+        // Apply variable shortened Reed-Solomon FEC encoding
         let mut encoded_data = Vec::new();
 
         // Add 2-byte length prefix so decoder knows the frame data length
@@ -70,11 +77,11 @@ impl EncoderFsk {
             let mut padded = vec![0u8; padding_needed];
             padded.extend_from_slice(chunk);
 
-            // Encode with RS (produces 255 bytes: 223 data + 32 parity)
-            let fec_chunk = self.fec.encode(&padded)?;
+            // Encode with variable RS parity based on FEC mode
+            let fec_chunk = self.fec.encode_with_mode(&padded, fec_mode)?;
 
             // Only transmit: actual data + parity (skip the prepended zeros)
-            // This is the "shortened" part: transmit only (chunk_len + 32) bytes
+            // Parity size depends on FEC mode (8, 16, or 32 bytes)
             encoded_data.extend_from_slice(&fec_chunk[padding_needed..]);
         }
 
