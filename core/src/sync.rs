@@ -733,4 +733,227 @@ mod tests {
         assert!(pos >= 1000 && pos < 2000, "Detection position {} should be reasonable", pos);
     }
 
+    // ========================================================================
+    // STRICT POSITION ACCURACY TESTS
+    // ========================================================================
+
+    #[test]
+    fn test_preamble_position_strict_zero_offset() {
+        // Preamble at exact start with no leading silence
+        let preamble = create_preamble(0.5);
+        let mut signal = preamble.clone();
+        signal.extend_from_slice(&vec![0.0; 2000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Should detect preamble at signal start");
+
+        let pos = result.unwrap();
+        // Strict tolerance: must detect within first 500 samples
+        assert!(pos < 500, "Position {} should be within first 500 samples", pos);
+    }
+
+    #[test]
+    fn test_preamble_position_strict_small_offset() {
+        // Preamble with small leading silence (100 samples)
+        let silence_before = vec![0.0; 100];
+        let preamble = create_preamble(0.5);
+        let mut signal = silence_before.clone();
+        signal.extend_from_slice(&preamble);
+        signal.extend_from_slice(&vec![0.0; 2000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Should detect preamble with 100 sample offset");
+
+        let pos = result.unwrap();
+        // Strict tolerance: detect within 500 samples of actual start
+        assert!(pos >= 100 && pos < 500,
+                "Position {} should be between 100-500 samples, detected at offset", pos);
+    }
+
+    #[test]
+    fn test_preamble_position_strict_medium_offset() {
+        // Preamble with medium leading silence (1000 samples)
+        let silence_before = vec![0.0; 1000];
+        let preamble = create_preamble(0.5);
+        let mut signal = silence_before.clone();
+        signal.extend_from_slice(&preamble);
+        signal.extend_from_slice(&vec![0.0; 2000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Should detect preamble with 1000 sample offset");
+
+        let pos = result.unwrap();
+        // Strict tolerance: detect within 500 samples of actual start (1000)
+        assert!(pos >= 500 && pos < 1500,
+                "Position {} should be between 500-1500 samples", pos);
+    }
+
+    #[test]
+    fn test_preamble_position_multiple_offsets() {
+        // Test detection accuracy at various positions
+        let offsets = vec![0, 100, 500, 1000, 2000, 3000];
+
+        for offset in offsets {
+            let mut signal = vec![0.0; offset];
+            let preamble = create_preamble(0.5);
+            signal.extend_from_slice(&preamble);
+            signal.extend_from_slice(&vec![0.0; 2000]);
+
+            let result = detect_preamble(&signal, 0.1);
+            assert!(result.is_some(), "Should detect preamble at offset {}", offset);
+
+            let pos = result.unwrap();
+            // Tolerance: within 20% of actual position or 500 samples, whichever is larger
+            let tolerance = (offset as f32 * 0.2) as usize;
+            let tolerance = tolerance.max(500);
+
+            assert!(
+                (pos as i32 - offset as i32).abs() < tolerance as i32,
+                "Position {} should be close to actual offset {}",
+                pos, offset
+            );
+        }
+    }
+
+    #[test]
+    fn test_postamble_position_strict_zero_offset() {
+        // Postamble at exact start of signal (after leading silence)
+        let mut signal = vec![0.0; 2000];
+        let postamble = create_postamble(0.5);
+        signal.extend_from_slice(&postamble);
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        let result = detect_postamble(&signal, 0.1);
+        assert!(result.is_some(), "Should detect postamble at position 2000");
+
+        let pos = result.unwrap();
+        // Strict tolerance: must detect near position 2000 (within 500 samples)
+        assert!(pos >= 1500 && pos < 2500,
+                "Position {} should be between 1500-2500 samples", pos);
+    }
+
+    #[test]
+    fn test_postamble_position_strict_various_offsets() {
+        // Test postamble detection at various positions
+        let positions = vec![1000, 2000, 4000, 8000];
+
+        for pos_target in positions {
+            let mut signal = vec![0.0; pos_target];
+            let postamble = create_postamble(0.5);
+            signal.extend_from_slice(&postamble);
+            signal.extend_from_slice(&vec![0.0; 1000]);
+
+            let result = detect_postamble(&signal, 0.1);
+            assert!(result.is_some(), "Should detect postamble at position {}", pos_target);
+
+            let pos = result.unwrap();
+            // Tolerance: within 20% or 500 samples
+            let tolerance = ((pos_target as f32 * 0.2) as usize).max(500);
+
+            assert!(
+                (pos as i32 - pos_target as i32).abs() < tolerance as i32,
+                "Detected position {} should be close to actual position {}",
+                pos, pos_target
+            );
+        }
+    }
+
+    #[test]
+    fn test_preamble_postamble_sequence_accuracy() {
+        // Test detection in sequence: preamble -> data -> postamble
+        let preamble = create_preamble(0.5);
+        let payload = vec![0.05; 8000]; // Small amplitude "data"
+        let postamble = create_postamble(0.5);
+
+        let mut signal = preamble.clone();
+        signal.extend_from_slice(&payload);
+        signal.extend_from_slice(&postamble);
+
+        let preamble_pos = detect_preamble(&signal, 0.1);
+        let postamble_pos = detect_postamble(&signal, 0.1);
+
+        assert!(preamble_pos.is_some(), "Should detect preamble in sequence");
+        assert!(postamble_pos.is_some(), "Should detect postamble in sequence");
+
+        let pre_pos = preamble_pos.unwrap();
+        let post_pos = postamble_pos.unwrap();
+
+        // Preamble should be detected near start (within 500 samples)
+        assert!(pre_pos < 500, "Preamble position {} should be at start", pre_pos);
+
+        // Postamble should be detected after preamble + payload
+        let expected_post_start = crate::PREAMBLE_SAMPLES + payload.len();
+        assert!(post_pos > expected_post_start as usize - 500,
+                "Postamble position {} should be after preamble+payload region", post_pos);
+    }
+
+    #[test]
+    fn test_preamble_position_with_leading_noise() {
+        // Test preamble detection with initial noise before it
+        let mut signal = vec![];
+
+        // Add some low-amplitude noise
+        for i in 0..1000 {
+            signal.push((i as f32 * 0.1).sin() * 0.02);
+        }
+
+        let preamble = create_preamble(0.5);
+        signal.extend_from_slice(&preamble);
+        signal.extend_from_slice(&vec![0.0; 2000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Should detect preamble despite leading noise");
+
+        let pos = result.unwrap();
+        // Should detect preamble before position 1500 (noise ends at 1000, preamble after)
+        assert!(pos < 1500, "Position {} should be before 1500 samples", pos);
+    }
+
+    #[test]
+    fn test_postamble_position_with_trailing_noise() {
+        // Test postamble detection with noise after it
+        let mut signal = vec![0.0; 2000];
+        let postamble = create_postamble(0.5);
+        signal.extend_from_slice(&postamble);
+
+        // Add trailing noise
+        for i in 0..1000 {
+            signal.push((i as f32 * 0.1).sin() * 0.02);
+        }
+
+        let result = detect_postamble(&signal, 0.1);
+        assert!(result.is_some(), "Should detect postamble despite trailing noise");
+
+        let pos = result.unwrap();
+        let expected = 2000;
+        let tolerance = 500;
+        assert!(
+            (pos as i32 - expected as i32).abs() < tolerance as i32,
+            "Position {} should be near expected {} ± {}",
+            pos, expected, tolerance
+        );
+    }
+
+    #[test]
+    fn test_preamble_detection_boundary_precision() {
+        // Test precise boundary detection at preamble edges
+        let mut signal = vec![0.0; 500];
+        let preamble = create_preamble(0.5);
+        let preamble_len = preamble.len();
+        signal.extend_from_slice(&preamble);
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        let result = detect_preamble(&signal, 0.1);
+        assert!(result.is_some(), "Should detect preamble with 500 sample offset");
+
+        let pos = result.unwrap();
+        let expected_start = 500;
+        let expected_end = 500 + preamble_len;
+
+        // Detection should be within the preamble region
+        assert!(pos >= expected_start - 100 && pos < expected_end,
+                "Position {} should be within preamble region [{}, {})",
+                pos, expected_start - 100, expected_end);
+    }
+
 }
