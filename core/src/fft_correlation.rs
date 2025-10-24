@@ -4,14 +4,11 @@
 //! matching scipy/numpy conventions. Uses thread-local FFT planner caching for optimal performance.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::sync::Arc;
 use realfft::RealFftPlanner;
-use rustfft::num_complex::Complex;
+use crate::error::{AudioModemError, Result};
 
 thread_local! {
     static FFT_PLANNER: RefCell<RealFftPlanner<f32>> = RefCell::new(RealFftPlanner::new());
-    static FFT_PLAN_CACHE: RefCell<HashMap<usize, (Arc<dyn realfft::RealToComplex<f32>>, Arc<dyn realfft::ComplexToReal<f32>>)>> = RefCell::new(HashMap::new());
 }
 
 /// Output mode for correlation
@@ -51,10 +48,14 @@ fn next_power_of_two(n: usize) -> usize {
 ///
 /// Returns an empty vector if either input is empty or if Valid mode is used
 /// with signal shorter than template.
-pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Vec<f32> {
+///
+/// # Errors
+///
+/// Returns `AudioModemError::FftError` if FFT processing fails.
+pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Result<Vec<f32>> {
     // Early validation for empty inputs
     if signal.is_empty() || template.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let output_len = signal.len() + template.len() - 1;
@@ -70,23 +71,12 @@ pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Vec<f32
         padded_template[template.len() - 1 - i] = val;
     }
 
-    // Get or create FFT plans from cache
-    let (r2c, c2r) = FFT_PLAN_CACHE.with(|cache| {
-        let mut cache_map = cache.borrow_mut();
-        if let Some(plans) = cache_map.get(&fft_size) {
-            plans.clone()
-        } else {
-            // Create new plans and cache them
-            let (r2c_new, c2r_new) = FFT_PLANNER.with(|planner| {
-                let mut planner_ref = planner.borrow_mut();
-                let r2c = planner_ref.plan_fft_forward(fft_size);
-                let c2r = planner_ref.plan_fft_inverse(fft_size);
-                (r2c, c2r)
-            });
-            let plans = (r2c_new.clone(), c2r_new.clone());
-            cache_map.insert(fft_size, plans.clone());
-            plans
-        }
+    // Get FFT plans from planner (RealFftPlanner has internal caching)
+    let (r2c, c2r) = FFT_PLANNER.with(|planner| {
+        let mut planner_ref = planner.borrow_mut();
+        let r2c = planner_ref.plan_fft_forward(fft_size);
+        let c2r = planner_ref.plan_fft_inverse(fft_size);
+        (r2c, c2r)
     });
 
     // Allocate buffers for FFT output (complex)
@@ -97,23 +87,22 @@ pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Vec<f32
     debug_assert_eq!(padded_signal.len(), fft_size, "Signal buffer size mismatch");
     debug_assert_eq!(padded_template.len(), fft_size, "Template buffer size mismatch");
     r2c.process(&mut padded_signal, &mut signal_spectrum)
-        .expect("FFT forward process failed for signal");
+        .map_err(|e| AudioModemError::FftError(format!("FFT forward process failed for signal: {:?}", e)))?;
     r2c.process(&mut padded_template, &mut template_spectrum)
-        .expect("FFT forward process failed for template");
+        .map_err(|e| AudioModemError::FftError(format!("FFT forward process failed for template: {:?}", e)))?;
 
     // Frequency domain multiplication (element-wise)
-    // For correlation, we already reversed template, so just multiply
-    let mut result_spectrum = vec![Complex::new(0.0, 0.0); signal_spectrum.len()];
+    // For correlation, we already reversed template, so just multiply in-place
     for i in 0..signal_spectrum.len() {
-        result_spectrum[i] = signal_spectrum[i] * template_spectrum[i];
+        signal_spectrum[i] *= template_spectrum[i];
     }
 
     // Inverse FFT
     let mut result_time = vec![0.0; fft_size];
-    debug_assert_eq!(result_spectrum.len(), signal_spectrum.len(), "Spectrum buffer size mismatch");
+    debug_assert_eq!(signal_spectrum.len(), r2c.make_output_vec().len(), "Spectrum buffer size mismatch");
     debug_assert_eq!(result_time.len(), fft_size, "Output buffer size mismatch");
-    c2r.process(&mut result_spectrum, &mut result_time)
-        .expect("FFT inverse process failed");
+    c2r.process(&mut signal_spectrum, &mut result_time)
+        .map_err(|e| AudioModemError::FftError(format!("FFT inverse process failed: {:?}", e)))?;
 
     // Normalize by FFT size
     let normalization = fft_size as f32;
@@ -123,19 +112,19 @@ pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Vec<f32
     match mode {
         Mode::Full => {
             result_time.truncate(output_len);
-            result_time
+            Ok(result_time)
         }
         Mode::Same => {
             let start = (output_len - signal.len()) / 2;
-            result_time[start..start + signal.len()].to_vec()
+            Ok(result_time[start..start + signal.len()].to_vec())
         }
         Mode::Valid => {
             if signal.len() < template.len() {
-                return Vec::new();
+                return Ok(Vec::new());
             }
             let valid_len = signal.len() - template.len() + 1;
             let start = template.len() - 1;
-            result_time[start..start + valid_len].to_vec()
+            Ok(result_time[start..start + valid_len].to_vec())
         }
     }
 }
@@ -160,12 +149,12 @@ mod tests {
     fn test_fft_correlate_mode_full_length() {
         let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let template = vec![1.0, 0.0, 0.0];
-        let result = fft_correlate_1d(&signal, &template, Mode::Full);
+        let result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
         assert_eq!(result.len(), signal.len() + template.len() - 1);
 
         let signal = vec![1.0; 100];
         let template = vec![1.0; 10];
-        let result = fft_correlate_1d(&signal, &template, Mode::Full);
+        let result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
         assert_eq!(result.len(), 109);
     }
 
@@ -173,12 +162,12 @@ mod tests {
     fn test_fft_correlate_mode_same_length() {
         let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let template = vec![1.0, 0.0, 0.0];
-        let result = fft_correlate_1d(&signal, &template, Mode::Same);
+        let result = fft_correlate_1d(&signal, &template, Mode::Same).unwrap();
         assert_eq!(result.len(), signal.len());
 
         let signal = vec![1.0; 100];
         let template = vec![1.0; 10];
-        let result = fft_correlate_1d(&signal, &template, Mode::Same);
+        let result = fft_correlate_1d(&signal, &template, Mode::Same).unwrap();
         assert_eq!(result.len(), 100);
     }
 
@@ -186,18 +175,18 @@ mod tests {
     fn test_fft_correlate_mode_valid_length() {
         let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let template = vec![1.0, 0.0, 0.0];
-        let result = fft_correlate_1d(&signal, &template, Mode::Valid);
+        let result = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
         assert_eq!(result.len(), signal.len() - template.len() + 1);
 
         let signal = vec![1.0; 100];
         let template = vec![1.0; 10];
-        let result = fft_correlate_1d(&signal, &template, Mode::Valid);
+        let result = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
         assert_eq!(result.len(), 91);
 
         // Template longer than signal
         let signal = vec![1.0, 2.0];
         let template = vec![1.0; 10];
-        let result = fft_correlate_1d(&signal, &template, Mode::Valid);
+        let result = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
         assert_eq!(result.len(), 0);
     }
 
@@ -205,7 +194,7 @@ mod tests {
     fn test_fft_correlate_mode_full_impulse() {
         let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let template = vec![1.0, 0.0, 0.0];
-        let result = fft_correlate_1d(&signal, &template, Mode::Full);
+        let result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
 
         // Correlation with impulse at position 0 should return signal shifted
         assert_eq!(result.len(), 7);
@@ -221,8 +210,8 @@ mod tests {
         let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let template = vec![1.0, 0.0, 0.0];
 
-        let full_result = fft_correlate_1d(&signal, &template, Mode::Full);
-        let same_result = fft_correlate_1d(&signal, &template, Mode::Same);
+        let full_result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
+        let same_result = fft_correlate_1d(&signal, &template, Mode::Same).unwrap();
 
         // Same mode should be centered slice of Full mode
         let output_len = full_result.len();
@@ -240,7 +229,7 @@ mod tests {
         let signal = vec![0.0, 0.0, 1.0, 2.0, 3.0, 0.0, 0.0];
         let template = vec![1.0, 1.0, 1.0];
 
-        let valid_result = fft_correlate_1d(&signal, &template, Mode::Valid);
+        let valid_result = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
 
         // Valid mode should have length 5 for this case
         assert_eq!(valid_result.len(), 5);
@@ -260,9 +249,9 @@ mod tests {
         let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0, 4.0, 3.0, 2.0, 1.0];
         let template = vec![0.5, 1.0, 0.5];
 
-        let full = fft_correlate_1d(&signal, &template, Mode::Full);
-        let same = fft_correlate_1d(&signal, &template, Mode::Same);
-        let valid = fft_correlate_1d(&signal, &template, Mode::Valid);
+        let full = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
+        let same = fft_correlate_1d(&signal, &template, Mode::Same).unwrap();
+        let valid = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
 
         // Check Same is centered slice of Full
         let output_len = full.len();
@@ -301,7 +290,7 @@ mod tests {
         let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0, 4.0, 3.0, 2.0, 1.0];
         let template = vec![0.5, 1.0, 0.5];
 
-        let fft_result = fft_correlate_1d(&signal, &template, Mode::Full);
+        let fft_result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
         let sliding_result = sliding_window_correlate(&signal, &template);
 
         assert_eq!(fft_result.len(), sliding_result.len());
@@ -335,9 +324,9 @@ mod tests {
         signal.extend_from_slice(&vec![0.0; 500]);
 
         // Test all three modes
-        let full = fft_correlate_1d(&signal, &template, Mode::Full);
-        let same = fft_correlate_1d(&signal, &template, Mode::Same);
-        let valid = fft_correlate_1d(&signal, &template, Mode::Valid);
+        let full = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
+        let same = fft_correlate_1d(&signal, &template, Mode::Same).unwrap();
+        let valid = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
 
         // All should find peak
         let full_peak = full.iter().map(|x| x.abs()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
@@ -351,13 +340,13 @@ mod tests {
 
     #[test]
     fn test_fft_correlate_empty_inputs() {
-        let result1 = fft_correlate_1d(&[], &[1.0, 2.0, 3.0], Mode::Full);
+        let result1 = fft_correlate_1d(&[], &[1.0, 2.0, 3.0], Mode::Full).unwrap();
         assert_eq!(result1.len(), 0);
 
-        let result2 = fft_correlate_1d(&[1.0, 2.0, 3.0], &[], Mode::Full);
+        let result2 = fft_correlate_1d(&[1.0, 2.0, 3.0], &[], Mode::Full).unwrap();
         assert_eq!(result2.len(), 0);
 
-        let result3 = fft_correlate_1d(&[], &[], Mode::Full);
+        let result3 = fft_correlate_1d(&[], &[], Mode::Full).unwrap();
         assert_eq!(result3.len(), 0);
     }
 
@@ -366,15 +355,15 @@ mod tests {
         let signal = vec![5.0];
         let template = vec![2.0];
 
-        let full = fft_correlate_1d(&signal, &template, Mode::Full);
+        let full = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
         assert_eq!(full.len(), 1);
         assert!((full[0] - 10.0).abs() < 1e-4);
 
-        let same = fft_correlate_1d(&signal, &template, Mode::Same);
+        let same = fft_correlate_1d(&signal, &template, Mode::Same).unwrap();
         assert_eq!(same.len(), 1);
         assert!((same[0] - 10.0).abs() < 1e-4);
 
-        let valid = fft_correlate_1d(&signal, &template, Mode::Valid);
+        let valid = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
         assert_eq!(valid.len(), 1);
         assert!((valid[0] - 10.0).abs() < 1e-4);
     }
@@ -384,13 +373,13 @@ mod tests {
         let signal = vec![1.0, 2.0, 3.0];
         let template = vec![0.5, 1.0, 1.5];
 
-        let full = fft_correlate_1d(&signal, &template, Mode::Full);
+        let full = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
         assert_eq!(full.len(), 5);
 
-        let same = fft_correlate_1d(&signal, &template, Mode::Same);
+        let same = fft_correlate_1d(&signal, &template, Mode::Same).unwrap();
         assert_eq!(same.len(), 3);
 
-        let valid = fft_correlate_1d(&signal, &template, Mode::Valid);
+        let valid = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
         assert_eq!(valid.len(), 1);
     }
 
@@ -399,13 +388,13 @@ mod tests {
         let signal = vec![1.0, 2.0];
         let template = vec![1.0; 10];
 
-        let full = fft_correlate_1d(&signal, &template, Mode::Full);
+        let full = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
         assert_eq!(full.len(), 11);
 
-        let same = fft_correlate_1d(&signal, &template, Mode::Same);
+        let same = fft_correlate_1d(&signal, &template, Mode::Same).unwrap();
         assert_eq!(same.len(), 2);
 
-        let valid = fft_correlate_1d(&signal, &template, Mode::Valid);
+        let valid = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
         assert_eq!(valid.len(), 0);
     }
 
@@ -415,7 +404,7 @@ mod tests {
         let signal = vec![1.0; 50];
         let template = signal.clone();
 
-        let result = fft_correlate_1d(&signal, &template, Mode::Full);
+        let result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
 
         let max_val = result.iter()
             .map(|x| x.abs())

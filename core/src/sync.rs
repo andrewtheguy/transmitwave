@@ -1,6 +1,9 @@
 use crate::SAMPLE_RATE;
-use crate::fft_correlation::{fft_correlate_1d, Mode};
 use std::f32::consts::PI;
+
+// Compatibility re-exports for backward compatibility
+// Users can now access via testaudio_core::sync::fft_correlate_1d or testaudio_core::fft_correlate_1d
+pub use crate::fft_correlation::{fft_correlate_1d, Mode};
 
 /// Generates a Barker code (11-bit) for synchronization
 pub fn barker_code() -> Vec<i8> {
@@ -47,7 +50,10 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
     let template = generate_chirp(preamble_samples, 200.0, 4000.0, 1.0);
 
     // Use FFT-based correlation for O(N log N) complexity
-    let fft_correlation = fft_correlate_1d(samples, &template, Mode::Full);
+    let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
+        Ok(corr) => corr,
+        Err(_) => return None, // FFT error, cannot detect preamble
+    };
 
     let mut best_pos = 0;
     let mut best_correlation = 0.0;
@@ -116,7 +122,10 @@ pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usi
     let template = generate_chirp(postamble_samples, 4000.0, 200.0, 1.0);
 
     // Use FFT-based correlation for O(N log N) complexity
-    let fft_correlation = fft_correlate_1d(samples, &template, Mode::Full);
+    let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
+        Ok(corr) => corr,
+        Err(_) => return None, // FFT error, cannot detect postamble
+    };
 
     let mut best_pos = 0;
     let mut best_correlation = 0.0;
