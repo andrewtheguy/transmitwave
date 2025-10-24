@@ -9,7 +9,7 @@ const DemoPage: React.FC = () => {
   const { encode, isEncoding, error: encodeError } = useEncoder()
   const { decode, isDecoding, error: decodeError } = useDecoder()
 
-  const [encodeText, setEncodeText] = useState('')
+  const [encodeText, setEncodeText] = useState('Hello World')
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [decodedText, setDecodedText] = useState<string | null>(null)
   const [decodeFile, setDecodeFile] = useState<File | null>(null)
