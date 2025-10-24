@@ -5,6 +5,7 @@ A Rust library for reliable low-bandwidth communication over audio channels. Enc
 ## Features
 
 - **OFDM Modulation**: 48 overlapping subcarriers for robust multi-frequency transmission
+- **CSS Modulation**: Alternative chirp-based modulation for smooth "hiss" sound (like 56k modems)
 - **Reed-Solomon FEC**: Forward error correction for reliability
 - **CRC Validation**: Integrity checks on frame headers
 - **Preamble/Postamble Detection**: Frame synchronization with chirp and tone signals
@@ -15,11 +16,14 @@ A Rust library for reliable low-bandwidth communication over audio channels. Enc
 
 ### Core Library (`core/`)
 - `ofdm.rs`: OFDM modulation/demodulation
+- `css.rs`: Chirp Spread Spectrum modulation/demodulation
 - `fec.rs`: Reed-Solomon error correction
 - `framing.rs`: Frame structure with CRC
 - `sync.rs`: Preamble/postamble generation and detection
-- `encoder.rs`: Data-to-audio encoding
-- `decoder.rs`: Audio-to-data decoding
+- `encoder.rs`: Data-to-audio encoding (OFDM)
+- `decoder.rs`: Audio-to-data decoding (OFDM)
+- `encoder_css.rs`: Data-to-audio encoding (CSS)
+- `decoder_css.rs`: Audio-to-data decoding (CSS)
 
 ### CLI Tool (`cli/`)
 Native command-line tool for WAV file processing:
@@ -56,6 +60,43 @@ const recoveredData = decoder.decode(audioSamples);
 - Reed-Solomon: (255, 223) - 32 bytes ECC
 - Frame Header: CRC-8 protection
 - Max Payload: 200 bytes per frame
+
+## Modulation Options
+
+The library supports two modulation schemes:
+
+### OFDM (Default)
+- 48 subcarriers for parallel data transmission
+- Higher throughput (~48 bits per symbol)
+- Distinct tonal sound ("cranking")
+- Best for: Maximizing data throughput
+
+### CSS (Chirp Spread Spectrum)
+- Chirp-based modulation for smooth "hiss" sound
+- Lower throughput (~1 bit per symbol)
+- Sounds like preamble/postamble throughout
+- Similar to Quiet library and classic modems
+- Best for: Maximizing robustness and modem aesthetic
+
+**CLI Usage:**
+```bash
+# OFDM (default)
+testaudio encode input.bin output.wav
+
+# CSS
+testaudio encode input.bin output.wav --css
+```
+
+**WASM Usage:**
+```javascript
+// OFDM (default)
+const encoder = await createEncoder({ type: 'spread' });
+
+// CSS
+const encoder = await createEncoder({ type: 'css' });
+```
+
+See [CSS_MODULATION.md](CSS_MODULATION.md) for detailed CSS documentation.
 
 ## Usage Examples
 

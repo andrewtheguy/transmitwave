@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, detect_preamble, detect_postamble};
+use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, DecoderCss, EncoderCss, detect_preamble, detect_postamble};
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
@@ -150,6 +150,54 @@ impl WasmDecoderLegacy {
     }
 
     /// Decode audio samples back to binary data (legacy, no spread spectrum)
+    #[wasm_bindgen]
+    pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .decode(samples)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+/// CSS (Chirp Spread Spectrum) WASM Encoder for hiss-like sound
+#[wasm_bindgen]
+pub struct WasmEncoderCss {
+    inner: EncoderCss,
+}
+
+#[wasm_bindgen]
+impl WasmEncoderCss {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmEncoderCss, JsValue> {
+        EncoderCss::new()
+            .map(|encoder| WasmEncoderCss { inner: encoder })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Encode binary data into audio samples with CSS modulation
+    #[wasm_bindgen]
+    pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>, JsValue> {
+        self.inner
+            .encode(data)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+/// CSS (Chirp Spread Spectrum) WASM Decoder for hiss-like sound
+#[wasm_bindgen]
+pub struct WasmDecoderCss {
+    inner: DecoderCss,
+}
+
+#[wasm_bindgen]
+impl WasmDecoderCss {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmDecoderCss, JsValue> {
+        DecoderCss::new()
+            .map(|decoder| WasmDecoderCss { inner: decoder })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Decode audio samples back to binary data with CSS demodulation
     #[wasm_bindgen]
     pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
         self.inner

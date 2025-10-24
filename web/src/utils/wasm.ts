@@ -9,6 +9,8 @@ import init, {
     WasmDecoderSpread,
     WasmEncoderLegacy,
     WasmDecoderLegacy,
+    WasmEncoderCss,
+    WasmDecoderCss,
     MicrophoneListener,
     PostambleDetector,
 } from 'testaudio-wasm';
@@ -80,6 +82,8 @@ export {
     WasmDecoderSpread,
     WasmEncoderLegacy,
     WasmDecoderLegacy,
+    WasmEncoderCss,
+    WasmDecoderCss,
     MicrophoneListener,
     PostambleDetector,
 };
@@ -88,14 +92,14 @@ export {
  * Utility types for WASM encoding/decoding
  */
 export interface EncoderOptions {
-    type?: 'spread' | 'legacy' | 'chunked';
+    type?: 'spread' | 'legacy' | 'chunked' | 'css';
     chipDuration?: number;
     chunkBits?: number;
     interleaveFactor?: number;
 }
 
 export interface DecoderOptions {
-    type?: 'spread' | 'legacy' | 'chunked';
+    type?: 'spread' | 'legacy' | 'chunked' | 'css';
     chipDuration?: number;
     chunkBits?: number;
 }
@@ -105,7 +109,7 @@ export interface DecoderOptions {
  */
 export async function createEncoder(
     options: EncoderOptions = {}
-): Promise<WasmEncoder | WasmEncoderLegacy | WasmEncoderSpread> {
+): Promise<WasmEncoder | WasmEncoderLegacy | WasmEncoderSpread | WasmEncoderCss> {
     await initWasm();
 
     const { type = 'spread' } = options;
@@ -114,6 +118,8 @@ export async function createEncoder(
         return new WasmEncoderLegacy();
     } else if (type === 'spread') {
         return new WasmEncoderSpread();
+    } else if (type === 'css') {
+        return new WasmEncoderCss();
     } else {
         return new WasmEncoder();
     }
@@ -124,7 +130,7 @@ export async function createEncoder(
  */
 export async function createDecoder(
     options: DecoderOptions = {}
-): Promise<WasmDecoder | WasmDecoderLegacy | WasmDecoderSpread> {
+): Promise<WasmDecoder | WasmDecoderLegacy | WasmDecoderSpread | WasmDecoderCss> {
     await initWasm();
 
     const { type = 'spread' } = options;
@@ -133,6 +139,8 @@ export async function createDecoder(
         return new WasmDecoderLegacy();
     } else if (type === 'spread') {
         return new WasmDecoderSpread();
+    } else if (type === 'css') {
+        return new WasmDecoderCss();
     } else {
         return new WasmDecoder();
     }
