@@ -6,8 +6,20 @@ use testaudio_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, fft_correlate_1d, Mode
 use rand::SeedableRng;
 use rand_distr::Normal;
 
-// Signal generation helpers - signal-agnostic factory functions
-// These generate the same signals used by the actual detector implementations
+// ============================================================================
+// SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
+// ============================================================================
+// NOTE: The actual signal type is controlled by PREAMBLE_TYPE in core/src/sync.rs
+// These helper functions automatically respect that configuration:
+//   - generate_preamble_noise() and generate_postamble_noise() use PREAMBLE_TYPE
+//
+// To toggle signal types:
+// 1. Edit core/src/sync.rs line ~49: const PREAMBLE_TYPE: PreambleType = ...
+// 2. Change between PreambleType::PrnNoise or PreambleType::Chirp
+// 3. All tests automatically use the selected signal type
+// ============================================================================
+
+// Signal generation helpers - these respect the PREAMBLE_TYPE configuration in sync.rs
 fn create_test_preamble(amplitude: f32) -> Vec<f32> {
     generate_preamble_noise(PREAMBLE_SAMPLES, amplitude)
 }

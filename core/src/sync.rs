@@ -37,6 +37,23 @@ fn generate_prn_noise(seed: u32, duration_samples: usize, amplitude: f32) -> Vec
     samples
 }
 
+// ============================================================================
+// SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
+// ============================================================================
+// Toggle this constant to switch between different synchronization signal types:
+//   - PreambleType::PrnNoise (current: recommended for better correlation properties)
+//   - PreambleType::Chirp    (legacy: frequency sweep from low to high)
+//
+// This controls what `generate_preamble_noise()` and `generate_postamble_noise()`
+// actually generate, allowing easy comparison between signal types.
+const PREAMBLE_TYPE: PreambleType = PreambleType::PrnNoise;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PreambleType {
+    PrnNoise,  // Pseudo-random bipolar noise (different seeds for pre/post)
+    Chirp,     // Linear frequency sweep
+}
+
 /// Generates a chirp signal that sweeps from low to high frequency
 /// Used as preamble for frame synchronization
 pub fn generate_chirp(
@@ -64,20 +81,36 @@ pub fn generate_postamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     generate_chirp(duration_samples, 4000.0, 200.0, amplitude)
 }
 
-/// Generate preamble as 0.25s pseudo-random bipolar noise burst
-/// Uses fixed seed for reproducibility and consistency across all transmissions
+/// Generate preamble signal
+/// Type determined by PREAMBLE_TYPE configuration constant (PrnNoise or Chirp)
 pub fn generate_preamble_noise(duration_samples: usize, amplitude: f32) -> Vec<f32> {
-    // Fixed seed: 0xDEADBEEF for preamble (deterministic, always same pattern)
-    const PREAMBLE_SEED: u32 = 0xDEADBEEF;
-    generate_prn_noise(PREAMBLE_SEED, duration_samples, amplitude)
+    match PREAMBLE_TYPE {
+        PreambleType::PrnNoise => {
+            // PRN noise: Fixed seed 0xDEADBEEF for reproducibility
+            const PREAMBLE_SEED: u32 = 0xDEADBEEF;
+            generate_prn_noise(PREAMBLE_SEED, duration_samples, amplitude)
+        }
+        PreambleType::Chirp => {
+            // Chirp: Linear frequency sweep from 200 Hz to 4000 Hz
+            generate_chirp(duration_samples, 200.0, 4000.0, amplitude)
+        }
+    }
 }
 
-/// Generate postamble as 0.25s pseudo-random bipolar noise burst
-/// Uses different seed than preamble to create distinct pattern
+/// Generate postamble signal
+/// Type determined by PREAMBLE_TYPE configuration constant (PrnNoise or Chirp)
 pub fn generate_postamble_noise(duration_samples: usize, amplitude: f32) -> Vec<f32> {
-    // Different seed: 0xCAFEBABE for postamble (deterministic, but different from preamble)
-    const POSTAMBLE_SEED: u32 = 0xCAFEBABE;
-    generate_prn_noise(POSTAMBLE_SEED, duration_samples, amplitude)
+    match PREAMBLE_TYPE {
+        PreambleType::PrnNoise => {
+            // PRN noise: Different seed 0xCAFEBABE (distinct from preamble)
+            const POSTAMBLE_SEED: u32 = 0xCAFEBABE;
+            generate_prn_noise(POSTAMBLE_SEED, duration_samples, amplitude)
+        }
+        PreambleType::Chirp => {
+            // Chirp: Reverse sweep from 4000 Hz to 200 Hz (mirror of preamble)
+            generate_chirp(duration_samples, 4000.0, 200.0, amplitude)
+        }
+    }
 }
 
 /// Detect preamble using efficient FFT-based cross-correlation
@@ -453,13 +486,33 @@ mod tests {
         assert!(zero_crossings_early > zero_crossings_late);
     }
 
+    // ========================================================================
+    // SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
+    // ========================================================================
+    // Toggle this constant to switch between signal types for testing:
+    //   - SignalType::PrnNoise (current: recommended)
+    //   - SignalType::Chirp    (legacy)
+    const TEST_SIGNAL_TYPE: SignalType = SignalType::PrnNoise;
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum SignalType {
+        PrnNoise,  // Pseudo-random bipolar noise (different seeds for pre/post)
+        Chirp,     // Linear frequency sweep
+    }
+
     // Helper functions for signal-agnostic testing
     fn create_preamble(amplitude: f32) -> Vec<f32> {
-        generate_preamble_noise(crate::PREAMBLE_SAMPLES, amplitude)
+        match TEST_SIGNAL_TYPE {
+            SignalType::PrnNoise => generate_preamble_noise(crate::PREAMBLE_SAMPLES, amplitude),
+            SignalType::Chirp => generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, amplitude),
+        }
     }
 
     fn create_postamble(amplitude: f32) -> Vec<f32> {
-        generate_postamble_noise(crate::POSTAMBLE_SAMPLES, amplitude)
+        match TEST_SIGNAL_TYPE {
+            SignalType::PrnNoise => generate_postamble_noise(crate::POSTAMBLE_SAMPLES, amplitude),
+            SignalType::Chirp => generate_postamble(crate::POSTAMBLE_SAMPLES, amplitude),
+        }
     }
 
     #[test]
