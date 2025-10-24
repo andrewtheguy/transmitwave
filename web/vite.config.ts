@@ -20,7 +20,6 @@ export default defineConfig({
     sourcemap: true,
     outDir: 'dist',
     rollupOptions: {
-      external: ['env'],
       output: {
         entryFileNames: '[name].[hash].js',
         chunkFileNames: '[name].[hash].js',
@@ -34,6 +33,7 @@ export default defineConfig({
   resolve: {
     alias: {
       'transmitwave-wasm': path.resolve(__dirname, 'node_modules/transmitwave-wasm'),
-    },
+      'env': path.resolve(__dirname, 'wasm-env-shim.js')
+    }
   },
 })
