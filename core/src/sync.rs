@@ -1,9 +1,22 @@
 use crate::SAMPLE_RATE;
 use std::f32::consts::PI;
 
-// Compatibility re-exports for backward compatibility
-// Users can now access via testaudio_core::sync::fft_correlate_1d or testaudio_core::fft_correlate_1d
-pub use crate::fft_correlation::{fft_correlate_1d, Mode};
+// ============================================================================
+// SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
+// ============================================================================
+// Toggle this constant to switch between different synchronization signal types:
+//   - SignalType::Chirp    (frequency sweep from low to high, better detection in noisy environments)
+//   - SignalType::PrnNoise (blends in better with the sound of the payload)
+//
+// This controls what `generate_preamble()` and `generate_postamble_signal()`
+// actually generate, allowing easy comparison between signal types.
+const SIGNAL_TYPE: SignalType = SignalType::Chirp;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SignalType {
+    PrnNoise,  // Pseudo-random bipolar noise (different seeds for pre/post)
+    Chirp,     // Linear frequency sweep
+}
 
 /// Generates a Barker code (11-bit) for synchronization
 pub fn barker_code() -> Vec<i8> {
@@ -35,23 +48,6 @@ fn generate_prn_noise(seed: u32, duration_samples: usize, amplitude: f32) -> Vec
     }
 
     samples
-}
-
-// ============================================================================
-// SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
-// ============================================================================
-// Toggle this constant to switch between different synchronization signal types:
-//   - SignalType::Chirp    (frequency sweep from low to high, better detection in noisy environments)
-//   - SignalType::PrnNoise (blends in better with the sound of the payload)
-//
-// This controls what `generate_preamble()` and `generate_postamble_signal()`
-// actually generate, allowing easy comparison between signal types.
-const SIGNAL_TYPE: SignalType = SignalType::Chirp;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum SignalType {
-    PrnNoise,  // Pseudo-random bipolar noise (different seeds for pre/post)
-    Chirp,     // Linear frequency sweep
 }
 
 /// Generates a chirp signal that sweeps from low to high frequency
