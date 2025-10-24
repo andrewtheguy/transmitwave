@@ -697,6 +697,32 @@ fn test_fsk_binary_patterns() {
 }
 
 #[test]
+fn test_fsk_medium_payload_with_noise_and_silence() {
+    let original_data = vec![42u8; 50]; // Medium payload size for faster testing
+
+    let mut encoder = EncoderFsk::new().expect("Failed to create FSK encoder");
+    let samples = encoder.encode(&original_data).expect("Failed to encode");
+
+    // Add leading and trailing silence
+    let mut augmented_samples = vec![0.0; 8000]; // 0.5 second leading silence
+    augmented_samples.extend_from_slice(&samples);
+    augmented_samples.extend_from_slice(&vec![0.0; 8000]); // 0.5 second trailing silence
+
+    // Add noise to the data portion
+    for sample in &mut augmented_samples[8000..8000 + samples.len()] {
+        let mut rng_state = 44444u32;
+        rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
+        let noise = ((rng_state >> 16) as f32 / 65536.0 - 0.5) * 0.08; // 8% noise
+        *sample += noise;
+    }
+
+    let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
+    let decoded_data = decoder.decode(&augmented_samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "FSK: Medium payload with noise/silence test failed");
+}
+
+#[test]
 #[ignore = "it is too slow"]
 fn test_fsk_max_payload_with_noise_and_silence() {
     let original_data = vec![42u8; 200]; // Max payload size
