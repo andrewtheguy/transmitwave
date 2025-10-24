@@ -25,6 +25,18 @@ export async function RecordingDecodePage(): Promise<string> {
             </div>
 
             <div class="mt-4">
+                <label><strong>Input Level</strong></label>
+                <div style="background: #f7fafc; padding: 1rem; border-radius: 0.5rem; margin-top: 0.5rem;">
+                    <div style="display: flex; gap: 0.5rem; height: 20px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                        <div id="volumeBar" style="background: linear-gradient(90deg, #4ade80, #facc15, #ef4444); height: 100%; width: 0%; transition: width 0.05s linear;"></div>
+                    </div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        Peak: <span id="peakLevel">0.0</span> dB
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4">
                 <label><strong>Detection Threshold</strong></label>
                 <div class="flex items-center gap-3 mt-2">
                     <input type="range" id="thresholdSlider" min="0.1" max="0.9" step="0.1" value="0.4" />
@@ -89,6 +101,8 @@ function setupRecordingListeners(): void {
     let recordedSamples: number[] = [];
     let startTime: number;
     let gainNode: GainNode | null = null;
+    let analyser: AnalyserNode | null = null;
+    let peakLevel = 0;
 
     // Update volume display
     volumeSlider.addEventListener('input', () => {
@@ -118,14 +132,17 @@ function setupRecordingListeners(): void {
             audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
             const source = audioContext.createMediaStreamSource(stream);
             gainNode = audioContext.createGain();
+            analyser = audioContext.createAnalyser();
             const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
             // Set initial gain
             gainNode.gain.value = parseFloat(volumeSlider.value);
+            analyser.fftSize = 2048;
 
-            // Connect: microphone -> gain -> processor -> output
+            // Connect: microphone -> gain -> analyser -> processor -> output
             source.connect(gainNode);
-            gainNode.connect(processor);
+            gainNode.connect(analyser);
+            analyser.connect(processor);
             processor.connect(audioContext.destination);
 
             isRecording = true;
@@ -145,6 +162,21 @@ function setupRecordingListeners(): void {
             processor.onaudioprocess = (event: AudioProcessingEvent) => {
                 const samples = Array.from(event.inputData.getChannelData(0));
                 recordedSamples.push(...samples);
+
+                // Update volume meter
+                if (analyser) {
+                    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                    analyser.getByteFrequencyData(dataArray);
+                    const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                    const db = 20 * Math.log10(average / 128 + 0.0001);
+                    peakLevel = Math.max(peakLevel * 0.95, db); // Decay peak
+
+                    const volumeBar = document.getElementById('volumeBar')!;
+                    const peakDisplay = document.getElementById('peakLevel')!;
+                    const normalizedDb = Math.max(0, Math.min(100, (db + 60) / 0.6)); // Map -60dB to 0dB range
+                    volumeBar.style.width = normalizedDb + '%';
+                    peakDisplay.textContent = db.toFixed(1);
+                }
 
                 if (state === 'waiting_preamble') {
                     const pos = preDetector.add_samples(samples);
