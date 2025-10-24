@@ -473,7 +473,27 @@ mod tests {
     }
 
     #[test]
-    fn test_postamble_descending() {
+    fn test_preample_chirp_ascending() {
+        let preamble = generate_preamble_chirp(1600, 1.0);
+        assert_eq!(preamble.len(), 1600);
+
+        // Preamble should be frequency sweep from low to high
+        let zero_crossings_early = preamble[..400]
+            .windows(2)
+            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
+            .count();
+
+        let zero_crossings_late = preamble[1200..]
+            .windows(2)
+            .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
+            .count();
+
+        // Later part should have more zero crossings (higher frequency at end)
+        assert!(zero_crossings_late > zero_crossings_early);
+    }
+
+    #[test]
+    fn test_postamble_chirp_descending() {
         let postamble = generate_postamble_chirp(1600, 1.0);
         assert_eq!(postamble.len(), 1600);
 
@@ -695,6 +715,22 @@ mod tests {
         let pos = result.unwrap();
         // Should detect near the start of silence (within tolerance)
         assert!(pos < 1000, "Detection position {} should be reasonable", pos);
+    }
+
+     #[test]
+    fn test_postamble_position_accuracy() {
+        // Verify detection correctly identifies postamble position
+        let postamble = create_postamble(0.3);
+        let mut signal = vec![0.0; 1000];
+        signal.extend_from_slice(&postamble);
+        signal.extend_from_slice(&vec![0.0; 500]);
+
+        let result = detect_postamble(&signal, 0.1);
+        assert!(result.is_some());
+
+        let pos = result.unwrap();
+        // Should detect near the start of postamble (within tolerance)
+        assert!(pos >= 1000 && pos < 2000, "Detection position {} should be reasonable", pos);
     }
 
 }
