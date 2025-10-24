@@ -318,7 +318,7 @@ Expected: Exact match including spaces
 2. Click **Network** tab
 3. Reload page
 4. Expected:
-   - ✅ WASM file loads (testaudio_wasm_bg.wasm)
+   - ✅ WASM file loads (transmitwave_wasm_bg.wasm)
    - ✅ File size ~300KB
    - ✅ Status 200 (successful)
 

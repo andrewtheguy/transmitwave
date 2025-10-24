@@ -4,7 +4,7 @@
 
 ### Step 1: Start the Server
 ```bash
-cd /Users/it3/codes/andrew/testaudio
+cd /Users/it3/codes/andrew/transmitwave
 python3 -m http.server 8000
 ```
 

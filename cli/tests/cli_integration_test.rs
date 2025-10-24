@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn get_target_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/release/testaudio")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/release/transmitwave")
 }
 
 fn create_test_file(name: &str, content: &str) -> PathBuf {
@@ -14,12 +14,12 @@ fn create_test_file(name: &str, content: &str) -> PathBuf {
     path
 }
 
-fn run_testaudio(args: &[&str]) -> String {
+fn run_transmitwave(args: &[&str]) -> String {
     let binary = get_target_dir();
     let output = Command::new(&binary)
         .args(args)
         .output()
-        .expect("Failed to execute testaudio");
+        .expect("Failed to execute transmitwave");
 
     String::from_utf8_lossy(&output.stderr).to_string() + &String::from_utf8_lossy(&output.stdout)
 }
@@ -30,7 +30,7 @@ fn test_encode_spread_default_chip_duration() {
     let input = create_test_file("test_encode_spread.txt", "Test message");
     let output = PathBuf::from("tmp/test_encode_spread.wav");
 
-    let output_text = run_testaudio(&[
+    let output_text = run_transmitwave(&[
         "encode",
         input.to_str().unwrap(),
         output.to_str().unwrap(),
@@ -59,14 +59,14 @@ fn test_decode_spread_default_chip_duration() {
     let output = PathBuf::from("tmp/test_decode_output.bin");
 
     // Encode
-    run_testaudio(&[
+    run_transmitwave(&[
         "encode",
         input.to_str().unwrap(),
         encoded.to_str().unwrap(),
     ]);
 
     // Decode - should use chip_duration from cli.chip_duration, not chunk_bits
-    let output_text = run_testaudio(&[
+    let output_text = run_transmitwave(&[
         "decode",
         encoded.to_str().unwrap(),
         output.to_str().unwrap(),
@@ -83,7 +83,7 @@ fn test_positional_with_custom_chip_duration() {
     let output = PathBuf::from("tmp/test_chip_custom.wav");
 
     // Use positional args with --chip-duration flag
-    let output_text = run_testaudio(&[
+    let output_text = run_transmitwave(&[
         input.to_str().unwrap(),
         output.to_str().unwrap(),
         "--chip-duration", "3",
@@ -108,7 +108,7 @@ fn test_legacy_encode_no_spread_flag() {
     let input = create_test_file("test_legacy.bin", "Legacy test");
     let output = PathBuf::from("tmp/test_legacy.wav");
 
-    let output_text = run_testaudio(&[
+    let output_text = run_transmitwave(&[
         "encode",
         input.to_str().unwrap(),
         output.to_str().unwrap(),
@@ -133,7 +133,7 @@ fn test_positional_args_encode_decode() {
     let decoded = PathBuf::from("tmp/test_positional_decoded.bin");
 
     // Encode using positional args (auto-detects .bin as input)
-    let encode_output = run_testaudio(&[
+    let encode_output = run_transmitwave(&[
         input.to_str().unwrap(),
         encoded.to_str().unwrap(),
     ]);
@@ -142,7 +142,7 @@ fn test_positional_args_encode_decode() {
         "Positional encode should succeed. Got: {}", encode_output);
 
     // Decode using positional args (auto-detects .wav as input)
-    let decode_output = run_testaudio(&[
+    let decode_output = run_transmitwave(&[
         encoded.to_str().unwrap(),
         decoded.to_str().unwrap(),
     ]);
@@ -160,14 +160,14 @@ fn test_roundtrip_consistency() {
     let decoded = PathBuf::from("tmp/test_roundtrip_out.bin");
 
     // Encode using subcommand
-    run_testaudio(&[
+    run_transmitwave(&[
         "encode",
         input.to_str().unwrap(),
         encoded.to_str().unwrap(),
     ]);
 
     // Decode using subcommand
-    run_testaudio(&[
+    run_transmitwave(&[
         "decode",
         encoded.to_str().unwrap(),
         decoded.to_str().unwrap(),
@@ -188,7 +188,7 @@ fn test_file_extension_auto_detection() {
     let output = PathBuf::from("tmp/test_auto_detect.wav");
 
     // Should auto-detect encode mode based on input extension
-    let output_text = run_testaudio(&[
+    let output_text = run_transmitwave(&[
         input.to_str().unwrap(),
         output.to_str().unwrap(),
     ]);
@@ -209,13 +209,13 @@ fn test_different_input_sizes_same_output_size() {
     let output_small = PathBuf::from("tmp/test_small_out.wav");
     let output_medium = PathBuf::from("tmp/test_medium_out.wav");
 
-    run_testaudio(&[
+    run_transmitwave(&[
         "encode",
         small.to_str().unwrap(),
         output_small.to_str().unwrap(),
     ]);
 
-    run_testaudio(&[
+    run_transmitwave(&[
         "encode",
         medium.to_str().unwrap(),
         output_medium.to_str().unwrap(),

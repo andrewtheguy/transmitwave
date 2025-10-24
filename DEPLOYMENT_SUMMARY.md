@@ -2,7 +2,7 @@
 
 ## ✅ Setup Complete
 
-Your testaudio project is now configured and ready for deployment to Cloudflare Pages.
+Your transmitwave project is now configured and ready for deployment to Cloudflare Pages.
 
 ## What Was Set Up
 
@@ -22,7 +22,7 @@ web/dist/              (Deployed to Cloudflare)
 ├── index.html         (438 bytes)
 ├── index.[hash].js    (253 KB, gzipped: 80 KB)
 ├── index.[hash].css   (6 KB, gzipped: 2 KB)
-└── testaudio_wasm_bg.[hash].wasm  (372 KB, uncompressed)
+└── transmitwave_wasm_bg.[hash].wasm  (372 KB, uncompressed)
 
 Total size: ~630 KB (gzipped: ~82 KB)
 ```
@@ -73,7 +73,7 @@ Total size: ~630 KB (gzipped: ~82 KB)
 npm install -g wrangler
 wrangler login
 npm run build:all
-wrangler pages deploy web/dist --project-name=testaudio
+wrangler pages deploy web/dist --project-name=transmitwave
 ```
 
 **Time to first deploy: 2 minutes (after Wrangler setup)**
@@ -97,7 +97,7 @@ Output: web/dist/ (all static files ready for CDN)
   ↓
 Cloudflare Pages deploy (worldwide edge distribution)
   ↓
-Available at: https://testaudio.[your-domain].pages.dev
+Available at: https://transmitwave.[your-domain].pages.dev
 ```
 
 ## Key Files Created
@@ -138,7 +138,7 @@ Available at: https://testaudio.[your-domain].pages.dev
 4. **Monitor deployments:**
    - GitHub Actions tab: Build/deployment logs
    - Cloudflare Pages dashboard: Deployment history & analytics
-   - Your URL: `https://testaudio.[your-domain].pages.dev`
+   - Your URL: `https://transmitwave.[your-domain].pages.dev`
 
 ## Troubleshooting
 
@@ -186,4 +186,4 @@ Your current usage is **free tier eligible**.
 
 **You're all set! 🚀**
 
-Your testaudio app is ready to deploy to Cloudflare Pages. Choose your deployment method above and get started!
+Your transmitwave app is ready to deploy to Cloudflare Pages. Choose your deployment method above and get started!

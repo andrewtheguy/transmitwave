@@ -263,7 +263,7 @@ navigate('/demo')
 dist/index.html                         0.44 kB │ gzip:  0.30 kB
 dist/index.Bva9DAgO.css                 5.92 kB │ gzip:  1.88 kB
 dist/index.BbdWemKz.js                253.41 kB │ gzip: 77.83 kB
-dist/testaudio_wasm_bg.DqWgEE_u.wasm  363.84 kB (binary, not gzipped)
+dist/transmitwave_wasm_bg.DqWgEE_u.wasm  363.84 kB (binary, not gzipped)
 ────────────────────────────────────────────────────────────────
 Total:                                ~423 KB  │ ~179 KB gzipped
 ```

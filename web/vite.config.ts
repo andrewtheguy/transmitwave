@@ -29,11 +29,11 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['testaudio-wasm'],
+    exclude: ['transmitwave-wasm'],
   },
   resolve: {
     alias: {
-      'testaudio-wasm': path.resolve(__dirname, 'node_modules/testaudio-wasm'),
+      'transmitwave-wasm': path.resolve(__dirname, 'node_modules/transmitwave-wasm'),
     },
   },
 })

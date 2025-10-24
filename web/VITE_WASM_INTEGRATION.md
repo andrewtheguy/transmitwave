@@ -8,12 +8,12 @@ This document explains how the Vite web project integrates with the Rust-compile
 
 ### WASM Module Integration
 
-The WASM module (`testaudio-wasm`) is installed as a **file path dependency** in `package.json`:
+The WASM module (`transmitwave-wasm`) is installed as a **file path dependency** in `package.json`:
 
 ```json
 {
   "dependencies": {
-    "testaudio-wasm": "file:../wasm/pkg"
+    "transmitwave-wasm": "file:../wasm/pkg"
   }
 }
 ```
@@ -23,16 +23,16 @@ This creates a symbolic link in `node_modules/` to the compiled WASM package at 
 ### File Structure
 
 ```
-testaudio/
+transmitwave/
 ├── wasm/pkg/                    # Compiled WASM output
 │   ├── package.json
-│   ├── testaudio_wasm.js        # JavaScript bindings
-│   ├── testaudio_wasm.d.ts      # TypeScript definitions
-│   └── testaudio_wasm_bg.wasm   # WASM binary (~363 KB)
+│   ├── transmitwave_wasm.js        # JavaScript bindings
+│   ├── transmitwave_wasm.d.ts      # TypeScript definitions
+│   └── transmitwave_wasm_bg.wasm   # WASM binary (~363 KB)
 │
 └── web/
     ├── node_modules/
-    │   └── testaudio-wasm/      # Symlink to ../wasm/pkg
+    │   └── transmitwave-wasm/      # Symlink to ../wasm/pkg
     ├── src/
     │   └── utils/
     │       └── wasm.ts          # WASM initialization wrapper
@@ -47,9 +47,9 @@ testaudio/
 When `init()` is called without arguments, the WASM JavaScript binding uses `import.meta.url` to locate the `.wasm` binary relative to the JS file:
 
 ```typescript
-// From generated testaudio_wasm.js (line 648)
+// From generated transmitwave_wasm.js (line 648)
 if (typeof module_or_path === 'undefined') {
-    module_or_path = new URL('testaudio_wasm_bg.wasm', import.meta.url);
+    module_or_path = new URL('transmitwave_wasm_bg.wasm', import.meta.url);
 }
 ```
 
@@ -62,7 +62,7 @@ This works in production where:
 
 In Vite dev mode, the issue occurs because:
 
-1. The JS binding constructs a URL like `/path/to/testaudio_wasm_bg.wasm`
+1. The JS binding constructs a URL like `/path/to/transmitwave_wasm_bg.wasm`
 2. Vite's `import.meta.url` points to the file system path (starting with `file://`)
 3. The browser's `fetch()` security model blocks direct file system access
 4. Result: "403 Forbidden" or similar error
@@ -84,8 +84,8 @@ export async function initWasm(): Promise<void> {
     } catch (error) {
         // Fallback: try known paths for development
         const possiblePaths = [
-            '/testaudio_wasm_bg.wasm',           // Production
-            '/node_modules/testaudio-wasm/testaudio_wasm_bg.wasm', // Development
+            '/transmitwave_wasm_bg.wasm',           // Production
+            '/node_modules/transmitwave-wasm/transmitwave_wasm_bg.wasm', // Development
         ];
 
         for (const wasmPath of possiblePaths) {
@@ -124,13 +124,13 @@ export async function initWasm(): Promise<void> {
 
   optimizeDeps: {
     // Don't pre-bundle WASM module
-    exclude: ['testaudio-wasm'],
+    exclude: ['transmitwave-wasm'],
   },
 
   resolve: {
     // Alias for module resolution
     alias: {
-      'testaudio-wasm': path.resolve(__dirname, 'node_modules/testaudio-wasm'),
+      'transmitwave-wasm': path.resolve(__dirname, 'node_modules/transmitwave-wasm'),
     },
   },
 }
@@ -141,7 +141,7 @@ export async function initWasm(): Promise<void> {
 | Setting | Purpose |
 |---------|---------|
 | `fs.allow: ['..']` | Allows Vite dev server to serve files from parent directory |
-| `exclude: ['testaudio-wasm']` | Prevents Vite from pre-bundling WASM (keeps it as-is) |
+| `exclude: ['transmitwave-wasm']` | Prevents Vite from pre-bundling WASM (keeps it as-is) |
 | `resolve.alias` | Ensures consistent module path resolution |
 
 ## Build Output
@@ -158,7 +158,7 @@ When you run `npm run build`:
 dist/
 ├── index.html                       # Entry point
 ├── index.TQRyLE3l.js                # App code (minified)
-├── testaudio_wasm_bg.DqWgEE_u.wasm  # WASM binary (inlined hash)
+├── transmitwave_wasm_bg.DqWgEE_u.wasm  # WASM binary (inlined hash)
 └── index.D47QtDsf.css               # Styles (minified)
 ```
 
@@ -178,7 +178,7 @@ The WASM binary **stays separate** from the JavaScript bundle (not inlined). Vit
 
 **Symptom:**
 ```
-GET http://localhost:5173/@fs/Users/it3/.../testaudio_wasm_bg.wasm 403
+GET http://localhost:5173/@fs/Users/it3/.../transmitwave_wasm_bg.wasm 403
 ```
 
 **Cause**: Vite is trying to serve a file system path directly, which violates security restrictions.
@@ -187,9 +187,9 @@ GET http://localhost:5173/@fs/Users/it3/.../testaudio_wasm_bg.wasm 403
 ```
 Initializing WASM module...
 Default WASM init failed, trying alternate paths...
-Trying WASM path: /testaudio_wasm_bg.wasm
-Trying WASM path: /node_modules/testaudio-wasm/testaudio_wasm_bg.wasm
-WASM initialized from: /node_modules/testaudio-wasm/testaudio_wasm_bg.wasm
+Trying WASM path: /transmitwave_wasm_bg.wasm
+Trying WASM path: /node_modules/transmitwave-wasm/transmitwave_wasm_bg.wasm
+WASM initialized from: /node_modules/transmitwave-wasm/transmitwave_wasm_bg.wasm
 ```
 
 ### Issue: WASM Not Found in Production
@@ -200,7 +200,7 @@ WASM initialized from: /node_modules/testaudio-wasm/testaudio_wasm_bg.wasm
 
 **Solution**:
 1. Ensure `dist/` directory is uploaded completely
-2. Check that `testaudio_wasm_bg.*.wasm` file exists in `dist/`
+2. Check that `transmitwave_wasm_bg.*.wasm` file exists in `dist/`
 3. Verify web server serves static files correctly
 4. Check browser console for actual WASM path being fetched
 
@@ -208,7 +208,7 @@ WASM initialized from: /node_modules/testaudio-wasm/testaudio_wasm_bg.wasm
 
 **Symptom:**
 ```
-Cannot find module 'testaudio-wasm'
+Cannot find module 'transmitwave-wasm'
 ```
 
 **Cause**: WASM package not installed.
@@ -262,10 +262,10 @@ npm run preview        # Test the build locally
 
 ### Vite's Module Resolution Order
 
-When TypeScript imports `'testaudio-wasm'`:
+When TypeScript imports `'transmitwave-wasm'`:
 
 1. Check `vite.config.ts` `resolve.alias`
-2. Resolve to `node_modules/testaudio-wasm`
+2. Resolve to `node_modules/transmitwave-wasm`
 3. Read `package.json` to find entry point
 4. Load JavaScript bindings + WASM binary
 
@@ -273,17 +273,17 @@ When TypeScript imports `'testaudio-wasm'`:
 
 ```typescript
 // src/utils/wasm.ts
-import init, { WasmEncoder, WasmDecoder, ... } from 'testaudio-wasm';
+import init, { WasmEncoder, WasmDecoder, ... } from 'transmitwave-wasm';
 
 // This resolves to:
-// node_modules/testaudio-wasm/testaudio_wasm.js
+// node_modules/transmitwave-wasm/transmitwave_wasm.js
 ```
 
 The JavaScript file then loads the `.wasm` binary:
 
 ```javascript
-// node_modules/testaudio-wasm/testaudio_wasm.js
-// Uses import.meta.url to find testaudio_wasm_bg.wasm
+// node_modules/transmitwave-wasm/transmitwave_wasm.js
+// Uses import.meta.url to find transmitwave_wasm_bg.wasm
 ```
 
 ## Performance Considerations
@@ -308,9 +308,9 @@ The JavaScript file then loads the `.wasm` binary:
 The WASM package includes TypeScript definitions:
 
 ```
-node_modules/testaudio-wasm/
-├── testaudio_wasm.d.ts        # Type definitions for exported classes
-└── testaudio_wasm_bg.wasm.d.ts # Low-level type definitions
+node_modules/transmitwave-wasm/
+├── transmitwave_wasm.d.ts        # Type definitions for exported classes
+└── transmitwave_wasm_bg.wasm.d.ts # Low-level type definitions
 ```
 
 These are automatically picked up by TypeScript, providing full IDE support:

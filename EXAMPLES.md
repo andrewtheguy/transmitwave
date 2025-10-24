@@ -9,7 +9,7 @@
 echo "Hello, World!" > tmp/message.txt
 
 # Encode to WAV audio file
-cargo run -p testaudio-cli --bin testaudio -- encode tmp/message.txt tmp/message.wav
+cargo run -p transmitwave-cli --bin transmitwave -- encode tmp/message.txt tmp/message.wav
 
 # Output:
 # Read 14 bytes from message.txt
@@ -21,7 +21,7 @@ cargo run -p testaudio-cli --bin testaudio -- encode tmp/message.txt tmp/message
 
 ```bash
 # Decode the WAV file
-cargo run -p testaudio-cli --bin testaudio -- decode tmp/message.wav tmp/recovered.txt
+cargo run -p transmitwave-cli --bin transmitwave -- decode tmp/message.wav tmp/recovered.txt
 
 # Output:
 # Read WAV: 16000 Hz, 1 channels, 32 bits
@@ -41,10 +41,10 @@ diff message.txt recovered.txt
 dd if=/dev/urandom of=binary_data.bin bs=1 count=100
 
 # Encode
-cargo run -p testaudio-cli --bin testaudio -- encode binary_data.bin binary.wav
+cargo run -p transmitwave-cli --bin transmitwave -- encode binary_data.bin binary.wav
 
 # Decode
-cargo run -p testaudio-cli --bin testaudio -- decode binary.wav binary_recovered.bin
+cargo run -p transmitwave-cli --bin transmitwave -- decode binary.wav binary_recovered.bin
 
 # Verify
 cmp binary_data.bin binary_recovered.bin && echo "Perfect match!"
@@ -57,10 +57,10 @@ cmp binary_data.bin binary_recovered.bin && echo "Perfect match!"
 head -c 200 /dev/urandom > large.bin
 
 # Encode (takes about 1 second to generate audio)
-time cargo run -p testaudio-cli --bin testaudio -- encode large.bin large.wav
+time cargo run -p transmitwave-cli --bin transmitwave -- encode large.bin large.wav
 
 # Decode
-time cargo run -p testaudio-cli --bin testaudio -- decode large.wav large_recovered.bin
+time cargo run -p transmitwave-cli --bin transmitwave -- decode large.wav large_recovered.bin
 
 # Verify
 cmp large.bin large_recovered.bin && echo "Success!"
@@ -71,7 +71,7 @@ cmp large.bin large_recovered.bin && echo "Success!"
 ### Basic Encoding
 
 ```rust
-use testaudio_core::Encoder;
+use transmitwave_core::Encoder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data = b"Hello, Audio!";
@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Basic Decoding
 
 ```rust
-use testaudio_core::Decoder;
+use transmitwave_core::Decoder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let samples = vec![/* audio samples */];
@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Working with WAV Files
 
 ```rust
-use testaudio_core::Encoder;
+use transmitwave_core::Encoder;
 use hound::WavSpec;
 use std::fs::File;
 
@@ -134,7 +134,7 @@ fn encode_to_wav(data: &[u8], wav_path: &str) -> Result<(), Box<dyn std::error::
 ```
 
 ```rust
-use testaudio_core::Decoder;
+use transmitwave_core::Decoder;
 use std::fs::File;
 
 fn decode_from_wav(wav_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -156,7 +156,7 @@ fn decode_from_wav(wav_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>
 ### Error Handling
 
 ```rust
-use testaudio_core::{Encoder, Decoder, AudioModemError};
+use transmitwave_core::{Encoder, Decoder, AudioModemError};
 
 fn main() {
     let data = b"Test";
@@ -184,8 +184,8 @@ cargo install wasm-pack
 wasm-pack build wasm --target web
 
 # This generates:
-# - pkg/testaudio_wasm.js (JavaScript wrapper)
-# - pkg/testaudio_wasm_bg.wasm (WebAssembly binary)
+# - pkg/transmitwave_wasm.js (JavaScript wrapper)
+# - pkg/transmitwave_wasm_bg.wasm (WebAssembly binary)
 ```
 
 ### Using in HTML/JavaScript
@@ -209,7 +209,7 @@ wasm-pack build wasm --target web
 
     <script type="module">
         import init, { WasmEncoder, WasmDecoder }
-            from './pkg/testaudio_wasm.js';
+            from './pkg/transmitwave_wasm.js';
 
         let audioBuffer = null;
         let audioContext = null;
@@ -325,10 +325,10 @@ cargo test test_encode_decode_round_trip -- --nocapture
 echo "Test message $(date)" > test.txt
 
 # Encode
-cargo run -p testaudio-cli --bin testaudio -- encode test.txt test.wav
+cargo run -p transmitwave-cli --bin transmitwave -- encode test.txt test.wav
 
 # Decode
-cargo run -p testaudio-cli --bin testaudio -- decode test.wav decoded.txt
+cargo run -p transmitwave-cli --bin transmitwave -- decode test.wav decoded.txt
 
 # Verify
 if diff test.txt decoded.txt > /dev/null; then

@@ -11,7 +11,7 @@ A beautiful, interactive web interface for encoding text to audio and decoding a
 ### Run the Demo
 
 ```bash
-cd /Users/it3/codes/andrew/testaudio
+cd /Users/it3/codes/andrew/transmitwave
 python3 -m http.server 8000
 ```
 
@@ -145,7 +145,7 @@ cargo test
 
 ### Run Tests Yourself
 ```bash
-cd /Users/it3/codes/andrew/testaudio
+cd /Users/it3/codes/andrew/transmitwave
 cargo test
 ```
 
@@ -180,7 +180,7 @@ cargo test
 
 ```bash
 # Navigate to project root
-cd /Users/it3/codes/andrew/testaudio
+cd /Users/it3/codes/andrew/transmitwave
 
 # Build WASM module (use wrapper script for browser compatibility)
 cd wasm

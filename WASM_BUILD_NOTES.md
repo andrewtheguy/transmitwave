@@ -29,10 +29,10 @@ wasm-pack build --target web
 ./fix-env-import.sh
 ```
 
-The fixed WASM module will be available at `wasm/pkg/testaudio_wasm.js` and can be imported in HTML demos:
+The fixed WASM module will be available at `wasm/pkg/transmitwave_wasm.js` and can be imported in HTML demos:
 
 ```javascript
-import init, { WasmEncoder, WasmDecoder } from './wasm/pkg/testaudio_wasm.js';
+import init, { WasmEncoder, WasmDecoder } from './wasm/pkg/transmitwave_wasm.js';
 ```
 
 ## Why This Happens

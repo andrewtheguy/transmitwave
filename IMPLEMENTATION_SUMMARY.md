@@ -9,7 +9,7 @@ All components have been successfully implemented, tested, and verified.
 A complete Rust audio modem library that encodes binary data as OFDM signals in the 0-4kHz range, creating a distinctive "modem hiss" sound. The system prioritizes reliability over throughput.
 
 ### Core Library (`core/`)
-**Location:** `/Users/it3/codes/andrew/testaudio/core/src/`
+**Location:** `/Users/it3/codes/andrew/transmitwave/core/src/`
 
 | File | Purpose | Status |
 |------|---------|--------|
@@ -25,7 +25,7 @@ A complete Rust audio modem library that encodes binary data as OFDM signals in 
 **Tests:** 5 unit tests + 4 integration tests (all passing)
 
 ### CLI Tool (`cli/`)
-**Location:** `/Users/it3/codes/andrew/testaudio/cli/src/main.rs`
+**Location:** `/Users/it3/codes/andrew/transmitwave/cli/src/main.rs`
 
 **Features:**
 - `encode <input.bin> <output.wav>` - Encode binary to audio WAV file
@@ -38,7 +38,7 @@ A complete Rust audio modem library that encodes binary data as OFDM signals in 
 - Binary data integrity: ✅
 
 ### WASM Library (`wasm/`)
-**Location:** `/Users/it3/codes/andrew/testaudio/wasm/src/lib.rs`
+**Location:** `/Users/it3/codes/andrew/transmitwave/wasm/src/lib.rs`
 
 **Exports:**
 ```javascript
@@ -138,7 +138,7 @@ Manual Tests:
 ## File Structure
 
 ```
-testaudio/
+transmitwave/
 ├── Cargo.toml                 (Workspace root)
 ├── README.md                  (User documentation)
 ├── IMPLEMENTATION_SUMMARY.md  (This file)
@@ -176,11 +176,11 @@ cargo build --workspace
 cargo build --release --workspace
 
 # Run CLI tool
-cargo run -p testaudio-cli --bin testaudio -- encode input.bin output.wav
-cargo run -p testaudio-cli --bin testaudio -- decode output.wav recovered.bin
+cargo run -p transmitwave-cli --bin transmitwave -- encode input.bin output.wav
+cargo run -p transmitwave-cli --bin transmitwave -- decode output.wav recovered.bin
 
 # Build WASM
-cargo build -p testaudio-wasm --target wasm32-unknown-unknown
+cargo build -p transmitwave-wasm --target wasm32-unknown-unknown
 
 # Run tests
 cargo test --workspace

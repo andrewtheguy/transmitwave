@@ -8,7 +8,7 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, DecoderFsk, EncoderFsk, resample_audio, stereo_to_mono, SAMPLE_RATE};
+use transmitwave_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, DecoderFsk, EncoderFsk, resample_audio, stereo_to_mono, SAMPLE_RATE};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
@@ -45,7 +45,7 @@ struct DecodeResponse {
 }
 
 #[derive(Parser)]
-#[command(name = "testaudio")]
+#[command(name = "transmitwave")]
 #[command(about = "Audio modem with spread spectrum for reliable low-bandwidth communication")]
 #[command(version)]
 struct Cli {
@@ -213,7 +213,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     } else {
-        eprintln!("Error: No operation specified. Use 'testaudio --help' for usage");
+        eprintln!("Error: No operation specified. Use 'transmitwave --help' for usage");
         std::process::exit(1);
     }
 
@@ -233,7 +233,7 @@ fn encode_legacy_command(input_path: &PathBuf, output_path: &PathBuf) -> Result<
     // Write WAV file (16-bit PCM)
     let spec = WavSpec {
         channels: 1,
-        sample_rate: testaudio_core::SAMPLE_RATE as u32,
+        sample_rate: transmitwave_core::SAMPLE_RATE as u32,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
@@ -334,7 +334,7 @@ fn encode_spread_command(
     // Write WAV file (16-bit PCM)
     let spec = WavSpec {
         channels: 1,
-        sample_rate: testaudio_core::SAMPLE_RATE as u32,
+        sample_rate: transmitwave_core::SAMPLE_RATE as u32,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
@@ -437,7 +437,7 @@ fn encode_fsk_command(
     // Write WAV file (16-bit PCM)
     let spec = WavSpec {
         channels: 1,
-        sample_rate: testaudio_core::SAMPLE_RATE as u32,
+        sample_rate: transmitwave_core::SAMPLE_RATE as u32,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
@@ -522,7 +522,7 @@ fn decode_fsk_command(
 
 #[tokio::main]
 async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting testaudio server on http://localhost:{}", port);
+    println!("Starting transmitwave server on http://localhost:{}", port);
     println!("Endpoints:");
     println!("  POST /encode - Encode binary data to WAV with multi-tone FSK (ggwave-compatible)");
     println!("  POST /decode - Decode WAV to binary data with FSK");
@@ -541,7 +541,7 @@ async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handler_status() -> String {
-    "testaudio server with multi-tone FSK (ggwave-compatible) encoding/decoding - Ready".to_string()
+    "transmitwave server with multi-tone FSK (ggwave-compatible) encoding/decoding - Ready".to_string()
 }
 
 async fn handler_encode(
@@ -584,7 +584,7 @@ async fn handler_encode(
             // Convert to WAV
             let spec = WavSpec {
                 channels: 1,
-                sample_rate: testaudio_core::SAMPLE_RATE as u32,
+                sample_rate: transmitwave_core::SAMPLE_RATE as u32,
                 bits_per_sample: 16,
                 sample_format: hound::SampleFormat::Int,
             };

@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, DecoderFsk, EncoderFsk, detect_preamble, detect_postamble};
+use transmitwave_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, DecoderFsk, EncoderFsk, detect_preamble, detect_postamble};
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
@@ -279,7 +279,7 @@ impl PreambleDetector {
     #[wasm_bindgen(constructor)]
     pub fn new(threshold: f32) -> PreambleDetector {
         PreambleDetector {
-            detector: SignalDetector::new(threshold, testaudio_core::PREAMBLE_SAMPLES, detect_preamble),
+            detector: SignalDetector::new(threshold, transmitwave_core::PREAMBLE_SAMPLES, detect_preamble),
         }
     }
 
@@ -299,7 +299,7 @@ impl PreambleDetector {
     /// Get required buffer size to detect preamble
     #[wasm_bindgen]
     pub fn required_size() -> usize {
-        testaudio_core::PREAMBLE_SAMPLES
+        transmitwave_core::PREAMBLE_SAMPLES
     }
 
     /// Clear the audio buffer
@@ -335,7 +335,7 @@ impl PostambleDetector {
     #[wasm_bindgen(constructor)]
     pub fn new(threshold: f32) -> PostambleDetector {
         PostambleDetector {
-            detector: SignalDetector::new(threshold, testaudio_core::POSTAMBLE_SAMPLES, detect_postamble),
+            detector: SignalDetector::new(threshold, transmitwave_core::POSTAMBLE_SAMPLES, detect_postamble),
         }
     }
 
@@ -355,7 +355,7 @@ impl PostambleDetector {
     /// Get required buffer size to detect postamble
     #[wasm_bindgen]
     pub fn required_size() -> usize {
-        testaudio_core::POSTAMBLE_SAMPLES
+        transmitwave_core::POSTAMBLE_SAMPLES
     }
 
     /// Clear the audio buffer

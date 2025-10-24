@@ -19,9 +19,9 @@
       "Bash(git commit:*)",
       "Bash(cmp:*)",
       "Bash(git checkout:*)",
-      "Bash(./target/debug/testaudio-cli:*)",
+      "Bash(./target/debug/transmitwave-cli:*)",
       "Bash(chmod:*)",
-      "Bash(/Users/it3/codes/andrew/testaudio/target/release/testaudio encode-chunked:*)",
+      "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave encode-chunked:*)",
       "Bash(git stash:*)",
       "Bash(cargo check:*)",
       "mcp__ide__getDiagnostics",
@@ -34,7 +34,8 @@
       "Bash(tree:*)",
       "Bash(./build.sh)",
       "Read(//private/tmp/**)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Read(//Users/it3/codes/andrew/**)"
     ],
     "deny": [],
     "ask": []

@@ -119,7 +119,7 @@ Read these documents in order based on your needs:
 
 ### Step 2: Test Locally (Optional)
 ```bash
-cd /Users/it3/codes/andrew/testaudio/web
+cd /Users/it3/codes/andrew/transmitwave/web
 npm run build:all
 # Should create web/dist/ with all files
 ```
@@ -147,7 +147,7 @@ Visit your deployment URL and test functionality
 | **Total Bundle Size** | ~630 KB (uncompressed), ~82 KB (gzipped) |
 | **Build Time** | 5-10 minutes |
 | **Cost** | Free tier (500 builds/month) |
-| **Deployment URL** | `https://testaudio.[your-domain].pages.dev` |
+| **Deployment URL** | `https://transmitwave.[your-domain].pages.dev` |
 
 ---
 
@@ -192,7 +192,7 @@ Visit your deployment URL and test functionality
 
 ## ✨ You're Ready!
 
-Your testaudio project is fully configured for Cloudflare Pages deployment.
+Your transmitwave project is fully configured for Cloudflare Pages deployment.
 
 **Next action:**
 1. Pick a documentation file from the list above

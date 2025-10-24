@@ -13,7 +13,7 @@ import init, {
     WasmDecoderFsk,
     PreambleDetector,
     PostambleDetector,
-} from 'testaudio-wasm';
+} from 'transmitwave-wasm';
 
 let wasmInitialized = false;
 
@@ -37,9 +37,9 @@ export async function initWasm(): Promise<void> {
 
         const possiblePaths = [
             // Production: WASM is bundled in dist
-            '/testaudio_wasm_bg.wasm',
+            '/transmitwave_wasm_bg.wasm',
             // Development: WASM is in node_modules via Vite's alias
-            '/node_modules/testaudio-wasm/testaudio_wasm_bg.wasm',
+            '/node_modules/transmitwave-wasm/transmitwave_wasm_bg.wasm',
         ];
 
         for (const wasmPath of possiblePaths) {

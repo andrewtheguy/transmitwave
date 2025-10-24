@@ -5,7 +5,7 @@
 ### Option 1: Using Python (Recommended)
 
 ```bash
-cd /Users/it3/codes/andrew/testaudio
+cd /Users/it3/codes/andrew/transmitwave
 python3 -m http.server 8000
 ```
 
@@ -16,14 +16,14 @@ Then open your browser and navigate to: **http://localhost:8000/demo.html**
 If you have `http-server` installed globally:
 
 ```bash
-cd /Users/it3/codes/andrew/testaudio
+cd /Users/it3/codes/andrew/transmitwave
 http-server
 ```
 
 ### Option 3: Using macOS SimpleHTTPServer
 
 ```bash
-cd /Users/it3/codes/andrew/testaudio
+cd /Users/it3/codes/andrew/transmitwave
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
@@ -95,13 +95,13 @@ Requires WebAssembly support (all modern browsers).
 ## File Structure
 
 ```
-/testaudio
+/transmitwave
 ├── demo.html              # Web interface
 ├── wasm/
 │   ├── src/lib.rs        # WASM bindings
 │   └── pkg/              # Compiled WASM (auto-generated)
-│       ├── testaudio_wasm_bg.wasm
-│       ├── testaudio_wasm.js
+│       ├── transmitwave_wasm_bg.wasm
+│       ├── transmitwave_wasm.js
 │       └── package.json
 └── core/                 # Rust audio modem library
     ├── src/
@@ -120,7 +120,7 @@ Requires WebAssembly support (all modern browsers).
 To rebuild the WASM module after changing Rust code:
 
 ```bash
-cd /Users/it3/codes/andrew/testaudio/wasm
+cd /Users/it3/codes/andrew/transmitwave/wasm
 wasm-pack build --target web
 ```
 

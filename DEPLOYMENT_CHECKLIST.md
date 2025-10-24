@@ -6,7 +6,7 @@ Use this checklist to ensure everything is ready for deployment.
 
 - [ ] **Local Build Test**
   ```bash
-  cd /Users/it3/codes/andrew/testaudio
+  cd /Users/it3/codes/andrew/transmitwave
   cd web && npm run build:all
   ```
   Expected: `web/dist/` folder created with HTML, JS, CSS, and WASM files
@@ -15,7 +15,7 @@ Use this checklist to ensure everything is ready for deployment.
   ```bash
   ls -la wasm/pkg/
   ```
-  Expected: See `testaudio_wasm_bg.wasm` file
+  Expected: See `transmitwave_wasm_bg.wasm` file
 
 - [ ] **Git Status Clean**
   ```bash
@@ -61,7 +61,7 @@ Use this checklist to ensure everything is ready for deployment.
 
 - [ ] **Check Cloudflare Dashboard**
   - https://dash.cloudflare.com/
-  - Go to Pages → testaudio
+  - Go to Pages → transmitwave
   - Should see successful deployment
   - Copy the deployment URL
 
@@ -79,7 +79,7 @@ Use this checklist to ensure everything is ready for deployment.
 - [ ] **Connect GitHub**
   - Select "Connect to Git"
   - Authorize GitHub
-  - Select `testaudio` repository
+  - Select `transmitwave` repository
 
 - [ ] **Configure Build**
   - Production branch: `main`
@@ -118,7 +118,7 @@ Use this checklist to ensure everything is ready for deployment.
 
 - [ ] **Deploy**
   ```bash
-  wrangler pages deploy web/dist --project-name=testaudio
+  wrangler pages deploy web/dist --project-name=transmitwave
   ```
   Expected: Deployment URL printed to console
 
@@ -177,7 +177,7 @@ If deployment fails, check:
   - Check error messages
 
 - [ ] **Cloudflare Logs**
-  - Cloudflare dashboard → Pages → testaudio → Deployments
+  - Cloudflare dashboard → Pages → transmitwave → Deployments
   - Check deployment logs
 
 - [ ] **Local Build Works**
@@ -195,7 +195,7 @@ If deployment fails, check:
   ```bash
   ls wasm/pkg/
   ```
-  - Should have `testaudio_wasm_bg.wasm`
+  - Should have `transmitwave_wasm_bg.wasm`
 
 - [ ] **Secrets Configured** (if using GitHub Actions)
   - `CLOUDFLARE_API_TOKEN` is set
@@ -220,12 +220,12 @@ web/dist/
 
 ### Project Name
 ```
-testaudio
+transmitwave
 ```
 
 ### Site URL
 ```
-https://testaudio.[your-domain].pages.dev
+https://transmitwave.[your-domain].pages.dev
 ```
 Replace `[your-domain]` with your Cloudflare Pages domain
 
@@ -236,17 +236,17 @@ Replace `[your-domain]` with your Cloudflare Pages domain
 cd web && npm run build:all
 
 # Deploy with Wrangler
-wrangler pages deploy web/dist --project-name=testaudio
+wrangler pages deploy web/dist --project-name=transmitwave
 
 # View deployment status
-wrangler pages list --project-name=testaudio
+wrangler pages list --project-name=transmitwave
 
 # Clean build artifacts
 rm -rf web/dist wasm/pkg web/node_modules
 cd web && npm install
 
 # View WASM size
-ls -lh wasm/pkg/testaudio_wasm_bg.wasm
+ls -lh wasm/pkg/transmitwave_wasm_bg.wasm
 ```
 
 ## Success Criteria

@@ -26,10 +26,10 @@ Native command-line tool for WAV file processing:
 
 ```bash
 # Encode binary data to WAV audio
-cargo run -p testaudio-cli --bin testaudio -- encode input.bin output.wav
+cargo run -p transmitwave-cli --bin transmitwave -- encode input.bin output.wav
 
 # Decode WAV audio back to binary
-cargo run -p testaudio-cli --bin testaudio -- decode input.wav output.bin
+cargo run -p transmitwave-cli --bin transmitwave -- decode input.wav output.bin
 ```
 
 ### WASM Library (`wasm/`)
@@ -63,7 +63,7 @@ const recoveredData = decoder.decode(audioSamples);
 ### Encoding Data
 
 ```rust
-use testaudio_core::Encoder;
+use transmitwave_core::Encoder;
 
 let mut encoder = Encoder::new()?;
 let data = b"Hello, World!";
@@ -73,7 +73,7 @@ let audio_samples = encoder.encode(data)?;
 ### Decoding Audio
 
 ```rust
-use testaudio_core::Decoder;
+use transmitwave_core::Decoder;
 
 let mut decoder = Decoder::new()?;
 let samples = load_audio_file("audio.wav")?;
@@ -87,10 +87,10 @@ let decoded_data = decoder.decode(&samples)?;
 echo "Test message" > test.txt
 
 # Encode to audio
-cargo run -p testaudio-cli --bin testaudio -- encode test.txt test.wav
+cargo run -p transmitwave-cli --bin transmitwave -- encode test.txt test.wav
 
 # Decode back
-cargo run -p testaudio-cli --bin testaudio -- decode test.wav decoded.txt
+cargo run -p transmitwave-cli --bin transmitwave -- decode test.wav decoded.txt
 
 # Verify
 diff test.txt decoded.txt
@@ -166,7 +166,7 @@ This modem prioritizes **reliability** over throughput:
 To build WASM for web use:
 
 ```bash
-cargo build -p testaudio-wasm --target wasm32-unknown-unknown
+cargo build -p transmitwave-wasm --target wasm32-unknown-unknown
 wasm-pack build wasm --target web
 ```
 

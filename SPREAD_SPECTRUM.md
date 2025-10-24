@@ -70,7 +70,7 @@ Recovered OFDM Signal (~original quality)
 ### SpreadSpectrumSpreader
 
 ```rust
-use testaudio_core::SpreadSpectrumSpreader;
+use transmitwave_core::SpreadSpectrumSpreader;
 
 // Create spreader with chip_duration_samples = 2
 let spreader = SpreadSpectrumSpreader::new(2)?;
@@ -93,7 +93,7 @@ assert_eq!(spread_signal.len(), 3200);
 ### SpreadSpectrumDespreader
 
 ```rust
-use testaudio_core::SpreadSpectrumDespreader;
+use transmitwave_core::SpreadSpectrumDespreader;
 
 // Create despreader with same chip_duration_samples
 let despreader = SpreadSpectrumDespreader::new(2)?;
@@ -112,7 +112,7 @@ assert_eq!(recovered.len(), 1600);
 ### Example 1: Encode with Spreading
 
 ```rust
-use testaudio_core::{Encoder, SpreadSpectrumSpreader};
+use transmitwave_core::{Encoder, SpreadSpectrumSpreader};
 
 // Encode message to OFDM
 let encoder = Encoder::new()?;
@@ -129,7 +129,7 @@ let spread_audio = spreader.spread(&audio)?;  // 2x larger
 ### Example 2: Decode with Despreading
 
 ```rust
-use testaudio_core::{Decoder, SpreadSpectrumDespreader};
+use transmitwave_core::{Decoder, SpreadSpectrumDespreader};
 
 // Receive spread spectrum signal from microphone
 let received = vec![...];  // Raw samples
@@ -146,7 +146,7 @@ let message = decoder.decode(&recovered)?;
 ### Example 3: Full Pipeline with Spreading
 
 ```rust
-use testaudio_core::{Encoder, SpreadSpectrumSpreader};
+use transmitwave_core::{Encoder, SpreadSpectrumSpreader};
 
 fn encode_with_spreading(message: &[u8]) -> Result<Vec<f32>> {
     // Step 1: Encode message to OFDM

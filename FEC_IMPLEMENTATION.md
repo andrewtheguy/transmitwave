@@ -100,7 +100,7 @@ impl FecDecoder {
 ### Basic Encoding
 
 ```rust
-use testaudio_core::fec::FecEncoder;
+use transmitwave_core::fec::FecEncoder;
 
 let encoder = FecEncoder::new()?;
 
@@ -115,7 +115,7 @@ assert_eq!(encoded.len(), 255);
 ### Basic Decoding
 
 ```rust
-use testaudio_core::fec::FecDecoder;
+use transmitwave_core::fec::FecDecoder;
 
 let decoder = FecDecoder::new()?;
 

@@ -1,8 +1,8 @@
-use testaudio_core::sync::{
+use transmitwave_core::sync::{
     detect_preamble, detect_postamble, generate_chirp, generate_postamble_chirp,
     generate_preamble, generate_postamble_signal, barker_code,
 };
-use testaudio_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, fft_correlate_1d, Mode};
+use transmitwave_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, fft_correlate_1d, Mode};
 use rand::SeedableRng;
 use rand_distr::Normal;
 

@@ -50,7 +50,7 @@ Generator Polynomials:
 ### ConvolutionalEncoder
 
 ```rust
-use testaudio_core::ConvolutionalEncoder;
+use transmitwave_core::ConvolutionalEncoder;
 
 // Create encoder
 let mut encoder = ConvolutionalEncoder::new();
@@ -71,7 +71,7 @@ encoder.reset();
 ### ViterbiDecoder
 
 ```rust
-use testaudio_core::ViterbiDecoder;
+use transmitwave_core::ViterbiDecoder;
 
 // Create decoder
 let decoder = ViterbiDecoder::new();
@@ -240,7 +240,7 @@ This cascade provides exceptional robustness:
 ### Example 1: Basic Encoding
 
 ```rust
-use testaudio_core::ConvolutionalEncoder;
+use transmitwave_core::ConvolutionalEncoder;
 
 let mut encoder = ConvolutionalEncoder::new();
 let message = b"Hi";
@@ -251,7 +251,7 @@ let encoded = encoder.encode(message);
 ### Example 2: Soft Decoding (from audio)
 
 ```rust
-use testaudio_core::ViterbiDecoder;
+use transmitwave_core::ViterbiDecoder;
 
 // Soft values from demodulator (0.0-1.0)
 let soft_bits = vec![0.95, 0.08, 0.92, 0.05, ...];
@@ -266,7 +266,7 @@ let message = recovered_bits[..16];
 ### Example 3: Full Encoding Pipeline
 
 ```rust
-use testaudio_core::ConvolutionalEncoder;
+use transmitwave_core::ConvolutionalEncoder;
 
 fn encode_with_trellis(message: &[u8]) -> Vec<bool> {
     let mut encoder = ConvolutionalEncoder::new();
@@ -280,7 +280,7 @@ fn encode_with_trellis(message: &[u8]) -> Vec<bool> {
 ### Example 4: Decoding from Noisy Channel
 
 ```rust
-use testaudio_core::ViterbiDecoder;
+use transmitwave_core::ViterbiDecoder;
 
 fn decode_from_channel(received: &[f32]) -> Result<Vec<bool>> {
     let decoder = ViterbiDecoder::new();

@@ -9,7 +9,7 @@ A fully functional, production-ready web application for encoding text to audio 
 ## 📁 Files Created
 
 ### 1. **demo.html** (Main Application)
-- **Location**: `/Users/it3/codes/andrew/testaudio/demo.html`
+- **Location**: `/Users/it3/codes/andrew/transmitwave/demo.html`
 - **Size**: ~25 KB
 - **Purpose**: Interactive web interface for encoding/decoding
 - **Features**:
@@ -23,7 +23,7 @@ A fully functional, production-ready web application for encoding text to audio 
   - 100% client-side processing via WebAssembly
 
 ### 2. **index.html** (Landing Page)
-- **Location**: `/Users/it3/codes/andrew/testaudio/index.html`
+- **Location**: `/Users/it3/codes/andrew/transmitwave/index.html`
 - **Size**: ~12 KB
 - **Purpose**: Landing page and quick navigation
 - **Features**:
@@ -36,7 +36,7 @@ A fully functional, production-ready web application for encoding text to audio 
   - Links to documentation
 
 ### 3. **DEMO_README.md** (Complete Documentation)
-- **Location**: `/Users/it3/codes/andrew/testaudio/DEMO_README.md`
+- **Location**: `/Users/it3/codes/andrew/transmitwave/DEMO_README.md`
 - **Size**: ~15 KB
 - **Purpose**: Comprehensive technical documentation
 - **Contents**:
@@ -52,7 +52,7 @@ A fully functional, production-ready web application for encoding text to audio 
   - Test coverage details
 
 ### 4. **QUICKSTART.md** (Quick Start Guide)
-- **Location**: `/Users/it3/codes/andrew/testaudio/QUICKSTART.md`
+- **Location**: `/Users/it3/codes/andrew/transmitwave/QUICKSTART.md`
 - **Size**: ~8 KB
 - **Purpose**: Get users up and running in 30 seconds
 - **Contents**:
@@ -66,7 +66,7 @@ A fully functional, production-ready web application for encoding text to audio 
   - Success checklist
 
 ### 5. **SERVER_INSTRUCTIONS.md** (Server Setup)
-- **Location**: `/Users/it3/codes/andrew/testaudio/SERVER_INSTRUCTIONS.md`
+- **Location**: `/Users/it3/codes/andrew/transmitwave/SERVER_INSTRUCTIONS.md`
 - **Size**: ~4 KB
 - **Purpose**: How to run the demo server
 - **Contents**:
@@ -77,7 +77,7 @@ A fully functional, production-ready web application for encoding text to audio 
   - Troubleshooting
 
 ### 6. **WEB_DEMO_SUMMARY.md** (This File)
-- **Location**: `/Users/it3/codes/andrew/testaudio/WEB_DEMO_SUMMARY.md`
+- **Location**: `/Users/it3/codes/andrew/transmitwave/WEB_DEMO_SUMMARY.md`
 - **Size**: ~8 KB
 - **Purpose**: Overview of what was created
 
@@ -95,7 +95,7 @@ A fully functional, production-ready web application for encoding text to audio 
 │  (demo.html, index.html)                 │
 │         ↓                                 │
 │  WebAssembly (WASM)                      │
-│  (testaudio_wasm.js/wasm)               │
+│  (transmitwave_wasm.js/wasm)               │
 │         ↓                                 │
 │  Rust Core Library                       │
 │  (Encoding/Decoding Logic)              │
@@ -122,7 +122,7 @@ A fully functional, production-ready web application for encoding text to audio 
 
 ### Quick Start (30 seconds)
 ```bash
-cd /Users/it3/codes/andrew/testaudio
+cd /Users/it3/codes/andrew/transmitwave
 python3 -m http.server 8000
 # Open: http://localhost:8000
 ```
@@ -396,7 +396,7 @@ This demo teaches:
 ✅ QUICKSTART.md               - Quick start guide
 ✅ SERVER_INSTRUCTIONS.md      - Server setup guide
 ✅ WEB_DEMO_SUMMARY.md         - This summary
-✅ wasm/pkg/testaudio_wasm.js  - WASM bindings (generated)
+✅ wasm/pkg/transmitwave_wasm.js  - WASM bindings (generated)
 ✅ wasm/pkg/*.wasm             - Compiled WASM (generated)
 ✅ core/src/*.rs               - Rust implementation
 ✅ core/tests/*.rs             - Test suite (31 tests)
@@ -445,7 +445,7 @@ A complete, production-ready web application for audio modem encoding and decodi
 ## 🚀 Get Started Now!
 
 ```bash
-cd /Users/it3/codes/andrew/testaudio
+cd /Users/it3/codes/andrew/transmitwave
 python3 -m http.server 8000
 # Open: http://localhost:8000
 ```

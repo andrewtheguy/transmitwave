@@ -1,4 +1,4 @@
-# ✅ testaudio is Ready for Cloudflare Pages Deployment
+# ✅ transmitwave is Ready for Cloudflare Pages Deployment
 
 Your project has been fully configured for deployment to Cloudflare Pages with automatic WASM compilation.
 
@@ -58,7 +58,7 @@ wrangler login
 # Build and deploy
 cd web && npm run build:all
 cd ..
-wrangler pages deploy web/dist --project-name=testaudio
+wrangler pages deploy web/dist --project-name=transmitwave
 ```
 
 ### 🌐 Option 3: Cloudflare Pages Dashboard
@@ -77,7 +77,7 @@ wrangler pages deploy web/dist --project-name=testaudio
 
 ```bash
 # Verify build works locally
-cd /Users/it3/codes/andrew/testaudio/web
+cd /Users/it3/codes/andrew/transmitwave/web
 npm run build:all
 
 # Check output
@@ -89,7 +89,7 @@ Expected output:
 dist/index.html                           (444 bytes)
 dist/index.[hash].js                      (253 KB)
 dist/index.[hash].css                     (6 KB)
-dist/testaudio_wasm_bg.[hash].wasm        (372 KB)
+dist/transmitwave_wasm_bg.[hash].wasm        (372 KB)
 ```
 
 ## Deployment Details
@@ -98,15 +98,15 @@ dist/testaudio_wasm_bg.[hash].wasm        (372 KB)
 |---------|-------|
 | **Build Command** | `npm run build:all` |
 | **Output Directory** | `web/dist` |
-| **Project Name** | `testaudio` |
+| **Project Name** | `transmitwave` |
 | **GitHub Trigger** | Manual (on-demand) |
 | **Build Time** | ~5-10 minutes |
-| **Site URL** | `https://testaudio.[your-domain].pages.dev` |
+| **Site URL** | `https://transmitwave.[your-domain].pages.dev` |
 
 ## Project Structure
 
 ```
-testaudio/
+transmitwave/
 ├── web/                           (React frontend)
 │   ├── src/                       (React components)
 │   ├── dist/                      (Build output → deployed)
@@ -209,10 +209,10 @@ cd web && npm run dev                     # Start dev server
 cd web && npm run build:all               # Full build
 
 # Deploy with Wrangler
-wrangler pages deploy web/dist --project-name=testaudio
+wrangler pages deploy web/dist --project-name=transmitwave
 
 # Check deployment status
-wrangler pages list --project-name=testaudio
+wrangler pages list --project-name=transmitwave
 ```
 
 ## Support
@@ -224,6 +224,6 @@ wrangler pages list --project-name=testaudio
 
 ---
 
-**Your testaudio app is ready for Cloudflare Pages! 🎉**
+**Your transmitwave app is ready for Cloudflare Pages! 🎉**
 
 Start with [CLOUDFLARE_QUICKSTART.md](CLOUDFLARE_QUICKSTART.md) for the fastest path to deployment.

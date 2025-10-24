@@ -1,15 +1,15 @@
 [package]
-name = "testaudio-cli"
+name = "transmitwave-cli"
 version = "0.1.0"
 edition = "2021"
-default-run = "testaudio"
+default-run = "transmitwave"
 
 [[bin]]
-name = "testaudio"
+name = "transmitwave"
 path = "src/main.rs"
 
 [dependencies]
-testaudio-core = { path = "../core" }
+transmitwave-core = { path = "../core" }
 hound = "3"
 clap = { version = "4", features = ["derive"] }
 thiserror = "1"

@@ -5,7 +5,7 @@
 // synchronization, which involves cross-correlation on 2000-sample templates.
 //
 // For faster test execution, run in release mode:
-//   cargo test -p testaudio-core --test integration_test --release
+//   cargo test -p transmitwave-core --test integration_test --release
 //
 // Performance comparison:
 //   Debug mode:   ~22-30 seconds per test (full synchronization overhead)
@@ -14,7 +14,7 @@
 // The slowness is inherent to preamble/postamble detection, not a bug.
 // ============================================================================
 
-use testaudio_core::{Decoder, Encoder, NUM_SUBCARRIERS, EncoderFsk, DecoderFsk};
+use transmitwave_core::{Decoder, Encoder, NUM_SUBCARRIERS, EncoderFsk, DecoderFsk};
 
 #[test]
 fn test_encode_decode_round_trip() {
@@ -321,8 +321,8 @@ fn test_encode_decode_binary_with_data_noise() {
 }
 #[test]
 fn test_ofdm_bit_roundtrip() {
-    use testaudio_core::OfdmModulator;
-    use testaudio_core::OfdmDemodulator;
+    use transmitwave_core::OfdmModulator;
+    use transmitwave_core::OfdmDemodulator;
 
     let original_bits: Vec<bool> = (0..NUM_SUBCARRIERS)
         .map(|i| (i ^ (i >> 3)) & 1 != 0)
@@ -352,8 +352,8 @@ fn test_ofdm_bit_roundtrip() {
 // Test FEC encode/decode to verify integrity
 #[test]
 fn test_fec_chunk_roundtrip() {
-    use testaudio_core::FecEncoder;
-    use testaudio_core::FecDecoder;
+    use transmitwave_core::FecEncoder;
+    use transmitwave_core::FecDecoder;
 
     // Test data: create some test bytes
     let test_data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -381,10 +381,10 @@ fn test_fec_chunk_roundtrip() {
 // Test OFDM + FEC together
 #[test]
 fn test_ofdm_fec_bit_roundtrip() {
-    use testaudio_core::OfdmModulator;
-    use testaudio_core::OfdmDemodulator;
-    use testaudio_core::FecEncoder;
-    use testaudio_core::FecDecoder;
+    use transmitwave_core::OfdmModulator;
+    use transmitwave_core::OfdmDemodulator;
+    use transmitwave_core::FecEncoder;
+    use transmitwave_core::FecDecoder;
 
     // Create test data and pad to 223 bytes
     let test_data = vec![42, 84, 126, 168, 210, 252, 1, 2, 3, 4, 5, 6, 7, 8];
@@ -466,7 +466,7 @@ fn test_ofdm_fec_bit_roundtrip() {
 // Minimal chunked encode/decode test with debugging
 #[test]
 fn test_spread_spectrum_roundtrip_simple() {
-    use testaudio_core::{DecoderSpread, EncoderSpread};
+    use transmitwave_core::{DecoderSpread, EncoderSpread};
 
     let original_data = b"Test";
     let mut encoder = EncoderSpread::new(2).expect("Failed to create spread encoder");
@@ -480,7 +480,7 @@ fn test_spread_spectrum_roundtrip_simple() {
 
 #[test]
 fn test_spread_spectrum_roundtrip_max_payload() {
-    use testaudio_core::{DecoderSpread, EncoderSpread};
+    use transmitwave_core::{DecoderSpread, EncoderSpread};
 
     let original_data = vec![0xAA; 200]; // Max size with alternating bits
     let mut encoder = EncoderSpread::new(2).expect("Failed to create spread encoder");
@@ -494,7 +494,7 @@ fn test_spread_spectrum_roundtrip_max_payload() {
 
 #[test]
 fn test_spread_spectrum_roundtrip_binary_patterns() {
-    use testaudio_core::{DecoderSpread, EncoderSpread};
+    use transmitwave_core::{DecoderSpread, EncoderSpread};
 
     let test_patterns = vec![
         vec![0xFF, 0xFF, 0xFF],      // All ones

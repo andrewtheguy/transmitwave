@@ -1,6 +1,6 @@
 # Cloudflare Pages Deployment Guide
 
-This guide explains how to deploy the testaudio project to Cloudflare Pages with automatic WASM compilation.
+This guide explains how to deploy the transmitwave project to Cloudflare Pages with automatic WASM compilation.
 
 ## Prerequisites
 
@@ -107,7 +107,7 @@ web/dist/
 ├── index.html
 ├── assets/
 │   ├── main.[hash].js      (React app)
-│   ├── testaudio-wasm_bg.wasm  (WASM module)
+│   ├── transmitwave-wasm_bg.wasm  (WASM module)
 │   └── [other assets]
 ```
 
@@ -115,7 +115,7 @@ web/dist/
 
 ### Cloudflare Pages Settings
 
-In Cloudflare Dashboard → Pages → testaudio → Settings:
+In Cloudflare Dashboard → Pages → transmitwave → Settings:
 
 1. **Build Configuration**
    - Build command: `npm run build:all` (if not using GitHub Actions)
@@ -144,7 +144,7 @@ Common issues:
    - Ensure Rust toolchain and wasm-pack are installed in workflow
    - Check `.github/workflows/deploy.yml` has the installation steps
 
-2. **"Module not found: testaudio-wasm"**
+2. **"Module not found: transmitwave-wasm"**
    - Run `npm run build:wasm` before `npm run build`
    - Verify `wasm/pkg/` directory exists after WASM build
 
@@ -173,7 +173,7 @@ For smaller bundles, the WASM module size should be ~100-200KB gzipped.
 ## File Structure
 
 ```
-testaudio/
+transmitwave/
 ├── .github/workflows/
 │   └── deploy.yml           (CI/CD pipeline)
 ├── web/                      (React frontend)
@@ -207,7 +207,7 @@ testaudio/
 5. Add environment secrets (API token, Account ID)
 6. Save and deploy
 
-Your app will be available at `testaudio.[your-domain].pages.dev`
+Your app will be available at `transmitwave.[your-domain].pages.dev`
 
 ## Additional Resources
 

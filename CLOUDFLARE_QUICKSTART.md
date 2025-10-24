@@ -1,6 +1,6 @@
 # Cloudflare Pages Deployment - Quick Start
 
-Get your testaudio app deployed to Cloudflare Pages in 5 minutes.
+Get your transmitwave app deployed to Cloudflare Pages in 5 minutes.
 
 ## Option A: Manual GitHub Actions Deployment (On-Demand)
 
@@ -22,7 +22,7 @@ Get your testaudio app deployed to Cloudflare Pages in 5 minutes.
 2. Click "Deploy to Cloudflare Pages" workflow
 3. Click "Run workflow" button
 4. Wait for green checkmark (5-10 minutes)
-5. Your site will be live at `testaudio.[your-domain].pages.dev`
+5. Your site will be live at `transmitwave.[your-domain].pages.dev`
 
 **Note:** Workflow only runs when you manually trigger it. No automatic deployments on push.
 
@@ -56,7 +56,7 @@ wrangler login
 
 ### Step 4: Deploy
 ```bash
-wrangler pages deploy web/dist --project-name=testaudio
+wrangler pages deploy web/dist --project-name=transmitwave
 ```
 
 Your site is now live!
@@ -68,7 +68,7 @@ Your site is now live!
 2. Select account → Pages → Create application
 3. Select "Connect to Git"
 4. Choose GitHub and authorize
-5. Select your `testaudio` repository
+5. Select your `transmitwave` repository
 
 ### Step 2: Configure Build Settings
 - **Production branch:** `main`
@@ -88,10 +88,10 @@ Cloudflare will automatically build and deploy every time you push to `main`.
 
 ```bash
 # Check deployment status
-wrangler pages list --project-name=testaudio
+wrangler pages list --project-name=transmitwave
 
 # Open your site
-open https://testaudio.[your-domain].pages.dev
+open https://transmitwave.[your-domain].pages.dev
 ```
 
 ## Troubleshooting
@@ -103,7 +103,7 @@ open https://testaudio.[your-domain].pages.dev
 
 ### "WASM module not found"
 - Run `cd wasm && bash build.sh` locally to generate `pkg/`
-- Check that `testaudio-wasm` is in `web/node_modules/`
+- Check that `transmitwave-wasm` is in `web/node_modules/`
 - Restart dev server if running locally
 
 ### "Pages project not found"

@@ -1,4 +1,4 @@
-name = "testaudio"
+name = "transmitwave"
 pages_build_output_dir = "web/dist"
 
 [build]
@@ -6,4 +6,4 @@ command = "npm run build:all"
 cwd = "."
 
 [env.production]
-name = "testaudio-prod"
+name = "transmitwave-prod"

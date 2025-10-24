@@ -37,7 +37,7 @@ pub fn stereo_to_mono(samples: &[f32]) -> Vec<f32> {
 ///
 /// # Example
 /// ```
-/// use testaudio_core::resample_audio;
+/// use transmitwave_core::resample_audio;
 /// let audio_48k = vec![0.1, 0.2, 0.3, 0.4]; // audio at 48kHz
 /// let audio_16k = resample_audio(&audio_48k, 48000, 16000);
 /// ```
