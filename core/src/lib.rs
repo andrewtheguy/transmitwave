@@ -42,9 +42,11 @@ pub const SYMBOL_DURATION_MS: usize = 100;
 pub const SAMPLES_PER_SYMBOL: usize = (SAMPLE_RATE * SYMBOL_DURATION_MS) / 1000; // 1600
 
 // OFDM configuration for DATA portion (raised pitch)
-// Increased from 48 to 224 subcarriers for denser spectrum with white-noise-like hiss sound
+// Reduced to 96 subcarriers for improved reliability over speed
+// Higher bitrate (224) caused too many bit errors, exceeding RS-FEC correction capacity
+// 96 subcarriers = better SNR per carrier, lower BER, higher payload CRC success rate
 // Each subcarrier gets a deterministic phase offset for phase randomization
-pub const NUM_SUBCARRIERS: usize = 224;
+pub const NUM_SUBCARRIERS: usize = 96;
 pub const MIN_FREQUENCY: f32 = 1500.0; // Hz - raised for data portion
 pub const MAX_FREQUENCY: f32 = 4000.0; // Hz - raised for data portion
 // FFT bin resolution: 16000 Hz / 1600 samples = 10 Hz per bin
@@ -61,9 +63,12 @@ pub const PN_MIN_FREQUENCY: f32 = 400.0; // Hz
 pub const PN_MAX_FREQUENCY: f32 = 3200.0; // Hz
 
 // FEC configuration
+// Reed-Solomon (255, 223) - can correct up to 16 byte errors per 255-byte block
+// With 96 subcarriers: ~9.6 bits per symbol, max 5 symbols per RS block = ~48 bits
+// This provides sufficient correction headroom to keep payload CRC pass rate high
 pub const RS_DATA_BYTES: usize = 223;
 pub const RS_TOTAL_BYTES: usize = 255;
-pub const RS_ECC_BYTES: usize = RS_TOTAL_BYTES - RS_DATA_BYTES; // 32
+pub const RS_ECC_BYTES: usize = RS_TOTAL_BYTES - RS_DATA_BYTES; // 32 byte error correction
 
 // Frame configuration
 pub const SYNC_DURATION_MS: usize = 250;  // Preamble/postamble duration (1/4 second)
