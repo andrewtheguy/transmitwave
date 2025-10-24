@@ -27,7 +27,8 @@
       "mcp__ide__getDiagnostics",
       "Bash(npm install:*)",
       "Bash(npm run build:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(npm run:*)"
     ],
     "deny": [],
     "ask": []
