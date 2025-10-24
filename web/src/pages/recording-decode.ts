@@ -16,6 +16,15 @@ export async function RecordingDecodePage(): Promise<string> {
             <h2>Recording Settings</h2>
 
             <div class="mt-4">
+                <label><strong>Microphone Volume</strong></label>
+                <div class="flex items-center gap-3 mt-2">
+                    <input type="range" id="volumeSlider" min="0.5" max="3" step="0.1" value="1" />
+                    <span id="volumeValue">1.0x</span>
+                </div>
+                <small>Amplify microphone input (0.5x to 3x). Recommended: 1.0x</small>
+            </div>
+
+            <div class="mt-4">
                 <label><strong>Detection Threshold</strong></label>
                 <div class="flex items-center gap-3 mt-2">
                     <input type="range" id="thresholdSlider" min="0.1" max="0.9" step="0.1" value="0.4" />
@@ -67,6 +76,8 @@ export async function RecordingDecodePage(): Promise<string> {
 function setupRecordingListeners(): void {
     const startBtn = document.getElementById('startBtn') as HTMLButtonElement;
     const stopBtn = document.getElementById('stopBtn') as HTMLButtonElement;
+    const volumeSlider = document.getElementById('volumeSlider') as HTMLInputElement;
+    const volumeValue = document.getElementById('volumeValue') as HTMLElement;
     const thresholdSlider = document.getElementById('thresholdSlider') as HTMLInputElement;
     const thresholdValue = document.getElementById('thresholdValue') as HTMLElement;
     const status = document.getElementById('status')!;
@@ -77,6 +88,15 @@ function setupRecordingListeners(): void {
     let audioContext: AudioContext;
     let recordedSamples: number[] = [];
     let startTime: number;
+    let gainNode: GainNode | null = null;
+
+    // Update volume display
+    volumeSlider.addEventListener('input', () => {
+        volumeValue.textContent = parseFloat(volumeSlider.value).toFixed(1) + 'x';
+        if (gainNode) {
+            gainNode.gain.value = parseFloat(volumeSlider.value);
+        }
+    });
 
     // Update threshold display
     thresholdSlider.addEventListener('input', () => {
@@ -97,9 +117,15 @@ function setupRecordingListeners(): void {
 
             audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
             const source = audioContext.createMediaStreamSource(stream);
+            gainNode = audioContext.createGain();
             const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-            source.connect(processor);
+            // Set initial gain
+            gainNode.gain.value = parseFloat(volumeSlider.value);
+
+            // Connect: microphone -> gain -> processor -> output
+            source.connect(gainNode);
+            gainNode.connect(processor);
             processor.connect(audioContext.destination);
 
             isRecording = true;
