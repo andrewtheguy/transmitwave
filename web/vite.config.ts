@@ -33,7 +33,8 @@ export default defineConfig({
   resolve: {
     alias: {
       'transmitwave-wasm': path.resolve(__dirname, 'node_modules/transmitwave-wasm'),
-      'env': path.resolve(__dirname, 'wasm-env-shim.js')
+      // no need for workaround anymore after removing instant as dependency on wasm module
+      //'env': path.resolve(__dirname, 'wasm-env-shim.js')
     }
   },
 })
