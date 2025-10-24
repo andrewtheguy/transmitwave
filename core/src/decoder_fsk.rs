@@ -63,26 +63,8 @@ impl DecoderFsk {
         let valid_samples = symbol_count * FSK_SYMBOL_SAMPLES;
         let fsk_samples = &fsk_region[..valid_samples];
 
-        // Demodulate FSK symbols to bits
-        let bits = self.fsk.demodulate(fsk_samples)?;
-
-        if bits.is_empty() {
-            return Err(AudioModemError::InvalidFrameSize);
-        }
-
-        // Convert bits back to bytes
-        let mut bytes = Vec::new();
-        for chunk in bits.chunks(8) {
-            if chunk.len() == 8 {
-                let mut byte = 0u8;
-                for (i, &bit) in chunk.iter().enumerate() {
-                    if bit {
-                        byte |= 1 << (7 - i);
-                    }
-                }
-                bytes.push(byte);
-            }
-        }
+        // Demodulate multi-tone FSK symbols to bytes
+        let bytes = self.fsk.demodulate(fsk_samples)?;
 
         if bytes.len() < 2 {
             return Err(AudioModemError::InvalidFrameSize);

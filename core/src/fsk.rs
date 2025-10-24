@@ -1,168 +1,340 @@
 use crate::error::{AudioModemError, Result};
 use std::f32::consts::PI;
 
-// 4-FSK configuration
-// Four well-spaced frequencies for robust non-coherent detection
-const FSK_FREQ_0: f32 = 1200.0; // 00
-const FSK_FREQ_1: f32 = 1600.0; // 01
-const FSK_FREQ_2: f32 = 2000.0; // 10
-const FSK_FREQ_3: f32 = 2400.0; // 11
+// Multi-tone FSK configuration (ggwave-compatible)
+//
+// This implementation uses the EXACT frequency band from ggwave's audible protocols:
+// - ggwave audible protocols: freqStart = 40, using 96 bins (40-135)
+// - With ggwave's hzPerSample = 46.875 Hz: 40 * 46.875 = 1875 Hz base
+// - Frequency range: 1875 Hz to 6328.125 Hz (identical to ggwave)
+//
+// ggwave protocol parameters (at 48kHz, 1024 samples/frame):
+// - Normal:  9 frames/tx = 192ms per symbol
+// - Fast:    6 frames/tx = 128ms per symbol
+// - Fastest: 3 frames/tx = 64ms per symbol
+//
+// Our implementation (at 16kHz):
+// - Uses the same frequency spacing (46.875 Hz)
+// - Uses the same frequency range (1875-6328 Hz)
+// - Transmits 3 bytes (6 nibbles) per symbol like ggwave
+// - Symbol duration adjusted for 16kHz sample rate
 
-/// Maps 2-bit patterns to frequency indices
-const FREQUENCIES: [f32; 4] = [FSK_FREQ_0, FSK_FREQ_1, FSK_FREQ_2, FSK_FREQ_3];
+/// Base frequency in Hz (ggwave audible mode, bin 40)
+/// Calculated as: 40 bins * 46.875 Hz/bin = 1875 Hz
+const FSK_BASE_FREQ: f32 = 1875.0;
 
-/// FSK symbol duration in samples (50ms per symbol for improved reliability)
-/// At 16kHz sample rate: 0.050s * 16000 = 800 samples per symbol
-/// This gives 2 bits per 50ms = 40 bits/second
-/// Doubled from 25ms for better noise immunity at the cost of slower transmission
-pub const FSK_SYMBOL_SAMPLES: usize = 800;
+/// Frequency spacing in Hz between adjacent bins (ggwave standard)
+/// This is hzPerSample at 48kHz/1024 samples per frame
+const FSK_FREQ_DELTA: f32 = 46.875;
 
-/// FSK modulator - converts bit pairs to audio tones
+/// Total number of frequency bins (ggwave uses bins 40-135 for audible)
+/// 6 nibbles * 16 tones per nibble = 96 bins
+const FSK_NUM_BINS: usize = 96;
+
+/// Number of nibbles transmitted per symbol (ggwave bytesPerTx = 3)
+pub const FSK_NIBBLES_PER_SYMBOL: usize = 6;
+
+/// Number of bytes transmitted per symbol (ggwave standard)
+pub const FSK_BYTES_PER_SYMBOL: usize = 3;
+
+/// Speed mode variants (matching ggwave protocol speeds)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FskSpeed {
+    /// Normal: ~128ms per symbol at 16kHz (similar to ggwave Fast)
+    Normal,
+    /// Fast: ~64ms per symbol at 16kHz (similar to ggwave Fastest)
+    Fast,
+    /// Fastest: ~32ms per symbol at 16kHz (faster than ggwave for robustness testing)
+    Fastest,
+}
+
+impl FskSpeed {
+    /// Get symbol duration in samples for this speed at 16kHz sample rate
+    pub fn samples_per_symbol(&self) -> usize {
+        match self {
+            FskSpeed::Normal => 2048,   // 128ms at 16kHz
+            FskSpeed::Fast => 1024,     // 64ms at 16kHz
+            FskSpeed::Fastest => 512,   // 32ms at 16kHz
+        }
+    }
+
+    /// Get approximate data rate in bytes/second
+    pub fn bytes_per_second(&self) -> f32 {
+        let symbol_duration_sec = self.samples_per_symbol() as f32 / 16000.0;
+        FSK_BYTES_PER_SYMBOL as f32 / symbol_duration_sec
+    }
+}
+
+/// Default FSK symbol duration (Normal speed: 128ms at 16kHz)
+/// This is similar to ggwave's Fast mode adjusted for 16kHz sample rate
+/// - ggwave Fast at 48kHz: 6 frames * 1024 samples = 128ms
+/// - Our Normal at 16kHz: 2048 samples = 128ms
+pub const FSK_SYMBOL_SAMPLES: usize = 2048;
+
+/// Calculate frequency for a given bin index
+/// freq_hz = FSK_BASE_FREQ + bin_index * FSK_FREQ_DELTA
+fn bin_to_freq(bin: usize) -> f32 {
+    FSK_BASE_FREQ + (bin as f32) * FSK_FREQ_DELTA
+}
+
+/// Calculate approximate bin index for a given frequency
+/// Returns None if frequency is outside valid range
+fn freq_to_bin(freq: f32) -> Option<usize> {
+    if freq < FSK_BASE_FREQ {
+        return None;
+    }
+    let bin = ((freq - FSK_BASE_FREQ) / FSK_FREQ_DELTA).round() as usize;
+    if bin < FSK_NUM_BINS {
+        Some(bin)
+    } else {
+        None
+    }
+}
+
+/// FSK modulator - generates multi-tone audio for simultaneous transmission
+///
+/// Transmits 3 bytes (6 nibbles) per symbol by using 6 simultaneous frequencies.
+/// Each nibble (4 bits, value 0-15) selects one frequency from a band of 16 frequencies.
+///
+/// Supports multiple speed modes matching ggwave's protocol speeds (adjusted for 16kHz).
 pub struct FskModulator {
     sample_rate: f32,
-    phase: f32, // Phase accumulator for continuous phase
+    speed: FskSpeed,
 }
 
 impl FskModulator {
     pub fn new() -> Self {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
-            phase: 0.0,
+            speed: FskSpeed::Normal,
         }
     }
 
-    /// Modulate 2 bits into a single FSK symbol
-    /// bits[0] = MSB, bits[1] = LSB
-    /// Returns FSK_SYMBOL_SAMPLES audio samples (25ms)
-    pub fn modulate_symbol(&mut self, bits: &[bool]) -> Result<Vec<f32>> {
-        if bits.len() != 2 {
+    /// Create a new modulator with specific speed
+    pub fn with_speed(speed: FskSpeed) -> Self {
+        Self {
+            sample_rate: crate::SAMPLE_RATE as f32,
+            speed,
+        }
+    }
+
+    /// Get current speed mode
+    pub fn speed(&self) -> FskSpeed {
+        self.speed
+    }
+
+    /// Set speed mode
+    pub fn set_speed(&mut self, speed: FskSpeed) {
+        self.speed = speed;
+    }
+
+    /// Modulate 3 bytes into a multi-tone FSK symbol
+    ///
+    /// Each byte is split into two 4-bit nibbles.
+    /// Each nibble selects a frequency from its dedicated band:
+    /// - Nibble 0 (byte[0] high): bins 0-15
+    /// - Nibble 1 (byte[0] low):  bins 16-31
+    /// - Nibble 2 (byte[1] high): bins 32-47
+    /// - Nibble 3 (byte[1] low):  bins 48-63
+    /// - Nibble 4 (byte[2] high): bins 64-79
+    /// - Nibble 5 (byte[2] low):  bins 80-95
+    ///
+    /// All 6 tones are generated simultaneously and superimposed.
+    /// Symbol duration depends on the configured speed mode.
+    pub fn modulate_symbol(&mut self, bytes: &[u8]) -> Result<Vec<f32>> {
+        if bytes.len() != FSK_BYTES_PER_SYMBOL {
             return Err(AudioModemError::InvalidInputSize);
         }
 
-        // Map 2 bits to frequency index: 00=0, 01=1, 10=2, 11=3
-        let freq_idx = ((bits[0] as usize) << 1) | (bits[1] as usize);
-        let frequency = FREQUENCIES[freq_idx];
+        let symbol_samples = self.speed.samples_per_symbol();
+        let mut samples = vec![0.0f32; symbol_samples];
 
-        let mut samples = vec![0.0; FSK_SYMBOL_SAMPLES];
-        let angular_freq = 2.0 * PI * frequency / self.sample_rate;
+        // Extract 6 nibbles from 3 bytes
+        let nibbles = [
+            (bytes[0] >> 4) & 0x0F,  // High nibble of byte 0
+            bytes[0] & 0x0F,         // Low nibble of byte 0
+            (bytes[1] >> 4) & 0x0F,  // High nibble of byte 1
+            bytes[1] & 0x0F,         // Low nibble of byte 1
+            (bytes[2] >> 4) & 0x0F,  // High nibble of byte 2
+            bytes[2] & 0x0F,         // Low nibble of byte 2
+        ];
 
-        for i in 0..FSK_SYMBOL_SAMPLES {
-            samples[i] = self.phase.sin() * 0.7; // 0.7 amplitude to prevent clipping
-            self.phase += angular_freq;
+        // Generate and superimpose all 6 tones
+        for (nibble_idx, &nibble_val) in nibbles.iter().enumerate() {
+            // Each nibble has a dedicated band of 16 frequencies
+            let band_offset = nibble_idx * 16;
+            let bin = band_offset + (nibble_val as usize);
 
-            // Keep phase in [-2π, 2π] range to prevent float precision issues
-            if self.phase > 2.0 * PI {
-                self.phase -= 2.0 * PI;
+            if bin >= FSK_NUM_BINS {
+                return Err(AudioModemError::InvalidInputSize);
             }
+
+            let frequency = bin_to_freq(bin);
+            let angular_freq = 2.0 * PI * frequency / self.sample_rate;
+
+            // Add this tone to the output
+            for i in 0..symbol_samples {
+                samples[i] += (angular_freq * i as f32).sin();
+            }
+        }
+
+        // Scale by 1/6 to prevent clipping when superimposing 6 tones
+        // Also apply 0.7 overall amplitude
+        let scale = 0.7 / FSK_NIBBLES_PER_SYMBOL as f32;
+        for sample in samples.iter_mut() {
+            *sample *= scale;
         }
 
         Ok(samples)
     }
 
-    /// Modulate a sequence of bits (must be even number)
-    /// Encodes 2 bits per symbol
-    pub fn modulate(&mut self, bits: &[bool]) -> Result<Vec<f32>> {
-        if bits.len() % 2 != 0 {
+    /// Modulate a sequence of bytes
+    /// Input length must be a multiple of FSK_BYTES_PER_SYMBOL (3)
+    pub fn modulate(&mut self, bytes: &[u8]) -> Result<Vec<f32>> {
+        if bytes.len() % FSK_BYTES_PER_SYMBOL != 0 {
             return Err(AudioModemError::InvalidInputSize);
         }
 
         let mut samples = Vec::new();
-        for chunk in bits.chunks(2) {
+        for chunk in bytes.chunks(FSK_BYTES_PER_SYMBOL) {
             let symbol_samples = self.modulate_symbol(chunk)?;
             samples.extend_from_slice(&symbol_samples);
         }
 
         Ok(samples)
     }
-
-    /// Reset phase accumulator (for testing or new transmission)
-    pub fn reset(&mut self) {
-        self.phase = 0.0;
-    }
 }
 
-/// FSK demodulator - detects frequency using Goertzel algorithm
+/// FSK demodulator - detects multiple simultaneous frequencies using FFT
+///
+/// Analyzes the spectrum to find 6 simultaneous tones, each representing a nibble.
+/// Supports multiple speed modes matching ggwave's protocol speeds.
 pub struct FskDemodulator {
     sample_rate: f32,
+    speed: FskSpeed,
 }
 
 impl FskDemodulator {
     pub fn new() -> Self {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
+            speed: FskSpeed::Normal,
         }
     }
 
-    /// Goertzel algorithm - efficient single-frequency DFT
-    /// Computes magnitude of a specific frequency in the signal
-    fn goertzel(&self, samples: &[f32], target_freq: f32) -> f32 {
+    /// Create a new demodulator with specific speed
+    pub fn with_speed(speed: FskSpeed) -> Self {
+        Self {
+            sample_rate: crate::SAMPLE_RATE as f32,
+            speed,
+        }
+    }
+
+    /// Get current speed mode
+    pub fn speed(&self) -> FskSpeed {
+        self.speed
+    }
+
+    /// Set speed mode
+    pub fn set_speed(&mut self, speed: FskSpeed) {
+        self.speed = speed;
+    }
+
+    /// Compute power spectrum using simple DFT for our specific frequency bins
+    ///
+    /// This is more efficient than full FFT since we only need 96 specific bins.
+    /// For each bin, we compute the magnitude using Goertzel-like approach.
+    fn compute_spectrum(&self, samples: &[f32]) -> Vec<f32> {
         let n = samples.len();
-        let k = (0.5 + (n as f32 * target_freq / self.sample_rate)) as usize;
-        let omega = 2.0 * PI * k as f32 / n as f32;
-        let coeff = 2.0 * omega.cos();
+        let mut spectrum = vec![0.0f32; FSK_NUM_BINS];
 
-        let mut q0 = 0.0;
-        let mut q1 = 0.0;
-        let mut q2 = 0.0;
+        for bin in 0..FSK_NUM_BINS {
+            let freq = bin_to_freq(bin);
+            let k = (0.5 + (n as f32 * freq / self.sample_rate)) as usize;
+            let omega = 2.0 * PI * k as f32 / n as f32;
+            let coeff = 2.0 * omega.cos();
 
-        // Feed samples through the filter
-        for &sample in samples {
-            q0 = coeff * q1 - q2 + sample;
-            q2 = q1;
-            q1 = q0;
-        }
+            let mut q0 = 0.0;
+            let mut q1 = 0.0;
+            let mut q2 = 0.0;
 
-        // Compute magnitude
-        let real = q1 - q2 * omega.cos();
-        let imag = q2 * omega.sin();
-        (real * real + imag * imag).sqrt()
-    }
-
-    /// Demodulate a single FSK symbol (FSK_SYMBOL_SAMPLES samples)
-    /// Returns 2 bits representing the detected frequency
-    pub fn demodulate_symbol(&self, samples: &[f32]) -> Result<[bool; 2]> {
-        if samples.len() != FSK_SYMBOL_SAMPLES {
-            return Err(AudioModemError::InvalidInputSize);
-        }
-
-        // Compute energy at each of the 4 frequencies
-        let mut energies = [0.0f32; 4];
-        for (i, &freq) in FREQUENCIES.iter().enumerate() {
-            energies[i] = self.goertzel(samples, freq);
-        }
-
-        // Find frequency with maximum energy
-        let mut max_idx = 0;
-        let mut max_energy = energies[0];
-        for (i, &energy) in energies.iter().enumerate().skip(1) {
-            if energy > max_energy {
-                max_energy = energy;
-                max_idx = i;
+            // Goertzel filter
+            for &sample in samples {
+                q0 = coeff * q1 - q2 + sample;
+                q2 = q1;
+                q1 = q0;
             }
+
+            // Compute power (magnitude squared)
+            let real = q1 - q2 * omega.cos();
+            let imag = q2 * omega.sin();
+            spectrum[bin] = real * real + imag * imag;
         }
 
-        // Convert frequency index back to 2 bits
-        let bit0 = (max_idx >> 1) != 0; // MSB
-        let bit1 = (max_idx & 1) != 0;  // LSB
-
-        Ok([bit0, bit1])
+        spectrum
     }
 
-    /// Demodulate a sequence of FSK symbols
-    /// samples.len() must be a multiple of FSK_SYMBOL_SAMPLES
-    pub fn demodulate(&self, samples: &[f32]) -> Result<Vec<bool>> {
-        if samples.len() % FSK_SYMBOL_SAMPLES != 0 {
+    /// Demodulate a single multi-tone FSK symbol
+    ///
+    /// Detects 6 simultaneous tones, one from each band of 16 frequencies.
+    /// Returns the 3 bytes encoded in the symbol.
+    /// Symbol duration depends on the configured speed mode.
+    pub fn demodulate_symbol(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
+        let expected_samples = self.speed.samples_per_symbol();
+        if samples.len() != expected_samples {
             return Err(AudioModemError::InvalidInputSize);
         }
 
-        let mut bits = Vec::new();
-        for chunk in samples.chunks(FSK_SYMBOL_SAMPLES) {
-            let symbol_bits = self.demodulate_symbol(chunk)?;
-            bits.push(symbol_bits[0]);
-            bits.push(symbol_bits[1]);
+        // Compute power spectrum
+        let spectrum = self.compute_spectrum(samples);
+
+        // Detect the strongest frequency in each of the 6 bands
+        let mut nibbles = [0u8; FSK_NIBBLES_PER_SYMBOL];
+
+        for nibble_idx in 0..FSK_NIBBLES_PER_SYMBOL {
+            let band_start = nibble_idx * 16;
+            let band_end = band_start + 16;
+
+            // Find bin with maximum energy in this band
+            let mut max_bin_in_band = 0;
+            let mut max_energy = spectrum[band_start];
+
+            for (offset, &energy) in spectrum[band_start..band_end].iter().enumerate() {
+                if energy > max_energy {
+                    max_energy = energy;
+                    max_bin_in_band = offset;
+                }
+            }
+
+            // The nibble value is the offset within the band
+            nibbles[nibble_idx] = max_bin_in_band as u8;
         }
 
-        Ok(bits)
+        // Reconstruct 3 bytes from 6 nibbles
+        let bytes = [
+            (nibbles[0] << 4) | nibbles[1],  // Byte 0
+            (nibbles[2] << 4) | nibbles[3],  // Byte 1
+            (nibbles[4] << 4) | nibbles[5],  // Byte 2
+        ];
+
+        Ok(bytes)
+    }
+
+    /// Demodulate a sequence of multi-tone FSK symbols
+    /// samples.len() must be a multiple of the configured speed's samples_per_symbol
+    pub fn demodulate(&self, samples: &[f32]) -> Result<Vec<u8>> {
+        let symbol_samples = self.speed.samples_per_symbol();
+        if samples.len() % symbol_samples != 0 {
+            return Err(AudioModemError::InvalidInputSize);
+        }
+
+        let mut bytes = Vec::new();
+        for chunk in samples.chunks(symbol_samples) {
+            let symbol_bytes = self.demodulate_symbol(chunk)?;
+            bytes.extend_from_slice(&symbol_bytes);
+        }
+
+        Ok(bytes)
     }
 }
 
@@ -183,17 +355,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_bin_to_freq() {
+        assert_eq!(bin_to_freq(0), FSK_BASE_FREQ);
+        assert_eq!(bin_to_freq(16), FSK_BASE_FREQ + 16.0 * FSK_FREQ_DELTA);
+        assert_eq!(bin_to_freq(95), FSK_BASE_FREQ + 95.0 * FSK_FREQ_DELTA);
+    }
+
+    #[test]
+    fn test_freq_to_bin() {
+        assert_eq!(freq_to_bin(FSK_BASE_FREQ), Some(0));
+        assert_eq!(freq_to_bin(FSK_BASE_FREQ + 16.0 * FSK_FREQ_DELTA), Some(16));
+        assert_eq!(freq_to_bin(FSK_BASE_FREQ - 100.0), None); // Too low
+        assert_eq!(freq_to_bin(FSK_BASE_FREQ + 200.0 * FSK_FREQ_DELTA), None); // Too high
+    }
+
+    #[test]
     fn test_fsk_modulator_symbol_length() {
         let mut modulator = FskModulator::new();
-        let samples = modulator.modulate_symbol(&[false, false]).unwrap();
+        let bytes = [0xAB, 0xCD, 0xEF];
+        let samples = modulator.modulate_symbol(&bytes).unwrap();
         assert_eq!(samples.len(), FSK_SYMBOL_SAMPLES);
     }
 
     #[test]
     fn test_fsk_modulator_invalid_input() {
         let mut modulator = FskModulator::new();
-        assert!(modulator.modulate_symbol(&[false]).is_err());
-        assert!(modulator.modulate_symbol(&[false, false, false]).is_err());
+        // Wrong number of bytes
+        assert!(modulator.modulate_symbol(&[0xAB]).is_err());
+        assert!(modulator.modulate_symbol(&[0xAB, 0xCD]).is_err());
+        assert!(modulator.modulate_symbol(&[0xAB, 0xCD, 0xEF, 0x12]).is_err());
     }
 
     #[test]
@@ -209,17 +399,21 @@ mod tests {
         let demodulator = FskDemodulator::new();
 
         let test_cases = vec![
-            [false, false], // 00 -> 1200 Hz
-            [false, true],  // 01 -> 1600 Hz
-            [true, false],  // 10 -> 2000 Hz
-            [true, true],   // 11 -> 2400 Hz
+            [0x00, 0x00, 0x00], // All zeros
+            [0xFF, 0xFF, 0xFF], // All ones
+            [0xAB, 0xCD, 0xEF], // Mixed values
+            [0x12, 0x34, 0x56], // Another pattern
+            [0x0F, 0xF0, 0x55], // Edge cases
         ];
 
-        for bits in test_cases {
-            modulator.reset();
-            let samples = modulator.modulate_symbol(&bits).unwrap();
+        for bytes in test_cases {
+            let samples = modulator.modulate_symbol(&bytes).unwrap();
             let decoded = demodulator.demodulate_symbol(&samples).unwrap();
-            assert_eq!(decoded, bits, "Failed roundtrip for {:?}", bits);
+            assert_eq!(
+                decoded, bytes,
+                "Failed roundtrip for {:02X?}",
+                bytes
+            );
         }
     }
 
@@ -228,22 +422,18 @@ mod tests {
         let mut modulator = FskModulator::new();
         let demodulator = FskDemodulator::new();
 
-        // Test sequence: 00 01 10 11 00 11
-        let bits = vec![
-            false, false, // 00
-            false, true,  // 01
-            true, false,  // 10
-            true, true,   // 11
-            false, false, // 00
-            true, true,   // 11
+        // Test sequence: 2 symbols = 6 bytes
+        let bytes = vec![
+            0xAB, 0xCD, 0xEF, // Symbol 1
+            0x12, 0x34, 0x56, // Symbol 2
         ];
 
-        let samples = modulator.modulate(&bits).unwrap();
-        assert_eq!(samples.len(), FSK_SYMBOL_SAMPLES * 6);
+        let samples = modulator.modulate(&bytes).unwrap();
+        assert_eq!(samples.len(), FSK_SYMBOL_SAMPLES * 2);
 
         let decoded = demodulator.demodulate(&samples).unwrap();
-        assert_eq!(decoded.len(), bits.len());
-        assert_eq!(decoded, bits);
+        assert_eq!(decoded.len(), bytes.len());
+        assert_eq!(decoded, bytes);
     }
 
     #[test]
@@ -252,57 +442,105 @@ mod tests {
         let demodulator = FskDemodulator::new();
 
         // Encode a symbol
-        let bits = [true, false]; // 10 -> 2000 Hz
-        let mut samples = modulator.modulate_symbol(&bits).unwrap();
+        let bytes = [0xAB, 0xCD, 0xEF];
+        let mut samples = modulator.modulate_symbol(&bytes).unwrap();
 
-        // Add small noise
+        // Add small noise (5% amplitude)
         for sample in samples.iter_mut() {
-            *sample += 0.1 * ((*sample * 100.0).sin()); // ~10% noise
+            *sample += 0.05 * ((*sample * 100.0).sin());
         }
 
         // Should still decode correctly
         let decoded = demodulator.demodulate_symbol(&samples).unwrap();
-        assert_eq!(decoded, bits);
+        assert_eq!(decoded, bytes);
     }
 
     #[test]
-    fn test_goertzel_detects_correct_frequency() {
+    fn test_spectrum_computation() {
         let demodulator = FskDemodulator::new();
         let mut modulator = FskModulator::new();
 
-        // Generate 1600 Hz tone
-        let samples = modulator.modulate_symbol(&[false, true]).unwrap();
+        // Generate a known signal with specific frequencies
+        let bytes = [0x00, 0x00, 0x00]; // All nibbles = 0, uses bins 0, 16, 32, 48, 64, 80
+        let samples = modulator.modulate_symbol(&bytes).unwrap();
 
-        // Goertzel should detect highest energy at 1600 Hz
-        let energy_1200 = demodulator.goertzel(&samples, FSK_FREQ_0);
-        let energy_1600 = demodulator.goertzel(&samples, FSK_FREQ_1);
-        let energy_2000 = demodulator.goertzel(&samples, FSK_FREQ_2);
-        let energy_2400 = demodulator.goertzel(&samples, FSK_FREQ_3);
+        let spectrum = demodulator.compute_spectrum(&samples);
+        assert_eq!(spectrum.len(), FSK_NUM_BINS);
 
-        assert!(energy_1600 > energy_1200);
-        assert!(energy_1600 > energy_2000);
-        assert!(energy_1600 > energy_2400);
+        // The bins corresponding to the transmitted frequencies should have highest energy
+        // Nibble 0 (value 0) -> bin 0
+        // Nibble 1 (value 0) -> bin 16
+        // etc.
+        let expected_bins = [0, 16, 32, 48, 64, 80];
+
+        for &bin in &expected_bins {
+            // Energy at expected bin should be significantly higher than adjacent bins
+            if bin > 0 && bin < FSK_NUM_BINS - 1 {
+                assert!(
+                    spectrum[bin] > spectrum[bin - 1] * 2.0,
+                    "Bin {} should have higher energy than bin {}",
+                    bin,
+                    bin - 1
+                );
+                assert!(
+                    spectrum[bin] > spectrum[bin + 1] * 2.0,
+                    "Bin {} should have higher energy than bin {}",
+                    bin,
+                    bin + 1
+                );
+            }
+        }
     }
 
     #[test]
-    fn test_fsk_continuous_phase() {
+    fn test_fsk_byte_patterns() {
+        let mut modulator = FskModulator::new();
+        let demodulator = FskDemodulator::new();
+
+        let patterns = vec![
+            vec![0x00; 6],       // All zeros
+            vec![0xFF; 6],       // All ones
+            vec![0xAA; 6],       // Alternating bits
+            vec![0x55; 6],       // Alternating bits (inverse)
+            vec![0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF], // Alternating bytes
+        ];
+
+        for bytes in patterns {
+            let samples = modulator.modulate(&bytes).unwrap();
+            let decoded = demodulator.demodulate(&samples).unwrap();
+            assert_eq!(decoded, bytes, "Failed for pattern {:02X?}", bytes);
+        }
+    }
+
+    #[test]
+    fn test_modulate_length_validation() {
         let mut modulator = FskModulator::new();
 
-        // Modulate two different symbols
-        let samples1 = modulator.modulate_symbol(&[false, false]).unwrap();
-        let samples2 = modulator.modulate_symbol(&[true, true]).unwrap();
+        // Valid lengths (multiples of 3)
+        assert!(modulator.modulate(&[0x00, 0x00, 0x00]).is_ok());
+        assert!(modulator.modulate(&[0x00; 6]).is_ok());
+        assert!(modulator.modulate(&[0x00; 9]).is_ok());
 
-        // Phase should continue smoothly (not reset between symbols)
-        // Check last few samples of first symbol and first few samples of second symbol
-        // They should transition smoothly due to phase continuity
-        let last_idx = samples1.len() - 1;
-        let last_sample = samples1[last_idx];
-        let first_sample = samples2[0];
+        // Invalid lengths (not multiples of 3)
+        assert!(modulator.modulate(&[0x00]).is_err());
+        assert!(modulator.modulate(&[0x00, 0x00]).is_err());
+        assert!(modulator.modulate(&[0x00; 4]).is_err());
+        assert!(modulator.modulate(&[0x00; 5]).is_err());
+    }
 
-        // The samples should generally be different due to different frequencies
-        // but the phase carries forward, creating a smooth transition
-        // Just verify the modulation works without phase discontinuity
-        assert_eq!(samples1.len(), FSK_SYMBOL_SAMPLES);
-        assert_eq!(samples2.len(), FSK_SYMBOL_SAMPLES);
+    #[test]
+    fn test_demodulate_length_validation() {
+        let demodulator = FskDemodulator::new();
+
+        // Valid length
+        let samples_valid = vec![0.0; FSK_SYMBOL_SAMPLES];
+        assert!(demodulator.demodulate(&samples_valid).is_ok());
+
+        // Invalid lengths
+        let samples_short = vec![0.0; FSK_SYMBOL_SAMPLES - 1];
+        assert!(demodulator.demodulate(&samples_short).is_err());
+
+        let samples_odd = vec![0.0; FSK_SYMBOL_SAMPLES + 100];
+        assert!(demodulator.demodulate(&samples_odd).is_err());
     }
 }

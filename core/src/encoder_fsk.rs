@@ -85,25 +85,20 @@ impl EncoderFsk {
             encoded_data.extend_from_slice(&fec_chunk[padding_needed..]);
         }
 
-        // Convert bytes to bits for FSK modulation
-        let mut bits = Vec::new();
-        for byte in encoded_data {
-            for i in (0..8).rev() {
-                bits.push((byte >> i) & 1 == 1);
-            }
-        }
-
-        // Ensure even number of bits (FSK encodes 2 bits per symbol)
-        if bits.len() % 2 != 0 {
-            bits.push(false); // Pad with zero if odd
+        // Pad encoded data to be a multiple of FSK_BYTES_PER_SYMBOL (3 bytes)
+        // Multi-tone FSK transmits 3 bytes per symbol
+        let remainder = encoded_data.len() % crate::fsk::FSK_BYTES_PER_SYMBOL;
+        if remainder != 0 {
+            let padding = crate::fsk::FSK_BYTES_PER_SYMBOL - remainder;
+            encoded_data.resize(encoded_data.len() + padding, 0u8);
         }
 
         // Generate preamble signal for synchronization
         let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);
 
-        // Modulate data bits using 4-FSK
+        // Modulate data bytes using multi-tone FSK
         let mut samples = preamble;
-        let fsk_samples = self.fsk.modulate(&bits)?;
+        let fsk_samples = self.fsk.modulate(&encoded_data)?;
         samples.extend_from_slice(&fsk_samples);
 
         // Generate postamble signal for frame boundary detection
