@@ -29,6 +29,10 @@ const RecordingDecodePage: React.FC = () => {
   const startTimeRef = useRef<number>(0)
   const durationIntervalRef = useRef<number>(0)
   const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const volumeUpdateIntervalRef = useRef<number>(0)
+  const [micVolume, setMicVolume] = useState(1)
+  const [volumeGain, setVolumeGain] = useState(1)
 
   const startRecording = async () => {
     try {
@@ -49,19 +53,37 @@ const RecordingDecodePage: React.FC = () => {
 
       // Create a gain node to normalize microphone input volume
       const gainNode = ctx.createGain()
-      gainNode.gain.value = 2.0 // Boost input by 2x to compensate for quiet mics
+      gainNode.gain.value = volumeGain // Use user-selected gain
+
+      // Create analyser for volume visualization
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 2048
 
       const processor = ctx.createScriptProcessor(4096, 1, 1)
 
       sourceRef.current = source
       gainNodeRef.current = gainNode
+      analyserRef.current = analyser
       processorRef.current = processor
       streamRef.current = stream
 
-      // Connect with gain node for volume normalization
+      // Connect with gain node and analyser for volume normalization and visualization
       source.connect(gainNode)
-      gainNode.connect(processor)
+      gainNode.connect(analyser)
+      analyser.connect(processor)
       processor.connect(ctx.destination)
+
+      // Start volume meter updates
+      volumeUpdateIntervalRef.current = window.setInterval(() => {
+        if (analyserRef.current) {
+          const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+          analyserRef.current.getByteFrequencyData(dataArray)
+          const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+          const db = 20 * Math.log10(average / 128 + 0.0001)
+          const normalizedDb = Math.max(0, Math.min(100, (db + 60) / 0.6))
+          setMicVolume(normalizedDb)
+        }
+      }, 50)
 
       setIsRecording(true)
       recordedSamplesRef.current = []
@@ -124,6 +146,10 @@ const RecordingDecodePage: React.FC = () => {
 
     if (durationIntervalRef.current) {
       clearInterval(durationIntervalRef.current)
+    }
+
+    if (volumeUpdateIntervalRef.current) {
+      clearInterval(volumeUpdateIntervalRef.current)
     }
 
     setIsRecording(false)
@@ -305,6 +331,46 @@ const RecordingDecodePage: React.FC = () => {
 
       <div className="card">
         <h2>Recording Controls</h2>
+
+        <div className="mt-4">
+          <label><strong>Microphone Volume</strong></label>
+          <div className="flex items-center gap-3 mt-2">
+            <input
+              type="range"
+              id="volumeSlider"
+              min="0.5"
+              max="3"
+              step="0.1"
+              value={volumeGain}
+              onChange={(e) => {
+                const newGain = parseFloat(e.target.value)
+                setVolumeGain(newGain)
+                if (gainNodeRef.current) {
+                  gainNodeRef.current.gain.value = newGain
+                }
+              }}
+            />
+            <span>{volumeGain.toFixed(1)}x</span>
+          </div>
+          <small>Amplify microphone input (0.5x to 3x). Recommended: 1.0x</small>
+        </div>
+
+        <div className="mt-4">
+          <label><strong>Input Level</strong></label>
+          <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '0.5rem', marginTop: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', height: '20px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{
+                background: 'linear-gradient(90deg, #4ade80, #facc15, #ef4444)',
+                height: '100%',
+                width: `${micVolume}%`,
+                transition: 'width 0.05s linear'
+              }}></div>
+            </div>
+            <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#666' }}>
+              Peak: {(micVolume * 0.6 - 60).toFixed(1)} dB
+            </div>
+          </div>
+        </div>
 
         <div className="mt-4 flex gap-3">
           <button
