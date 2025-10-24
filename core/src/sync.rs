@@ -10,9 +10,10 @@ use std::f32::consts::PI;
 //
 // This controls what `generate_preamble()` and `generate_postamble_signal()`
 // actually generate, allowing easy comparison between signal types.
-const SIGNAL_TYPE: SignalType = SignalType::Chirp;
+const SIGNAL_TYPE: SignalType = SignalType::PrnNoise;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum SignalType {
     PrnNoise,  // Pseudo-random bipolar noise (different seeds for pre/post)
     Chirp,     // Linear frequency sweep
