@@ -19,8 +19,6 @@ pub mod spread;
 pub mod trellis;
 pub mod resample;
 pub mod chunking;
-pub mod encoder_chunked;
-pub mod decoder_chunked;
 
 pub use encoder::Encoder;
 pub use encoder_cp::EncoderCp;
@@ -28,8 +26,6 @@ pub use decoder::Decoder;
 pub use decoder_cp::DecoderCp;
 pub use encoder_spread::EncoderSpread;
 pub use decoder_spread::DecoderSpread;
-pub use encoder_chunked::EncoderChunked;
-pub use decoder_chunked::DecoderChunked;
 pub use error::{AudioModemError, Result};
 pub use fft_correlation::{Mode, fft_correlate_1d};
 pub use sync::{detect_preamble, detect_postamble};
