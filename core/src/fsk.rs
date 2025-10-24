@@ -11,10 +11,11 @@ const FSK_FREQ_3: f32 = 2400.0; // 11
 /// Maps 2-bit patterns to frequency indices
 const FREQUENCIES: [f32; 4] = [FSK_FREQ_0, FSK_FREQ_1, FSK_FREQ_2, FSK_FREQ_3];
 
-/// FSK symbol duration in samples (25ms per symbol for faster transmission)
-/// At 16kHz sample rate: 0.025s * 16000 = 400 samples per symbol
-/// This gives 2 bits per 25ms = 80 bits/second
-pub const FSK_SYMBOL_SAMPLES: usize = 400;
+/// FSK symbol duration in samples (50ms per symbol for improved reliability)
+/// At 16kHz sample rate: 0.050s * 16000 = 800 samples per symbol
+/// This gives 2 bits per 50ms = 40 bits/second
+/// Doubled from 25ms for better noise immunity at the cost of slower transmission
+pub const FSK_SYMBOL_SAMPLES: usize = 800;
 
 /// FSK modulator - converts bit pairs to audio tones
 pub struct FskModulator {
