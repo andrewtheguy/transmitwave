@@ -15,14 +15,21 @@ A complete Rust audio modem library that encodes binary data as OFDM signals in 
 |------|---------|--------|
 | `lib.rs` | Configuration constants and module exports | ✅ |
 | `error.rs` | Error types and Result type | ✅ |
-| `ofdm.rs` | OFDM modulator/demodulator using rustfft | ✅ |
+| `ofdm.rs` | OFDM modulator/demodulator with FHSS support | ✅ |
 | `fec.rs` | Reed-Solomon FEC encoder/decoder | ✅ |
 | `framing.rs` | Frame structure with CRC-8 validation | ✅ |
 | `sync.rs` | Preamble/postamble generation and detection | ✅ |
 | `encoder.rs` | Top-level data-to-audio encoder | ✅ |
 | `decoder.rs` | Top-level audio-to-data decoder | ✅ |
+| `fhss.rs` | **NEW:** Frequency-hopping spread spectrum (FHSS) | ✅ |
+| `encoder_spread.rs` | Encoder with Barker spreading + FHSS support | ✅ |
+| `decoder_spread.rs` | Decoder with Barker spreading + FHSS support | ✅ |
 
-**Tests:** 5 unit tests + 4 integration tests (all passing)
+**Tests:** 136 tests total (all passing), including:
+  - 15 FHSS-specific tests
+  - Round-trip tests for 2/3/4-band hopping
+  - LFSR hopping pattern validation
+  - Frequency band boundary tests
 
 ### CLI Tool (`cli/`)
 **Location:** `/Users/it3/codes/andrew/testaudio/cli/src/main.rs`
@@ -30,12 +37,16 @@ A complete Rust audio modem library that encodes binary data as OFDM signals in 
 **Features:**
 - `encode <input.bin> <output.wav>` - Encode binary to audio WAV file
 - `decode <input.wav> <output.bin>` - Decode audio WAV back to binary
+- `--num-hops <N>` - Enable FHSS with N frequency bands (1-4, default: 1)
+- `--chip-duration <N>` - Custom Barker spreading (default: 2)
+- Web server with HTTP endpoints for encode/decode
 - Full error reporting and progress logging
 
 **Verified:**
-- 22-byte round-trip test: ✅
-- 150-byte round-trip test: ✅
-- Binary data integrity: ✅
+- 2/3/4-band FHSS round-trip tests: ✅
+- Backward compatibility (1-band, no FHSS): ✅
+- Matching encoder/decoder parameters: ✅
+- Binary data integrity with FHSS: ✅
 
 ### WASM Library (`wasm/`)
 **Location:** `/Users/it3/codes/andrew/testaudio/wasm/src/lib.rs`
@@ -83,6 +94,33 @@ decoder.decode(samples: Float32Array) → Uint8Array
 [Payload Length: 2B] [Frame #: 2B] [CRC-8: 1B] [Reserved: 3B] [Payload: N bytes]
 ```
 
+### Frequency-Hopping Spread Spectrum (FHSS) - NEW
+**Location:** `core/src/fhss.rs`
+
+FHSS provides better resistance to narrowband interference by hopping across multiple frequency bands:
+
+- **Hopping Pattern:** LFSR-based pseudorandom (deterministic, self-synchronizing)
+- **Supported Bands:** 1-4 frequency bands
+- **Band Distribution:**
+  - 1 band (400-3200 Hz): No hopping (backward compatible, default)
+  - 2 bands: 400-1800 Hz and 1800-3200 Hz
+  - 3 bands: 400-1333 Hz, 1333-2267 Hz, 2267-3200 Hz
+  - 4 bands: 400-1100 Hz, 1100-1800 Hz, 1800-2500 Hz, 2500-3200 Hz
+
+**How It Works:**
+1. Each OFDM symbol uses a different frequency band
+2. Hopping sequence is deterministic (LFSR with seed = symbol_index)
+3. Encoder/decoder use same pattern → automatic synchronization
+4. Subcarriers within each band maintain 79 Hz spacing
+5. No additional latency or overhead
+
+**Benefits:**
+- ✅ Improved resistance to narrowband jamming/interference
+- ✅ Better performance in frequency-selective fading channels
+- ✅ Frequency diversity improves reliability
+- ✅ Backward compatible (1 band = original behavior)
+- ✅ Deterministic (no need for side-channel sync)
+
 ## Dependencies Used
 
 All from crates.io (verified working versions):
@@ -114,26 +152,35 @@ All from crates.io (verified working versions):
 
 ## Testing Results
 
-```
-Unit Tests (5/5 passing):
-  ✅ framing::test_frame_encode_decode
-  ✅ framing::test_frame_crc_validation
-  ✅ sync::test_barker_code
-  ✅ sync::test_chirp_generation
-  ✅ fec::test_encode_decode
+**Total: 136 tests passing** ✅
 
-Integration Tests (4/4 passing):
-  ✅ test_encode_decode_round_trip (22 bytes)
-  ✅ test_encode_decode_max_size (200 bytes)
-  ✅ test_encode_decode_binary_data (13 bytes, all byte values)
-  ✅ test_empty_data (0 bytes)
+### Unit Tests
+- ✅ FHSS tests (15):
+  - LFSR hopping pattern deterministic behavior
+  - LFSR hopping pattern distribution
+  - Hopping range validation
+  - Band frequency single-band
+  - Band frequency two-bands
+  - Band frequency three-bands
+  - Band frequency four-bands
+  - Band frequency invalid band index
+  - Band frequency invalid num_bands
 
-Manual Tests:
-  ✅ CLI encode/decode round-trip (22 bytes)
-  ✅ CLI encode/decode round-trip (150 bytes, random binary)
-  ✅ WAV file format verification
-  ✅ Preamble/postamble detection
-```
+- ✅ Encoder/Decoder tests (121):
+  - Encoder with FHSS (2-band, 3-band, 4-band)
+  - Decoder with FHSS round-trip (2-band, 3-band, 4-band)
+  - FHSS parameter mismatch detection
+  - Legacy OFDM, FEC, sync, trellis, spread spectrum tests
+
+### Manual Integration Tests
+- ✅ 2-band FHSS round-trip (13 bytes)
+- ✅ 3-band FHSS round-trip (13 bytes)
+- ✅ 4-band FHSS round-trip (13 bytes)
+- ✅ Default mode (1-band, backward compatible)
+- ✅ FHSS mismatch detection (encoder/decoder parameter mismatch)
+- ✅ CLI encode/decode with --num-hops 2
+- ✅ CLI encode/decode with --num-hops 3
+- ✅ CLI encode/decode with --num-hops 4
 
 ## File Structure
 

@@ -19,6 +19,7 @@ pub mod spread;
 pub mod trellis;
 pub mod resample;
 pub mod chunking;
+pub mod fhss;
 
 pub use encoder::Encoder;
 pub use encoder_cp::EncoderCp;
@@ -46,6 +47,10 @@ pub const NUM_SUBCARRIERS: usize = 48;
 pub const SUBCARRIER_SPACING: f32 = 79.0; // Hz
 pub const MIN_FREQUENCY: f32 = 400.0; // Hz (lower pitch, closer to chirp)
 pub const MAX_FREQUENCY: f32 = 3200.0; // Hz (lower max, narrower band)
+
+// FHSS configuration
+pub const DEFAULT_NUM_FREQUENCY_HOPS: usize = 1; // 1 = disabled (backward compatible)
+pub const MAX_FREQUENCY_HOPS: usize = 4;
 
 // FEC configuration
 pub const RS_DATA_BYTES: usize = 223;

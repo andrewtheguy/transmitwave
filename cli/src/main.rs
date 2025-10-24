@@ -20,15 +20,24 @@ use base64::Engine;
 /// Spread spectrum chip duration
 const DEFAULT_SPREAD_CHIP_DURATION: usize = 2;
 
+/// Number of frequency hops for FHSS (1 = disabled, 2-4 = enabled)
+const DEFAULT_NUM_FREQUENCY_HOPS: usize = 1;
+
 #[derive(Serialize, Deserialize)]
 struct EncodeRequest {
     data: String, // base64-encoded input data
     #[serde(default = "default_chip_duration")]
     chip_duration: usize,
+    #[serde(default = "default_num_hops")]
+    num_frequency_hops: usize,
 }
 
 fn default_chip_duration() -> usize {
     DEFAULT_SPREAD_CHIP_DURATION
+}
+
+fn default_num_hops() -> usize {
+    DEFAULT_NUM_FREQUENCY_HOPS
 }
 
 #[derive(Serialize, Deserialize)]
@@ -44,6 +53,8 @@ struct DecodeRequest {
     wav_base64: String, // base64-encoded WAV file
     #[serde(default = "default_chip_duration")]
     chip_duration: usize,
+    #[serde(default = "default_num_hops")]
+    num_frequency_hops: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -78,6 +89,9 @@ struct Cli {
     #[arg(short, long, default_value = "2")]
     chip_duration: usize,
 
+    /// Number of frequency hops for FHSS (1 = disabled, 2-4 = enabled, default: 1)
+    #[arg(long, default_value = "1")]
+    num_hops: usize,
 
     /// Use legacy encoder/decoder without spread spectrum
     #[arg(long)]
@@ -104,6 +118,13 @@ enum Commands {
         #[arg(value_name = "OUTPUT.WAV")]
         output: PathBuf,
 
+        /// Chip duration for spread spectrum (default: 2)
+        #[arg(short, long, default_value = "2")]
+        chip_duration: usize,
+
+        /// Number of frequency hops for FHSS (default: 1)
+        #[arg(long, default_value = "1")]
+        num_hops: usize,
 
         /// Use legacy encoder without chunking
         #[arg(long)]
@@ -120,6 +141,13 @@ enum Commands {
         #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
 
+        /// Chip duration for spread spectrum (default: 2)
+        #[arg(short, long, default_value = "2")]
+        chip_duration: usize,
+
+        /// Number of frequency hops for FHSS (default: 1)
+        #[arg(long, default_value = "1")]
+        num_hops: usize,
 
         /// Use legacy decoder without chunking
         #[arg(long)]
@@ -147,16 +175,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
-            Commands::Encode { input, output, no_spread } => {
+            Commands::Encode { input, output, no_spread, chip_duration, num_hops } => {
                 if no_spread {
                     encode_legacy_command(&input, &output)? } else {
-                    encode_spread_command(&input, &output, cli.chip_duration)?
+                    encode_spread_command(&input, &output, chip_duration, num_hops)?
                 }
             }
-            Commands::Decode { input, output, no_spread } => {
+            Commands::Decode { input, output, no_spread, chip_duration, num_hops } => {
                 if no_spread {
                     decode_legacy_command(&input, &output)? } else {
-                    decode_spread_command(&input, &output, cli.chip_duration)?
+                    decode_spread_command(&input, &output, chip_duration, num_hops)?
                 }
             }
             Commands::Server { port } => {
@@ -183,12 +211,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if mode == "encode" || mode == "enc" {
             if cli.no_spread {
                 encode_legacy_command(&input, &output)? } else {
-                encode_spread_command(&input, &output, cli.chip_duration)?
+                encode_spread_command(&input, &output, cli.chip_duration, cli.num_hops)?
             }
         } else if mode == "decode" || mode == "dec" {
             if cli.no_spread {
                 decode_legacy_command(&input, &output)? } else {
-                decode_spread_command(&input, &output, cli.chip_duration)?
+                decode_spread_command(&input, &output, cli.chip_duration, cli.num_hops)?
             }
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
@@ -299,17 +327,19 @@ fn encode_spread_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
     chip_duration: usize,
+    num_frequency_hops: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read input binary file
     let data = std::fs::read(input_path)?;
     println!("Read {} bytes from {}", data.len(), input_path.display());
 
     // Create encoder and encode data
-    let mut encoder = EncoderSpread::new(chip_duration)?;
+    let mut encoder = EncoderSpread::with_fhss(chip_duration, num_frequency_hops)?;
     let samples = encoder.encode(&data)?;
     println!(
-        "Encoded with spread spectrum (chip_duration={}) to {} audio samples",
+        "Encoded with spread spectrum (chip_duration={}, num_hops={}) to {} audio samples",
         chip_duration,
+        num_frequency_hops,
         samples.len()
     );
 
@@ -341,6 +371,7 @@ fn decode_spread_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
     chip_duration: usize,
+    num_frequency_hops: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
     let file = File::open(input_path)?;
@@ -388,10 +419,15 @@ fn decode_spread_command(
         println!("Resampled to {} samples", samples.len());
     }
 
-    // Decode with spread spectrum
-    let mut decoder = DecoderSpread::new(chip_duration)?;
+    // Decode with spread spectrum and FHSS
+    let mut decoder = DecoderSpread::with_fhss(chip_duration, num_frequency_hops)?;
     let data = decoder.decode(&samples)?;
-    println!("Decoded {} bytes (chip_duration={})", data.len(), chip_duration);
+    println!(
+        "Decoded {} bytes (chip_duration={}, num_hops={})",
+        data.len(),
+        chip_duration,
+        num_frequency_hops
+    );
 
     // Write binary file
     std::fs::write(output_path, &data)?;
@@ -451,8 +487,8 @@ async fn handler_encode(
         ));
     }
 
-    // Use spread spectrum encoder
-    let encode_result = EncoderSpread::new(req.chip_duration)
+    // Use spread spectrum encoder with FHSS
+    let encode_result = EncoderSpread::with_fhss(req.chip_duration, req.num_frequency_hops)
         .map_err(|e| e.to_string())
         .and_then(|mut encoder| {
             encoder.encode(&data)
@@ -612,8 +648,8 @@ async fn handler_decode(
                 }
             };
 
-            // Use spread spectrum decoder
-            let decode_result = DecoderSpread::new(req.chip_duration)
+            // Use spread spectrum decoder with FHSS
+            let decode_result = DecoderSpread::with_fhss(req.chip_duration, req.num_frequency_hops)
                 .map_err(|e| e.to_string())
                 .and_then(|mut decoder| {
                     decoder.decode(&samples)

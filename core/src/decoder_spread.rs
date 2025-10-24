@@ -4,6 +4,7 @@ use crate::framing::FrameDecoder;
 use crate::ofdm::OfdmDemodulator;
 use crate::spread::SpreadSpectrumDespreader;
 use crate::sync::{detect_postamble, detect_preamble};
+use crate::fhss;
 use crate::{FRAME_HEADER_SIZE, PREAMBLE_SAMPLES, RS_TOTAL_BYTES};
 
 /// Decoder with Spread Spectrum for redundancy and noise robustness
@@ -11,22 +12,34 @@ use crate::{FRAME_HEADER_SIZE, PREAMBLE_SAMPLES, RS_TOTAL_BYTES};
 /// Reverses the spreading to recover original OFDM symbols
 /// Provides better reliability in noisy channels by leveraging
 /// the redundancy added by Barker code spreading
+///
+/// Supports optional Frequency-Hopping Spread Spectrum (FHSS) for additional
+/// resistance to narrowband interference
 pub struct DecoderSpread {
     ofdm: OfdmDemodulator,
     fec: FecDecoder,
     despreader: SpreadSpectrumDespreader,
     chip_duration: usize,
+    num_frequency_hops: usize,
 }
 
 impl DecoderSpread {
     /// Create new decoder with spread spectrum
     /// chip_duration: samples per Barker chip (must match encoder)
     pub fn new(chip_duration: usize) -> Result<Self> {
+        Self::with_fhss(chip_duration, 1) // Default: FHSS disabled (1 band)
+    }
+
+    /// Create new decoder with spread spectrum and FHSS
+    /// chip_duration: samples per Barker chip (must match encoder)
+    /// num_frequency_hops: number of frequency bands (must match encoder)
+    pub fn with_fhss(chip_duration: usize, num_frequency_hops: usize) -> Result<Self> {
         Ok(Self {
-            ofdm: OfdmDemodulator::new(),
+            ofdm: OfdmDemodulator::with_frequency_hops(num_frequency_hops),
             fec: FecDecoder::new()?,
             despreader: SpreadSpectrumDespreader::new(chip_duration)?,
             chip_duration,
+            num_frequency_hops,
         })
     }
 
@@ -60,17 +73,22 @@ impl DecoderSpread {
         // Despread and demodulate all symbols between data_start and data_end
         let mut bits = Vec::new();
         let mut pos = data_start;
+        let mut symbol_index = 0;
 
         while pos + spread_symbol_size <= data_end {
+            // Get hopping band for this symbol (same as encoder)
+            let band_index = fhss::get_band_for_symbol(symbol_index, self.num_frequency_hops);
+
             // Despread the symbol (remove Barker spreading)
             let spread_samples = &samples[pos..pos + spread_symbol_size];
             let ofdm_samples = self.despreader.despread(spread_samples)?;
 
-            // Demodulate OFDM to get bits
-            let symbol_bits = self.ofdm.demodulate(&ofdm_samples)?;
+            // Demodulate OFDM from correct band
+            let symbol_bits = self.ofdm.demodulate_with_band(&ofdm_samples, band_index)?;
             bits.extend_from_slice(&symbol_bits);
 
             pos += spread_symbol_size;
+            symbol_index += 1;
         }
 
         if bits.is_empty() {
@@ -128,6 +146,11 @@ impl DecoderSpread {
     pub fn samples_per_spread_symbol(&self) -> usize {
         1600 * self.chip_duration
     }
+
+    /// Get number of frequency hops (1 = disabled)
+    pub fn num_frequency_hops(&self) -> usize {
+        self.num_frequency_hops
+    }
 }
 
 impl Default for DecoderSpread {
@@ -170,5 +193,57 @@ mod tests {
         let decoder = DecoderSpread::new(3).unwrap();
         assert_eq!(decoder.chip_duration(), 3);
         assert_eq!(decoder.samples_per_spread_symbol(), 1600 * 3);
+    }
+
+    #[test]
+    fn test_decoder_spread_round_trip_with_fhss_2bands() {
+        let mut encoder = EncoderSpread::with_fhss(2, 2).unwrap();
+        let original_data = b"fhss2band";
+        let samples = encoder.encode(original_data).unwrap();
+
+        let mut decoder = DecoderSpread::with_fhss(2, 2).unwrap();
+        let decoded_data = decoder.decode(&samples).unwrap();
+
+        assert_eq!(&decoded_data, original_data);
+    }
+
+    #[test]
+    fn test_decoder_spread_round_trip_with_fhss_3bands() {
+        let mut encoder = EncoderSpread::with_fhss(2, 3).unwrap();
+        let original_data = b"fhss3band";
+        let samples = encoder.encode(original_data).unwrap();
+
+        let mut decoder = DecoderSpread::with_fhss(2, 3).unwrap();
+        let decoded_data = decoder.decode(&samples).unwrap();
+
+        assert_eq!(&decoded_data, original_data);
+    }
+
+    #[test]
+    fn test_decoder_spread_round_trip_with_fhss_4bands() {
+        let mut encoder = EncoderSpread::with_fhss(2, 4).unwrap();
+        let original_data = b"fhss4band";
+        let samples = encoder.encode(original_data).unwrap();
+
+        let mut decoder = DecoderSpread::with_fhss(2, 4).unwrap();
+        let decoded_data = decoder.decode(&samples).unwrap();
+
+        assert_eq!(&decoded_data, original_data);
+    }
+
+    #[test]
+    fn test_decoder_spread_fhss_mismatch() {
+        let mut encoder = EncoderSpread::with_fhss(2, 3).unwrap();
+        let original_data = b"mismatch";
+        let samples = encoder.encode(original_data).unwrap();
+
+        // Decode with different number of bands (should fail or produce garbled data)
+        let mut decoder = DecoderSpread::with_fhss(2, 2).unwrap();
+        let result = decoder.decode(&samples);
+        // May succeed but data will be incorrect, or may fail
+        if let Ok(decoded_data) = result {
+            // If it decodes, data should be different
+            assert_ne!(&decoded_data, original_data);
+        }
     }
 }

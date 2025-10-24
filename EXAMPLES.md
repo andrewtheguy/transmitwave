@@ -66,9 +66,111 @@ time cargo run -p testaudio-cli --bin testaudio -- decode large.wav large_recove
 cmp large.bin large_recovered.bin && echo "Success!"
 ```
 
+## Frequency-Hopping Spread Spectrum (FHSS)
+
+### Overview
+
+FHSS improves resistance to narrowband interference by hopping the signal across multiple frequency bands:
+- **1 band** (default): No hopping, backward compatible
+- **2 bands**: Basic hopping across 400-3200 Hz split
+- **3 bands**: Recommended for good interference resistance
+- **4 bands**: Maximum hopping for harsh environments
+
+### Command-Line Examples
+
+#### Default (No FHSS)
+```bash
+# Backward compatible, single band (400-3200 Hz)
+testaudio encode data.bin audio.wav
+testaudio decode audio.wav data.bin
+```
+
+#### 2-Band FHSS
+```bash
+# Each symbol hops between 2 bands
+testaudio encode data.bin audio_2band.wav --num-hops 2
+testaudio decode audio_2band.wav data.bin --num-hops 2
+```
+
+#### 3-Band FHSS (Recommended)
+```bash
+# Best balance of interference resistance and overhead
+testaudio encode data.bin audio_3band.wav --num-hops 3
+testaudio decode audio_3band.wav data.bin --num-hops 3
+```
+
+#### 4-Band FHSS (Maximum)
+```bash
+# Maximum frequency diversity for severe interference
+testaudio encode data.bin audio_4band.wav --num-hops 4
+testaudio decode audio_4band.wav data.bin --num-hops 4
+```
+
+#### Combined with Custom Chip Duration
+```bash
+# Combine FHSS with custom spreading
+testaudio encode data.bin audio.wav --chip-duration 3 --num-hops 3
+testaudio decode audio.wav data.bin --chip-duration 3 --num-hops 3
+```
+
+### FHSS Frequency Bands
+
+For 3-band FHSS (most common):
+- **Band 0:** 400-1333 Hz
+- **Band 1:** 1333-2267 Hz
+- **Band 2:** 2267-3200 Hz
+
+The hopping pattern is deterministic (LFSR-based pseudorandom), so encoder and decoder automatically synchronize.
+
+### Important: Encoder/Decoder Must Match
+
+⚠️ **CRITICAL:** The `--num-hops` value MUST be the same for both encoding and decoding:
+
+```bash
+# ✅ Correct: matching num-hops
+testaudio encode data.bin audio.wav --num-hops 3
+testaudio decode audio.wav data.bin --num-hops 3
+
+# ❌ Wrong: mismatched num-hops (will produce garbage or fail)
+testaudio encode data.bin audio.wav --num-hops 3
+testaudio decode audio.wav data.bin --num-hops 2  # Different = fails!
+```
+
+### Real-World Workflow Example
+
+```bash
+# 1. Create test data
+echo "Important message with FHSS protection" > message.txt
+
+# 2. Convert to binary
+od -An -tx1 message.txt | tr -d ' \n' | xxd -r -p > message.bin
+
+# 3. Encode with 3-band FHSS (best for interference resistance)
+testaudio encode message.bin message_secure.wav --num-hops 3
+
+# 4. Transmit message_secure.wav over audio channel
+# (more resistant to narrowband interference than default mode)
+
+# 5. Decode with matching settings
+testaudio decode message_secure.wav decoded_message.bin --num-hops 3
+
+# 6. Verify message integrity
+od -An -tx1 decoded_message.bin | tr -d ' \n' | xxd -r -p
+# Should output: Important message with FHSS protection
+```
+
+### When to Use Each Mode
+
+| Mode | Bands | Use Case |
+|------|-------|----------|
+| Default | 1 | Clean environments, backward compatibility |
+| 2-Band | 2 | Light narrowband interference |
+| 3-Band | 3 | **Recommended** for most real-world scenarios |
+| 4-Band | 4 | Severe interference, harsh conditions |
+
 ## Rust Library Usage
 
-### Basic Encoding
+### Basic Encoding (Without FHSS)
 
 ```rust
 use testaudio_core::Encoder;
@@ -80,6 +182,76 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let samples = encoder.encode(data)?;
 
     println!("Generated {} audio samples", samples.len());
+
+    Ok(())
+}
+```
+
+### Encoding with FHSS
+
+```rust
+use testaudio_core::EncoderSpread;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let data = b"FHSS protected message";
+
+    // Create encoder with 3-band FHSS
+    let mut encoder = EncoderSpread::with_fhss(
+        2,  // chip_duration (samples per Barker chip)
+        3   // num_frequency_hops (2-4 for FHSS, 1 to disable)
+    )?;
+
+    let samples = encoder.encode(data)?;
+    println!("Encoded with FHSS: {} samples", samples.len());
+
+    Ok(())
+}
+```
+
+### Decoding with FHSS
+
+```rust
+use testaudio_core::DecoderSpread;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let samples = vec![/* audio samples */];
+
+    // Decoder MUST use same num_frequency_hops as encoder!
+    let mut decoder = DecoderSpread::with_fhss(
+        2,  // chip_duration (must match encoder)
+        3   // num_frequency_hops (must match encoder)
+    )?;
+
+    let data = decoder.decode(&samples)?;
+    println!("Recovered: {:?}", String::from_utf8_lossy(&data));
+
+    Ok(())
+}
+```
+
+### Complete Round-Trip Example with FHSS
+
+```rust
+use testaudio_core::{EncoderSpread, DecoderSpread};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let original_data = b"Test FHSS message";
+    let num_hops = 3;  // 3-band FHSS
+    let chip_duration = 2;
+
+    // Encode
+    let mut encoder = EncoderSpread::with_fhss(chip_duration, num_hops)?;
+    let samples = encoder.encode(original_data)?;
+    println!("Encoded {} bytes to {} samples", original_data.len(), samples.len());
+
+    // Decode (with matching settings)
+    let mut decoder = DecoderSpread::with_fhss(chip_duration, num_hops)?;
+    let recovered_data = decoder.decode(&samples)?;
+    println!("Decoded: {:?}", String::from_utf8_lossy(&recovered_data));
+
+    // Verify
+    assert_eq!(original_data, &recovered_data[..]);
+    println!("✅ Round-trip successful!");
 
     Ok(())
 }

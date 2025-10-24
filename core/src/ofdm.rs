@@ -1,38 +1,59 @@
 use crate::error::{AudioModemError, Result};
-use crate::{NUM_SUBCARRIERS, SAMPLES_PER_SYMBOL, MIN_FREQUENCY, SUBCARRIER_SPACING, SAMPLE_RATE};
+use crate::{NUM_SUBCARRIERS, SAMPLES_PER_SYMBOL, SAMPLE_RATE};
+use crate::fhss;
 use rustfft::{num_complex::Complex, FftPlanner};
 
 pub struct OfdmModulator {
     fft_planner: FftPlanner<f32>,
+    num_frequency_hops: usize,
 }
 
 pub struct OfdmDemodulator {
     fft_planner: FftPlanner<f32>,
+    num_frequency_hops: usize,
 }
 
 impl OfdmModulator {
     pub fn new() -> Self {
         Self {
             fft_planner: FftPlanner::new(),
+            num_frequency_hops: 1,
+        }
+    }
+
+    pub fn with_frequency_hops(num_hops: usize) -> Self {
+        Self {
+            fft_planner: FftPlanner::new(),
+            num_frequency_hops: num_hops,
         }
     }
 
     /// Modulate data bits into OFDM samples
     /// Each bit is BPSK modulated on a subcarrier at the configured frequency range
     pub fn modulate(&mut self, bits: &[bool]) -> Result<Vec<f32>> {
+        self.modulate_with_band(bits, 0)
+    }
+
+    /// Modulate with a specific frequency band (for FHSS)
+    pub fn modulate_with_band(&mut self, bits: &[bool], band_index: usize) -> Result<Vec<f32>> {
         if bits.len() > NUM_SUBCARRIERS {
             return Err(AudioModemError::InvalidInputSize);
         }
 
+        // Get frequency range for this band
+        let (band_min_freq, band_max_freq) = fhss::get_band_frequencies(band_index, self.num_frequency_hops)?;
+        let band_bandwidth = band_max_freq - band_min_freq;
+        let subcarrier_spacing_in_band = band_bandwidth / NUM_SUBCARRIERS as f32;
+
         // Create frequency domain symbols (BPSK: 1.0 for true, -1.0 for false)
         let mut freq_domain = vec![Complex::new(0.0, 0.0); SAMPLES_PER_SYMBOL];
 
-        // Place subcarriers at the configured frequency range
+        // Place subcarriers within the selected frequency band
         // Calculate bin index for each subcarrier frequency
         let sample_rate = SAMPLE_RATE as f32;
         for (i, &bit) in bits.iter().enumerate() {
             let amplitude = if bit { 1.0 } else { -1.0 };
-            let frequency = MIN_FREQUENCY + (i as f32) * SUBCARRIER_SPACING;
+            let frequency = band_min_freq + (i as f32) * subcarrier_spacing_in_band;
             // Convert frequency to FFT bin: bin = (frequency / sample_rate) * SAMPLES_PER_SYMBOL
             let bin = ((frequency / sample_rate) * SAMPLES_PER_SYMBOL as f32) as usize;
             if bin < SAMPLES_PER_SYMBOL {
@@ -73,14 +94,32 @@ impl OfdmDemodulator {
     pub fn new() -> Self {
         Self {
             fft_planner: FftPlanner::new(),
+            num_frequency_hops: 1,
+        }
+    }
+
+    pub fn with_frequency_hops(num_hops: usize) -> Self {
+        Self {
+            fft_planner: FftPlanner::new(),
+            num_frequency_hops: num_hops,
         }
     }
 
     /// Demodulate OFDM samples to retrieve data bits
     pub fn demodulate(&mut self, samples: &[f32]) -> Result<Vec<bool>> {
+        self.demodulate_with_band(samples, 0)
+    }
+
+    /// Demodulate from a specific frequency band (for FHSS)
+    pub fn demodulate_with_band(&mut self, samples: &[f32], band_index: usize) -> Result<Vec<bool>> {
         if samples.len() < SAMPLES_PER_SYMBOL {
             return Err(AudioModemError::InsufficientData);
         }
+
+        // Get frequency range for this band
+        let (band_min_freq, band_max_freq) = fhss::get_band_frequencies(band_index, self.num_frequency_hops)?;
+        let band_bandwidth = band_max_freq - band_min_freq;
+        let subcarrier_spacing_in_band = band_bandwidth / NUM_SUBCARRIERS as f32;
 
         // Convert to complex format
         let mut freq_domain = vec![Complex::new(0.0, 0.0); SAMPLES_PER_SYMBOL];
@@ -92,11 +131,11 @@ impl OfdmDemodulator {
         let fft = self.fft_planner.plan_fft_forward(SAMPLES_PER_SYMBOL);
         fft.process(&mut freq_domain);
 
-        // Extract bits by threshold (BPSK detection) at configured subcarrier frequencies
+        // Extract bits by threshold (BPSK detection) at band-specific subcarrier frequencies
         let mut bits = Vec::new();
         let sample_rate = SAMPLE_RATE as f32;
         for i in 0..NUM_SUBCARRIERS {
-            let frequency = MIN_FREQUENCY + (i as f32) * SUBCARRIER_SPACING;
+            let frequency = band_min_freq + (i as f32) * subcarrier_spacing_in_band;
             // Convert frequency to FFT bin
             let bin = ((frequency / sample_rate) * SAMPLES_PER_SYMBOL as f32) as usize;
             if bin < SAMPLES_PER_SYMBOL {

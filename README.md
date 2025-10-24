@@ -5,6 +5,7 @@ A Rust library for reliable low-bandwidth communication over audio channels. Enc
 ## Features
 
 - **OFDM Modulation**: 48 overlapping subcarriers for robust multi-frequency transmission
+- **Frequency-Hopping Spread Spectrum (FHSS)**: NEW! Optional multi-band hopping for improved interference resistance
 - **Reed-Solomon FEC**: Forward error correction for reliability
 - **CRC Validation**: Integrity checks on frame headers
 - **Preamble/Postamble Detection**: Frame synchronization with chirp and tone signals
@@ -14,22 +15,29 @@ A Rust library for reliable low-bandwidth communication over audio channels. Enc
 ## Components
 
 ### Core Library (`core/`)
-- `ofdm.rs`: OFDM modulation/demodulation
+- `fhss.rs`: **NEW!** Frequency-hopping spread spectrum (LFSR-based hopping patterns)
+- `ofdm.rs`: OFDM modulation/demodulation with FHSS support
 - `fec.rs`: Reed-Solomon error correction
 - `framing.rs`: Frame structure with CRC
 - `sync.rs`: Preamble/postamble generation and detection
 - `encoder.rs`: Data-to-audio encoding
 - `decoder.rs`: Audio-to-data decoding
+- `encoder_spread.rs`: Barker spreading with FHSS support
+- `decoder_spread.rs`: Barker despreading with FHSS support
 
 ### CLI Tool (`cli/`)
-Native command-line tool for WAV file processing:
+Native command-line tool for WAV file processing with FHSS support:
 
 ```bash
-# Encode binary data to WAV audio
+# Encode binary data to WAV audio (default: no FHSS)
 cargo run -p testaudio-cli --bin testaudio -- encode input.bin output.wav
 
-# Decode WAV audio back to binary
+# Decode WAV audio back to binary (default: no FHSS)
 cargo run -p testaudio-cli --bin testaudio -- decode input.wav output.bin
+
+# With FHSS (3-band, recommended for interference resistance)
+cargo run -p testaudio-cli --bin testaudio -- encode input.bin output.wav --num-hops 3
+cargo run -p testaudio-cli --bin testaudio -- decode input.wav output.bin --num-hops 3
 ```
 
 ### WASM Library (`wasm/`)
@@ -56,6 +64,11 @@ const recoveredData = decoder.decode(audioSamples);
 - Reed-Solomon: (255, 223) - 32 bytes ECC
 - Frame Header: CRC-8 protection
 - Max Payload: 200 bytes per frame
+
+**FHSS Configuration:**
+- Number of Bands: 1-4 (default: 1 = no hopping)
+- Hopping Pattern: LFSR-based pseudorandom (deterministic)
+- Band Range: 400-3200 Hz distributed across selected bands
 
 ## Usage Examples
 
@@ -94,6 +107,29 @@ cargo run -p testaudio-cli --bin testaudio -- decode test.wav decoded.txt
 # Verify
 diff test.txt decoded.txt
 ```
+
+### FHSS Example (NEW)
+
+```bash
+# Create test data
+echo "FHSS protected message" > secure.txt
+
+# Encode with 3-band FHSS for interference resistance
+cargo run -p testaudio-cli --bin testaudio -- encode secure.txt secure.wav --num-hops 3
+
+# Decode with matching FHSS parameters (MUST match!)
+cargo run -p testaudio-cli --bin testaudio -- decode secure.wav decoded.txt --num-hops 3
+
+# Verify integrity
+diff secure.txt decoded.txt
+```
+
+**FHSS Benefits:**
+- 🛡️ Improved resistance to narrowband interference/jamming
+- 📡 Better performance in frequency-selective fading channels
+- 🔄 Frequency diversity improves overall reliability
+- ⚡ Zero additional latency or overhead
+- ↩️ Backward compatible (default 1-band = original behavior)
 
 ## Performance
 
