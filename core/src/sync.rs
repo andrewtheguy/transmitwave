@@ -1,25 +1,6 @@
 use crate::SAMPLE_RATE;
+use crate::fft_correlation::{fft_correlate_1d, Mode};
 use std::f32::consts::PI;
-use realfft::RealFftPlanner;
-use rustfft::num_complex::Complex;
-use std::cell::RefCell;
-use std::collections::HashMap;
-
-thread_local! {
-    static FFT_PLANNER: RefCell<RealFftPlanner<f32>> = RefCell::new(RealFftPlanner::new());
-    static FFT_PLAN_CACHE: RefCell<HashMap<usize, (std::sync::Arc<dyn realfft::RealToComplex<f32>>, std::sync::Arc<dyn realfft::ComplexToReal<f32>>)>> = RefCell::new(HashMap::new());
-}
-
-fn next_power_of_two(n: usize) -> usize {
-    if n == 0 {
-        return 1;
-    }
-    let mut power = 1;
-    while power < n {
-        power <<= 1;
-    }
-    power
-}
 
 /// Generates a Barker code (11-bit) for synchronization
 pub fn barker_code() -> Vec<i8> {
@@ -53,78 +34,6 @@ pub fn generate_postamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     generate_chirp(duration_samples, 4000.0, 200.0, amplitude)
 }
 
-fn fft_correlate_1d(signal: &[f32], template: &[f32]) -> Vec<f32> {
-    // Early validation for empty inputs
-    if signal.len() == 0 || template.len() == 0 {
-        return Vec::new();
-    }
-
-    let output_len = signal.len() + template.len() - 1;
-    let fft_size = next_power_of_two(output_len);
-
-    // Zero-pad both signal and template to fft_size
-    let mut padded_signal = vec![0.0; fft_size];
-    let mut padded_template = vec![0.0; fft_size];
-    padded_signal[..signal.len()].copy_from_slice(signal);
-
-    // Reverse template for correlation (equivalent to conjugation in frequency domain)
-    for (i, &val) in template.iter().enumerate().rev() {
-        padded_template[template.len() - 1 - i] = val;
-    }
-
-    // Get or create FFT plans from cache
-    let (r2c, c2r) = FFT_PLAN_CACHE.with(|cache| {
-        let mut cache_map = cache.borrow_mut();
-        if let Some(plans) = cache_map.get(&fft_size) {
-            plans.clone()
-        } else {
-            // Create new plans and cache them
-            let (r2c_new, c2r_new) = FFT_PLANNER.with(|planner| {
-                let mut planner_ref = planner.borrow_mut();
-                let r2c = planner_ref.plan_fft_forward(fft_size);
-                let c2r = planner_ref.plan_fft_inverse(fft_size);
-                (r2c, c2r)
-            });
-            let plans = (r2c_new.clone(), c2r_new.clone());
-            cache_map.insert(fft_size, plans.clone());
-            plans
-        }
-    });
-
-    // Allocate buffers for FFT output (complex)
-    let mut signal_spectrum = r2c.make_output_vec();
-    let mut template_spectrum = r2c.make_output_vec();
-
-    // Forward FFT on both signal and template
-    debug_assert_eq!(padded_signal.len(), fft_size, "Signal buffer size mismatch");
-    debug_assert_eq!(padded_template.len(), fft_size, "Template buffer size mismatch");
-    r2c.process(&mut padded_signal, &mut signal_spectrum)
-        .expect("FFT forward process failed for signal");
-    r2c.process(&mut padded_template, &mut template_spectrum)
-        .expect("FFT forward process failed for template");
-
-    // Frequency domain multiplication (element-wise)
-    // For correlation, we already reversed template, so just multiply
-    let mut result_spectrum = vec![Complex::new(0.0, 0.0); signal_spectrum.len()];
-    for i in 0..signal_spectrum.len() {
-        result_spectrum[i] = signal_spectrum[i] * template_spectrum[i];
-    }
-
-    // Inverse FFT
-    let mut result_time = vec![0.0; fft_size];
-    debug_assert_eq!(result_spectrum.len(), signal_spectrum.len(), "Spectrum buffer size mismatch");
-    debug_assert_eq!(result_time.len(), fft_size, "Output buffer size mismatch");
-    c2r.process(&mut result_spectrum, &mut result_time)
-        .expect("FFT inverse process failed");
-
-    // Normalize by FFT size and return only valid correlation length
-    let normalization = fft_size as f32;
-    result_time.iter_mut().for_each(|x| *x /= normalization);
-    result_time.truncate(output_len);
-
-    result_time
-}
-
 /// Detect preamble using efficient FFT-based cross-correlation
 /// Returns the position where the preamble (ascending chirp) is most likely to start
 pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usize> {
@@ -138,7 +47,7 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
     let template = generate_chirp(preamble_samples, 200.0, 4000.0, 1.0);
 
     // Use FFT-based correlation for O(N log N) complexity
-    let fft_correlation = fft_correlate_1d(samples, &template);
+    let fft_correlation = fft_correlate_1d(samples, &template, Mode::Full);
 
     let mut best_pos = 0;
     let mut best_correlation = 0.0;
@@ -207,7 +116,7 @@ pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usi
     let template = generate_chirp(postamble_samples, 4000.0, 200.0, 1.0);
 
     // Use FFT-based correlation for O(N log N) complexity
-    let fft_correlation = fft_correlate_1d(samples, &template);
+    let fft_correlation = fft_correlate_1d(samples, &template, Mode::Full);
 
     let mut best_pos = 0;
     let mut best_correlation = 0.0;
@@ -652,190 +561,4 @@ mod tests {
         assert!(pos < 1000, "Detection position {} should be reasonable", pos);
     }
 
-    #[test]
-    fn test_fft_correlate_1d_simple() {
-        // Test with simple impulse response
-        let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        let template = vec![1.0, 0.0, 0.0];
-        let result = fft_correlate_1d(&signal, &template);
-
-        // Correlation with impulse should return the signal itself (shifted)
-        assert_eq!(result.len(), signal.len() + template.len() - 1);
-        assert!((result[2] - 1.0).abs() < 1e-4);
-        assert!((result[3] - 2.0).abs() < 1e-4);
-        assert!((result[4] - 3.0).abs() < 1e-4);
-    }
-
-    #[test]
-    fn test_fft_correlate_1d_vs_sliding_window() {
-        // Compare FFT correlation with sliding window approach
-        let preamble_samples = crate::PREAMBLE_SAMPLES;
-        let template = generate_chirp(preamble_samples, 200.0, 4000.0, 1.0);
-
-        // Create signal with chirp embedded
-        let mut signal = vec![0.0; 500];
-        signal.extend_from_slice(&template);
-        signal.extend_from_slice(&vec![0.0; 500]);
-
-        // Compute FFT correlation
-        let fft_result = fft_correlate_1d(&signal, &template);
-
-        // Compute sliding window correlation (unnormalized, just raw dot product)
-        let mut sliding_result = vec![0.0; signal.len()];
-        for i in 0..=signal.len().saturating_sub(template.len()) {
-            let window = &signal[i..i + template.len()];
-            let correlation: f32 = window.iter().zip(template.iter()).map(|(&s, &t)| s * t).sum();
-            sliding_result[i + template.len() - 1] = correlation;
-        }
-
-        // Find peaks in both results
-        let fft_peak_pos = fft_result.iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(i, _)| i)
-            .unwrap();
-
-        let sliding_peak_pos = sliding_result.iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(i, _)| i)
-            .unwrap();
-
-        // Peaks should be at roughly the same position (within small tolerance)
-        assert!((fft_peak_pos as i32 - sliding_peak_pos as i32).abs() < 10,
-            "FFT peak at {} vs sliding window peak at {}", fft_peak_pos, sliding_peak_pos);
-    }
-
-    #[test]
-    fn test_fft_correlate_1d_chirp_detection() {
-        // Use actual preamble chirp and verify peak position
-        let preamble_samples = crate::PREAMBLE_SAMPLES;
-        let template = generate_chirp(preamble_samples, 200.0, 4000.0, 1.0);
-
-        let silence_before = 300;
-        let mut signal = vec![0.0; silence_before];
-        signal.extend_from_slice(&template);
-        signal.extend_from_slice(&vec![0.0; 400]);
-
-        let result = fft_correlate_1d(&signal, &template);
-
-        // Find peak position
-        let peak_pos = result.iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(i, _)| i)
-            .unwrap();
-
-        // Peak should be near silence_before + template.len() - 1
-        let expected_peak = silence_before + template.len() - 1;
-        assert!((peak_pos as i32 - expected_peak as i32).abs() < 20,
-            "Expected peak near {}, got {}", expected_peak, peak_pos);
-    }
-
-    #[test]
-    fn test_fft_correlate_1d_different_lengths() {
-        // Test various signal and template length combinations
-        let test_cases = vec![
-            (vec![1.0, 2.0, 3.0], vec![1.0]),
-            (vec![1.0, 2.0, 3.0, 4.0, 5.0], vec![1.0, 1.0]),
-            (vec![1.0; 100], vec![1.0; 10]),
-            (vec![0.5; 50], vec![0.5; 20]),
-        ];
-
-        for (signal, template) in test_cases {
-            let result = fft_correlate_1d(&signal, &template);
-            let expected_len = signal.len() + template.len() - 1;
-            assert_eq!(result.len(), expected_len,
-                "Signal len: {}, Template len: {}", signal.len(), template.len());
-
-            // Verify no NaN or Inf values
-            for val in &result {
-                assert!(val.is_finite(), "Found non-finite value: {}", val);
-            }
-        }
-    }
-
-    #[test]
-    fn test_fft_correlate_1d_zero_signal() {
-        // Test with zero signal to ensure no panics or NaN
-        let signal = vec![0.0; 100];
-        let template = vec![1.0, 2.0, 3.0];
-
-        let result = fft_correlate_1d(&signal, &template);
-
-        assert_eq!(result.len(), signal.len() + template.len() - 1);
-
-        // All values should be zero (or very close)
-        for val in &result {
-            assert!(val.abs() < 1e-6, "Expected near-zero, got {}", val);
-        }
-    }
-
-    #[test]
-    fn test_fft_correlate_1d_normalization() {
-        // Verify proper normalization via autocorrelation
-        let signal = vec![1.0; 50];
-        let template = signal.clone();
-
-        let result = fft_correlate_1d(&signal, &template);
-
-        // Find peak (should be at autocorrelation center)
-        let max_val = result.iter()
-            .map(|x| x.abs())
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        // Autocorrelation of constant signal should equal signal length
-        let expected_peak = 50.0;
-        assert!((max_val - expected_peak).abs() < 0.5,
-            "Expected autocorrelation peak ~{}, got {}", expected_peak, max_val);
-    }
-
-    #[test]
-    fn test_fft_correlate_1d_empty_inputs() {
-        // Test empty signal with non-empty template
-        let result1 = fft_correlate_1d(&[], &[1.0, 2.0, 3.0]);
-        assert_eq!(result1.len(), 0, "Empty signal should return empty vector");
-
-        // Test non-empty signal with empty template
-        let result2 = fft_correlate_1d(&[1.0, 2.0, 3.0], &[]);
-        assert_eq!(result2.len(), 0, "Empty template should return empty vector");
-
-        // Test both empty
-        let result3 = fft_correlate_1d(&[], &[]);
-        assert_eq!(result3.len(), 0, "Both empty should return empty vector");
-    }
-
-    #[test]
-    fn test_fft_correlate_1d_sample_wise_closeness() {
-        // Build short signal and template for full sliding-window comparison
-        let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0, 4.0, 3.0, 2.0, 1.0];
-        let template = vec![0.5, 1.0, 0.5];
-
-        // Compute FFT correlation
-        let fft_result = fft_correlate_1d(&signal, &template);
-
-        // Compute full sliding-window correlation for all lags
-        let output_len = signal.len() + template.len() - 1;
-        let mut sliding_result = vec![0.0; output_len];
-
-        for lag in 0..output_len {
-            let mut correlation = 0.0;
-            for i in 0..template.len() {
-                let signal_idx = lag as i32 - (template.len() as i32 - 1) + i as i32;
-                if signal_idx >= 0 && signal_idx < signal.len() as i32 {
-                    correlation += signal[signal_idx as usize] * template[template.len() - 1 - i];
-                }
-            }
-            sliding_result[lag] = correlation;
-        }
-
-        // Assert each corresponding output sample matches within epsilon
-        assert_eq!(fft_result.len(), sliding_result.len(), "Result lengths must match");
-        for (i, (&fft_val, &sliding_val)) in fft_result.iter().zip(sliding_result.iter()).enumerate() {
-            assert!((fft_val - sliding_val).abs() < 1e-4,
-                "Sample {} mismatch: FFT={}, sliding={}, diff={}",
-                i, fft_val, sliding_val, (fft_val - sliding_val).abs());
-        }
-    }
 }
