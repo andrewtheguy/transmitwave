@@ -61,16 +61,6 @@ pub enum Mode {
     Valid,
 }
 
-fn next_power_of_two(n: usize) -> usize {
-    if n == 0 {
-        return 1;
-    }
-    let mut power = 1;
-    while power < n {
-        power <<= 1;
-    }
-    power
-}
 
 /// Correlate two 1D signals using FFT
 ///
@@ -105,7 +95,7 @@ pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Result<
     }
 
     let output_len = signal.len() + template.len() - 1;
-    let fft_size = next_power_of_two(output_len);
+    let fft_size = output_len.next_power_of_two();
 
     // Zero-pad both signal and template to fft_size
     let mut padded_signal = vec![0.0; fft_size];
@@ -118,8 +108,8 @@ pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Result<
     // achieves the same effect as frequency-domain conjugation for real data.
     // This is equivalent to: signal * reverse(template) in time domain.
     // Reference: Oppenheim & Schafer, "Discrete-Time Signal Processing"
-    for (i, &val) in template.iter().enumerate().rev() {
-        padded_template[template.len() - 1 - i] = val;
+    for (i, &val) in template.iter().rev().enumerate() {
+        padded_template[i] = val;
     }
 
     // Get FFT plans from planner (RealFftPlanner has internal caching)
@@ -183,18 +173,6 @@ pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_next_power_of_two() {
-        assert_eq!(next_power_of_two(0), 1);
-        assert_eq!(next_power_of_two(1), 1);
-        assert_eq!(next_power_of_two(2), 2);
-        assert_eq!(next_power_of_two(3), 4);
-        assert_eq!(next_power_of_two(7), 8);
-        assert_eq!(next_power_of_two(8), 8);
-        assert_eq!(next_power_of_two(9), 16);
-        assert_eq!(next_power_of_two(1000), 1024);
-    }
 
     #[test]
     fn test_fft_correlate_mode_full_length() {

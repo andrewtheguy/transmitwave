@@ -52,7 +52,15 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
     // Use FFT-based correlation for O(N log N) complexity
     let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
         Ok(corr) => corr,
-        Err(_) => return None, // FFT error, cannot detect preamble
+        Err(e) => {
+            eprintln!(
+                "FFT correlation failed during preamble detection: {} (samples={}, template={}, mode=Full)",
+                e,
+                samples.len(),
+                template.len()
+            );
+            return None;
+        }
     };
 
     let mut best_pos = 0;
@@ -124,7 +132,15 @@ pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usi
     // Use FFT-based correlation for O(N log N) complexity
     let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
         Ok(corr) => corr,
-        Err(_) => return None, // FFT error, cannot detect postamble
+        Err(e) => {
+            eprintln!(
+                "FFT correlation failed during postamble detection: {} (samples={}, template={}, mode=Full)",
+                e,
+                samples.len(),
+                template.len()
+            );
+            return None;
+        }
     };
 
     let mut best_pos = 0;
