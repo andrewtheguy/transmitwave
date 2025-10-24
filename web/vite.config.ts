@@ -7,7 +7,6 @@ export default defineConfig({
   plugins: [wasm(), react()],
   server: {
     port: 5173,
-    open: '/index.html',
     middlewareMode: false,
     allowedHosts: ['.trycloudflare.com'],
     fs: {

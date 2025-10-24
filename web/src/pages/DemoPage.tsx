@@ -45,7 +45,7 @@ const DemoPage: React.FC = () => {
     <div className="container">
       <div className="text-center mb-5">
         <h1>Audio Modem Demo</h1>
-        <p>Encode text to audio and decode audio back to text</p>
+        <p>Encode text to audio and decode audio back to text using FSK (Four-Frequency Shift Keying)</p>
       </div>
 
       <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginBottom: '2rem' }}>

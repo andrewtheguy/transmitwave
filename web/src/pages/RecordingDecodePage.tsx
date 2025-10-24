@@ -260,7 +260,7 @@ const RecordingDecodePage: React.FC = () => {
     <div className="container">
       <div className="text-center mb-5">
         <h1>🎤 Live Recording & Decode</h1>
-        <p>Record audio (max {MAX_DURATION}s), save WAV, or detect & decode</p>
+        <p>Record audio (max {MAX_DURATION}s), save WAV, or detect & decode with FSK (Four-Frequency Shift Keying)</p>
       </div>
 
       <div className="card">

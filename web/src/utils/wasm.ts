@@ -9,6 +9,8 @@ import init, {
     WasmDecoderSpread,
     WasmEncoderLegacy,
     WasmDecoderLegacy,
+    WasmEncoderFsk,
+    WasmDecoderFsk,
     PreambleDetector,
     PostambleDetector,
 } from 'testaudio-wasm';
@@ -80,6 +82,8 @@ export {
     WasmDecoderSpread,
     WasmEncoderLegacy,
     WasmDecoderLegacy,
+    WasmEncoderFsk,
+    WasmDecoderFsk,
     PreambleDetector,
     PostambleDetector,
 };
@@ -88,32 +92,35 @@ export {
  * Utility types for WASM encoding/decoding
  */
 export interface EncoderOptions {
-    type?: 'spread' | 'legacy' | 'chunked';
+    type?: 'fsk' | 'spread' | 'legacy' | 'chunked';
     chipDuration?: number;
     chunkBits?: number;
     interleaveFactor?: number;
 }
 
 export interface DecoderOptions {
-    type?: 'spread' | 'legacy' | 'chunked';
+    type?: 'fsk' | 'spread' | 'legacy' | 'chunked';
     chipDuration?: number;
     chunkBits?: number;
 }
 
 /**
  * Factory function to create an encoder based on options
+ * Default is FSK (Four-Frequency Shift Keying) for maximum reliability
  */
 export async function createEncoder(
     options: EncoderOptions = {}
-): Promise<WasmEncoder | WasmEncoderLegacy | WasmEncoderSpread> {
+): Promise<WasmEncoder | WasmEncoderLegacy | WasmEncoderSpread | WasmEncoderFsk> {
     await initWasm();
 
-    const { type = 'spread' } = options;
+    const { type = 'fsk' } = options;
 
     if (type === 'legacy') {
         return new WasmEncoderLegacy();
     } else if (type === 'spread') {
         return new WasmEncoderSpread();
+    } else if (type === 'fsk') {
+        return new WasmEncoderFsk();
     } else {
         return new WasmEncoder();
     }
@@ -121,18 +128,21 @@ export async function createEncoder(
 
 /**
  * Factory function to create a decoder based on options
+ * Default is FSK (Four-Frequency Shift Keying) for maximum reliability
  */
 export async function createDecoder(
     options: DecoderOptions = {}
-): Promise<WasmDecoder | WasmDecoderLegacy | WasmDecoderSpread> {
+): Promise<WasmDecoder | WasmDecoderLegacy | WasmDecoderSpread | WasmDecoderFsk> {
     await initWasm();
 
-    const { type = 'spread' } = options;
+    const { type = 'fsk' } = options;
 
     if (type === 'legacy') {
         return new WasmDecoderLegacy();
     } else if (type === 'spread') {
         return new WasmDecoderSpread();
+    } else if (type === 'fsk') {
+        return new WasmDecoderFsk();
     } else {
         return new WasmDecoder();
     }

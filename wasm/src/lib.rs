@@ -1,31 +1,29 @@
 use wasm_bindgen::prelude::*;
-use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, detect_preamble, detect_postamble};
+use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, DecoderFsk, EncoderFsk, detect_preamble, detect_postamble};
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
+// Default mode: FSK (Four-Frequency Shift Keying) for maximum reliability
 // ============================================================================
 
-/// Spread spectrum chip duration for default encoder/decoder
-const DEFAULT_SPREAD_CHIP_DURATION: usize = 2;
-
-/// Default WASM Encoder (uses spread spectrum by default)
+/// Default WASM Encoder (uses FSK for maximum reliability)
 #[wasm_bindgen]
 pub struct WasmEncoder {
-    inner: EncoderSpread,
+    inner: EncoderFsk,
 }
 
 #[wasm_bindgen]
 impl WasmEncoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmEncoder, JsValue> {
-        EncoderSpread::new(DEFAULT_SPREAD_CHIP_DURATION)
+        EncoderFsk::new()
             .map(|encoder| WasmEncoder {
                 inner: encoder,
             })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Encode binary data into audio samples with default encoder
+    /// Encode binary data into audio samples with FSK
     /// Takes a Uint8Array and returns Float32Array of audio samples
     #[wasm_bindgen]
     pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>, JsValue> {
@@ -35,24 +33,24 @@ impl WasmEncoder {
     }
 }
 
-/// Default WASM Decoder (uses spread spectrum by default)
+/// Default WASM Decoder (uses FSK for maximum reliability)
 #[wasm_bindgen]
 pub struct WasmDecoder {
-    inner: DecoderSpread,
+    inner: DecoderFsk,
 }
 
 #[wasm_bindgen]
 impl WasmDecoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmDecoder, JsValue> {
-        DecoderSpread::new(DEFAULT_SPREAD_CHIP_DURATION)
+        DecoderFsk::new()
             .map(|decoder| WasmDecoder {
                 inner: decoder,
             })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Decode audio samples back to binary data with default decoder
+    /// Decode audio samples back to binary data with FSK
     /// Takes a Float32Array and returns Uint8Array of decoded data
     #[wasm_bindgen]
     pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
@@ -150,6 +148,54 @@ impl WasmDecoderLegacy {
     }
 
     /// Decode audio samples back to binary data (legacy, no spread spectrum)
+    #[wasm_bindgen]
+    pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .decode(samples)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+/// FSK WASM Encoder (for explicit FSK encoding)
+#[wasm_bindgen]
+pub struct WasmEncoderFsk {
+    inner: EncoderFsk,
+}
+
+#[wasm_bindgen]
+impl WasmEncoderFsk {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmEncoderFsk, JsValue> {
+        EncoderFsk::new()
+            .map(|encoder| WasmEncoderFsk { inner: encoder })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Encode binary data into audio samples with FSK
+    #[wasm_bindgen]
+    pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>, JsValue> {
+        self.inner
+            .encode(data)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+/// FSK WASM Decoder (for explicit FSK decoding)
+#[wasm_bindgen]
+pub struct WasmDecoderFsk {
+    inner: DecoderFsk,
+}
+
+#[wasm_bindgen]
+impl WasmDecoderFsk {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmDecoderFsk, JsValue> {
+        DecoderFsk::new()
+            .map(|decoder| WasmDecoderFsk { inner: decoder })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Decode audio samples back to binary data with FSK
     #[wasm_bindgen]
     pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
         self.inner

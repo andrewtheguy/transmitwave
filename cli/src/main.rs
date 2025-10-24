@@ -14,21 +14,13 @@ use base64::Engine;
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
-// Change these constants to switch encoder/decoder defaults across CLI, web, and WASM
+// Default mode: FSK (Four-Frequency Shift Keying) for maximum reliability
+// CLI options: --spread for spread spectrum, --no-spread for legacy mode
 // ============================================================================
-
-/// Spread spectrum chip duration
-const DEFAULT_SPREAD_CHIP_DURATION: usize = 2;
 
 #[derive(Serialize, Deserialize)]
 struct EncodeRequest {
     data: String, // base64-encoded input data
-    #[serde(default = "default_chip_duration")]
-    chip_duration: usize,
-}
-
-fn default_chip_duration() -> usize {
-    DEFAULT_SPREAD_CHIP_DURATION
 }
 
 #[derive(Serialize, Deserialize)]
@@ -42,8 +34,6 @@ struct EncodeResponse {
 #[derive(Serialize, Deserialize)]
 struct DecodeRequest {
     wav_base64: String, // base64-encoded WAV file
-    #[serde(default = "default_chip_duration")]
-    chip_duration: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -83,9 +73,9 @@ struct Cli {
     #[arg(long)]
     no_spread: bool,
 
-    /// Use FSK (Four-Frequency Shift Keying) mode for maximum reliability
+    /// Use spread spectrum mode (default is FSK, use this to explicitly enable spread spectrum)
     #[arg(long)]
-    fsk: bool,
+    spread: bool,
 
     /// Start web server on port 8000
     #[arg(long)]
@@ -113,9 +103,9 @@ enum Commands {
         #[arg(long)]
         no_spread: bool,
 
-        /// Use FSK mode
+        /// Use spread spectrum mode (default is FSK)
         #[arg(long)]
-        fsk: bool,
+        spread: bool,
     },
 
     /// Decode WAV file to binary data
@@ -133,9 +123,9 @@ enum Commands {
         #[arg(long)]
         no_spread: bool,
 
-        /// Use FSK mode
+        /// Use spread spectrum mode (default is FSK)
         #[arg(long)]
-        fsk: bool,
+        spread: bool,
     },
 
 
@@ -159,22 +149,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
-            Commands::Encode { input, output, no_spread, fsk } => {
-                if fsk {
-                    encode_fsk_command(&input, &output)?
-                } else if no_spread {
+            Commands::Encode { input, output, no_spread, spread } => {
+                if no_spread {
                     encode_legacy_command(&input, &output)?
-                } else {
+                } else if spread {
                     encode_spread_command(&input, &output, cli.chip_duration)?
+                } else {
+                    // Default: FSK
+                    encode_fsk_command(&input, &output)?
                 }
             }
-            Commands::Decode { input, output, no_spread, fsk } => {
-                if fsk {
-                    decode_fsk_command(&input, &output)?
-                } else if no_spread {
+            Commands::Decode { input, output, no_spread, spread } => {
+                if no_spread {
                     decode_legacy_command(&input, &output)?
-                } else {
+                } else if spread {
                     decode_spread_command(&input, &output, cli.chip_duration)?
+                } else {
+                    // Default: FSK
+                    decode_fsk_command(&input, &output)?
                 }
             }
             Commands::Server { port } => {
@@ -199,20 +191,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if mode == "encode" || mode == "enc" {
-            if cli.fsk {
-                encode_fsk_command(&input, &output)?
-            } else if cli.no_spread {
+            if cli.no_spread {
                 encode_legacy_command(&input, &output)?
-            } else {
+            } else if cli.spread {
                 encode_spread_command(&input, &output, cli.chip_duration)?
+            } else {
+                // Default: FSK
+                encode_fsk_command(&input, &output)?
             }
         } else if mode == "decode" || mode == "dec" {
-            if cli.fsk {
-                decode_fsk_command(&input, &output)?
-            } else if cli.no_spread {
+            if cli.no_spread {
                 decode_legacy_command(&input, &output)?
-            } else {
+            } else if cli.spread {
                 decode_spread_command(&input, &output, cli.chip_duration)?
+            } else {
+                // Default: FSK
+                decode_fsk_command(&input, &output)?
             }
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
@@ -530,8 +524,8 @@ fn decode_fsk_command(
 async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting testaudio server on http://localhost:{}", port);
     println!("Endpoints:");
-    println!("  POST /encode - Encode binary data to WAV with spread spectrum");
-    println!("  POST /decode - Decode WAV to binary data with spread spectrum");
+    println!("  POST /encode - Encode binary data to WAV with FSK (Four-Frequency Shift Keying)");
+    println!("  POST /decode - Decode WAV to binary data with FSK");
     println!("  GET / - Server status");
 
     let app = Router::new()
@@ -547,7 +541,7 @@ async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handler_status() -> String {
-    "testaudio server with spread spectrum encoding/decoding - Ready".to_string()
+    "testaudio server with FSK (Four-Frequency Shift Keying) encoding/decoding - Ready".to_string()
 }
 
 async fn handler_encode(
@@ -577,8 +571,8 @@ async fn handler_encode(
         ));
     }
 
-    // Use spread spectrum encoder
-    let encode_result = EncoderSpread::new(req.chip_duration)
+    // Use FSK encoder (default for maximum reliability)
+    let encode_result = EncoderFsk::new()
         .map_err(|e| e.to_string())
         .and_then(|mut encoder| {
             encoder.encode(&data)
@@ -738,8 +732,8 @@ async fn handler_decode(
                 }
             };
 
-            // Use spread spectrum decoder
-            let decode_result = DecoderSpread::new(req.chip_duration)
+            // Use FSK decoder (default for maximum reliability)
+            let decode_result = DecoderFsk::new()
                 .map_err(|e| e.to_string())
                 .and_then(|mut decoder| {
                     decoder.decode(&samples)
