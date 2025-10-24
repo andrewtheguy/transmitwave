@@ -1,14 +1,25 @@
 use testaudio_core::sync::{
-    detect_preamble, detect_postamble, generate_chirp, generate_postamble, barker_code,
+    detect_preamble, detect_postamble, generate_chirp, generate_postamble,
+    generate_preamble_noise, generate_postamble_noise, barker_code,
 };
 use testaudio_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, fft_correlate_1d, Mode};
 use rand::SeedableRng;
 use rand_distr::Normal;
 
+// Signal generation helpers - signal-agnostic factory functions
+// These generate the same signals used by the actual detector implementations
+fn create_test_preamble(amplitude: f32) -> Vec<f32> {
+    generate_preamble_noise(PREAMBLE_SAMPLES, amplitude)
+}
+
+fn create_test_postamble(amplitude: f32) -> Vec<f32> {
+    generate_postamble_noise(POSTAMBLE_SAMPLES, amplitude)
+}
+
 #[test]
 fn test_detect_preamble_with_chirp() {
-    // Generate preamble (ascending chirp, 1 second)
-    let preamble = generate_chirp(PREAMBLE_SAMPLES, 200.0, 4000.0, 0.5);
+    // Generate preamble using agnostic helper
+    let preamble = create_test_preamble(0.5);
 
     // Add silence before and after
     let mut samples = vec![0.0; 4000];
@@ -18,21 +29,21 @@ fn test_detect_preamble_with_chirp() {
     let detected = detect_preamble(&samples, 100.0);
     assert!(
         detected.is_some(),
-        "Failed to detect preamble with clear chirp signal"
+        "Failed to detect preamble with clear signal"
     );
 
     // STRICT: Preamble should be detected exactly at the start position
     let pos = detected.unwrap();
     assert_eq!(
         pos, 4000,
-        "STRICT: Preamble must be detected at exact position 4000 (silence + start of chirp)"
+        "STRICT: Preamble must be detected at exact position 4000 (silence + start of preamble)"
     );
 }
 
 #[test]
 fn test_detect_postamble_with_chirp() {
-    // Generate postamble (descending chirp, 1 second)
-    let postamble = generate_postamble(POSTAMBLE_SAMPLES, 0.5);
+    // Generate postamble using agnostic helper
+    let postamble = create_test_postamble(0.5);
 
     // Add silence before and after
     let mut samples = vec![0.0; 4000];
@@ -42,21 +53,21 @@ fn test_detect_postamble_with_chirp() {
     let detected = detect_postamble(&samples, 100.0);
     assert!(
         detected.is_some(),
-        "Failed to detect postamble with clear chirp signal"
+        "Failed to detect postamble with clear signal"
     );
 
     // STRICT: Postamble should be detected exactly at the start position
     let pos = detected.unwrap();
     assert_eq!(
         pos, 4000,
-        "STRICT: Postamble must be detected at exact position 4000 (silence + start of descending chirp)"
+        "STRICT: Postamble must be detected at exact position 4000 (silence + start of postamble)"
     );
 }
 
 #[test]
 fn test_detect_preamble_with_noise() {
-    // Generate preamble
-    let preamble = generate_chirp(PREAMBLE_SAMPLES, 200.0, 4000.0, 0.5);
+    // Generate preamble using agnostic helper
+    let preamble = create_test_preamble(0.5);
 
     // Add noise before preamble
     let mut rng_state = 12345u32;
@@ -95,8 +106,8 @@ fn test_detect_preamble_with_noise() {
 
 #[test]
 fn test_detect_postamble_with_noise() {
-    // Generate postamble
-    let postamble = generate_postamble(POSTAMBLE_SAMPLES, 0.5);
+    // Generate postamble using agnostic helper
+    let postamble = create_test_postamble(0.5);
 
     // Add noise before and after
     let mut rng_state = 12345u32;
@@ -179,15 +190,15 @@ fn test_full_frame_detection() {
     // Build a complete frame: silence + preamble + data + postamble + silence
     let mut samples = vec![0.0; 2000]; // Initial silence
 
-    // Add preamble
-    let preamble = generate_chirp(PREAMBLE_SAMPLES, 200.0, 4000.0, 0.5);
+    // Add preamble using agnostic helper
+    let preamble = create_test_preamble(0.5);
     samples.extend_from_slice(&preamble);
 
     // Add data section (silence, simulating OFDM data)
     samples.extend_from_slice(&vec![0.0; 8000]);
 
-    // Add postamble
-    let postamble = generate_postamble(POSTAMBLE_SAMPLES, 0.5);
+    // Add postamble using agnostic helper
+    let postamble = create_test_postamble(0.5);
     samples.extend_from_slice(&postamble);
 
     // Add trailing silence
@@ -256,11 +267,11 @@ fn test_fft_correlation_index_mapping_with_preamble() {
     // Comment 10: Integration test ensuring sync.rs uses the correct FFT index mapping (i + L-1)
     // Build a short synthetic signal where a template is inserted at known position i0
 
-    let template_len = PREAMBLE_SAMPLES;  // Use proper preamble length
     let insert_pos = 500;  // Insert template at this position in signal
 
-    // Create template (proper preamble chirp)
-    let template = generate_chirp(template_len, 200.0, 4000.0, 0.5);
+    // Create template using agnostic helper
+    let template = create_test_preamble(0.5);
+    let template_len = template.len();
 
     // Create signal with silence before and after
     let mut signal = vec![0.0; insert_pos];
@@ -303,11 +314,11 @@ fn test_fft_correlation_index_mapping_with_preamble_noisy() {
     // Comment 11: Noisy variant of the FFT index mapping test
     // Verify that despite Gaussian noise, FFT peak and detection still map correctly
 
-    let template_len = PREAMBLE_SAMPLES;
     let insert_pos = 500;
 
-    // Create clean template (preamble chirp)
-    let template = generate_chirp(template_len, 200.0, 4000.0, 0.5);
+    // Create clean template using agnostic helper
+    let template = create_test_preamble(0.5);
+    let template_len = template.len();
 
     // Compute template RMS for SNR-relative noise scaling
     let template_rms: f32 = (template.iter().map(|s| s * s).sum::<f32>() / template.len() as f32).sqrt();

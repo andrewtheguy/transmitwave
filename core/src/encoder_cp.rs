@@ -2,7 +2,7 @@ use crate::error::Result;
 use crate::fec::FecEncoder;
 use crate::framing::{Frame, FrameEncoder, crc16};
 use crate::ofdm_cp::OfdmModulatorCp;
-use crate::sync::{generate_chirp, generate_postamble};
+use crate::sync::{generate_preamble_noise, generate_postamble_noise};
 use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, NUM_SUBCARRIERS};
 
 /// Encoder with Cyclic Prefix (CP) guard intervals
@@ -68,8 +68,8 @@ impl EncoderCp {
             }
         }
 
-        // Generate preamble (chirp)
-        let preamble = generate_chirp(PREAMBLE_SAMPLES, 200.0, 4000.0, 0.5);
+        // Generate preamble as PRN noise burst (0.25s, distinct from postamble)
+        let preamble = generate_preamble_noise(PREAMBLE_SAMPLES, 0.5);
 
         // Modulate data bits to OFDM symbols with CP
         let mut samples = preamble;
@@ -80,8 +80,8 @@ impl EncoderCp {
             samples.extend_from_slice(&symbol_samples);
         }
 
-        // Generate postamble
-        let postamble = generate_postamble(POSTAMBLE_SAMPLES, 0.5);
+        // Generate postamble as PRN noise burst (0.25s, different pattern than preamble)
+        let postamble = generate_postamble_noise(POSTAMBLE_SAMPLES, 0.5);
         samples.extend_from_slice(&postamble);
 
         Ok(samples)

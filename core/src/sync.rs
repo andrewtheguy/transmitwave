@@ -10,6 +10,33 @@ pub fn barker_code() -> Vec<i8> {
     vec![1, 1, 1, -1, -1, 1, -1, 1, 1, -1, 1]
 }
 
+/// Generate pseudo-random bipolar noise burst using LFSR
+/// seed: Different seed produces different noise pattern (for preamble vs postamble)
+/// duration_samples: How many samples to generate
+/// amplitude: Output amplitude scaling
+fn generate_prn_noise(seed: u32, duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    let mut lfsr = seed;
+    let mut samples = vec![0.0; duration_samples];
+
+    // Taps for 32-bit LFSR: x^32 + x^31 + x^29 + x^1 + 1 (Fibonacci configuration)
+    const LFSR_TAPS: u32 = 0xB4000001; // bits 31, 30, 28, 0
+
+    for n in 0..duration_samples {
+        // Output: -1 for 0 bits, +1 for 1 bits (bipolar)
+        let lsb = lfsr & 1;
+        samples[n] = if lsb == 1 { amplitude } else { -amplitude };
+
+        // LFSR step: Galois configuration
+        let feedback = lfsr & 1;
+        lfsr >>= 1;
+        if feedback != 0 {
+            lfsr ^= LFSR_TAPS;
+        }
+    }
+
+    samples
+}
+
 /// Generates a chirp signal that sweeps from low to high frequency
 /// Used as preamble for frame synchronization
 pub fn generate_chirp(
@@ -37,8 +64,24 @@ pub fn generate_postamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     generate_chirp(duration_samples, 4000.0, 200.0, amplitude)
 }
 
+/// Generate preamble as 0.25s pseudo-random bipolar noise burst
+/// Uses fixed seed for reproducibility and consistency across all transmissions
+pub fn generate_preamble_noise(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    // Fixed seed: 0xDEADBEEF for preamble (deterministic, always same pattern)
+    const PREAMBLE_SEED: u32 = 0xDEADBEEF;
+    generate_prn_noise(PREAMBLE_SEED, duration_samples, amplitude)
+}
+
+/// Generate postamble as 0.25s pseudo-random bipolar noise burst
+/// Uses different seed than preamble to create distinct pattern
+pub fn generate_postamble_noise(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    // Different seed: 0xCAFEBABE for postamble (deterministic, but different from preamble)
+    const POSTAMBLE_SEED: u32 = 0xCAFEBABE;
+    generate_prn_noise(POSTAMBLE_SEED, duration_samples, amplitude)
+}
+
 /// Detect preamble using efficient FFT-based cross-correlation
-/// Returns the position where the preamble (ascending chirp, low frequency) is most likely to start
+/// Returns the position where the preamble (PRN noise burst) is most likely to start
 pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usize> {
     let preamble_samples = crate::PREAMBLE_SAMPLES;
 
@@ -46,8 +89,8 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
         return None;
     }
 
-    // Generate expected ascending chirp for preamble (200 Hz to 4000 Hz - kept low)
-    let template = generate_chirp(preamble_samples, 200.0, 4000.0, 1.0);
+    // Generate expected preamble PRN noise pattern (same seed = same pattern)
+    let template = generate_preamble_noise(preamble_samples, 1.0);
 
     // Use FFT-based correlation for O(N log N) complexity
     let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
@@ -118,7 +161,7 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
 }
 
 /// Detect postamble using efficient cross-correlation
-/// Returns the position where the postamble (descending chirp) is most likely to start
+/// Returns the position where the postamble (PRN noise burst) is most likely to start
 pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usize> {
     let postamble_samples = crate::POSTAMBLE_SAMPLES;
 
@@ -126,8 +169,8 @@ pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usi
         return None;
     }
 
-    // Generate expected descending chirp (4000 Hz to 200 Hz)
-    let template = generate_chirp(postamble_samples, 4000.0, 200.0, 1.0);
+    // Generate expected postamble PRN noise pattern (different seed from preamble)
+    let template = generate_postamble_noise(postamble_samples, 1.0);
 
     // Use FFT-based correlation for O(N log N) complexity
     let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
@@ -410,10 +453,19 @@ mod tests {
         assert!(zero_crossings_early > zero_crossings_late);
     }
 
+    // Helper functions for signal-agnostic testing
+    fn create_preamble(amplitude: f32) -> Vec<f32> {
+        generate_preamble_noise(crate::PREAMBLE_SAMPLES, amplitude)
+    }
+
+    fn create_postamble(amplitude: f32) -> Vec<f32> {
+        generate_postamble_noise(crate::POSTAMBLE_SAMPLES, amplitude)
+    }
+
     #[test]
     fn test_preamble_detection_strong_signal() {
         // Strong signal: should always detect with strict 0.4 threshold
-        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 1.0);
+        let preamble = create_preamble(1.0);
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]); // Add silence after
 
@@ -425,7 +477,7 @@ mod tests {
     #[test]
     fn test_preamble_detection_medium_signal() {
         // Medium signal (0.3x amplitude): should detect with 0.35 threshold
-        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.3);
+        let preamble = create_preamble(0.3);
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
 
@@ -436,7 +488,7 @@ mod tests {
     #[test]
     fn test_preamble_detection_weak_signal() {
         // Weak signal (0.1x amplitude): should detect with 0.3 threshold
-        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.1);
+        let preamble = create_preamble(0.1);
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
 
@@ -447,7 +499,7 @@ mod tests {
     #[test]
     fn test_preamble_detection_very_weak_signal() {
         // Very weak signal (0.05x amplitude): at detection limit
-        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.05);
+        let preamble = create_preamble(0.05);
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
 
@@ -459,7 +511,7 @@ mod tests {
     #[test]
     fn test_preamble_detection_with_noise() {
         // Weak signal with noise: adaptive threshold should handle
-        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.15);
+        let preamble = create_preamble(0.15);
         let mut signal = preamble.clone();
 
         // Add small noise
@@ -475,7 +527,7 @@ mod tests {
     #[test]
     fn test_postamble_detection_strong_signal() {
         // Strong signal: should always detect with strict 0.4 threshold
-        let postamble = generate_postamble(crate::POSTAMBLE_SAMPLES, 1.0);
+        let postamble = create_postamble(1.0);
         let mut signal = vec![0.0; 1000];
         signal.extend_from_slice(&postamble);
 
@@ -486,7 +538,7 @@ mod tests {
     #[test]
     fn test_postamble_detection_weak_signal() {
         // Weak signal: should detect with relaxed threshold
-        let postamble = generate_postamble(crate::POSTAMBLE_SAMPLES, 0.1);
+        let postamble = create_postamble(0.1);
         let mut signal = vec![0.0; 1000];
         signal.extend_from_slice(&postamble);
 
@@ -497,11 +549,11 @@ mod tests {
     #[test]
     fn test_adaptive_threshold_rms_strong() {
         // Create signal with RMS > 0.1 (should use 0.4 threshold)
-        let chirp = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.5);
-        let signal_rms: f32 = (chirp.iter().map(|x| x * x).sum::<f32>() / chirp.len() as f32).sqrt();
+        let preamble = create_preamble(0.5);
+        let signal_rms: f32 = (preamble.iter().map(|x| x * x).sum::<f32>() / preamble.len() as f32).sqrt();
         assert!(signal_rms > 0.1, "Signal RMS should be > 0.1 for strong signal test");
 
-        let mut signal = chirp.clone();
+        let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
         let result = detect_preamble(&signal, 0.1);
         assert!(result.is_some());
@@ -511,11 +563,11 @@ mod tests {
     fn test_adaptive_threshold_rms_medium() {
         // Create signal with 0.02 < RMS < 0.1 (should use 0.35 threshold)
         // Amplitude 0.08 gives RMS ~0.04 (in medium range)
-        let chirp = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.08);
-        let signal_rms: f32 = (chirp.iter().map(|x| x * x).sum::<f32>() / chirp.len() as f32).sqrt();
+        let preamble = create_preamble(0.08);
+        let signal_rms: f32 = (preamble.iter().map(|x| x * x).sum::<f32>() / preamble.len() as f32).sqrt();
         assert!(signal_rms > 0.02 && signal_rms <= 0.1, "Signal RMS should be in medium range, got {}", signal_rms);
 
-        let mut signal = chirp.clone();
+        let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
         let result = detect_preamble(&signal, 0.1);
         assert!(result.is_some());
@@ -525,11 +577,11 @@ mod tests {
     fn test_adaptive_threshold_rms_weak() {
         // Create signal with RMS <= 0.02 (should use 0.3 threshold)
         // Amplitude 0.02 gives RMS ~0.01 (in weak range)
-        let chirp = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.02);
-        let signal_rms: f32 = (chirp.iter().map(|x| x * x).sum::<f32>() / chirp.len() as f32).sqrt();
+        let preamble = create_preamble(0.02);
+        let signal_rms: f32 = (preamble.iter().map(|x| x * x).sum::<f32>() / preamble.len() as f32).sqrt();
         assert!(signal_rms <= 0.02, "Signal RMS should be <= 0.02 for weak signal test, got {}", signal_rms);
 
-        let mut signal = chirp.clone();
+        let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
         let result = detect_preamble(&signal, 0.1);
         assert!(result.is_some(), "Weak signal should be detected with adaptive threshold");
@@ -550,7 +602,7 @@ mod tests {
     #[test]
     fn test_preamble_attenuation_series() {
         // Test series of attenuated signals to verify graceful degradation
-        let base_preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 1.0);
+        let base_preamble = create_preamble(1.0);
 
         let attenuation_levels = vec![1.0, 0.5, 0.2, 0.1, 0.05];
         let mut detected_count = 0;
@@ -573,7 +625,7 @@ mod tests {
     fn test_preamble_position_accuracy() {
         // Verify detection correctly identifies preamble position
         let silence_before = vec![0.0; 500];
-        let preamble = generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, 0.3);
+        let preamble = create_preamble(0.3);
         let mut signal = silence_before.clone();
         signal.extend_from_slice(&preamble);
         signal.extend_from_slice(&vec![0.0; 1000]);
