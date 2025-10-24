@@ -48,7 +48,7 @@ const DemoPage: React.FC = () => {
         <p>Encode text to audio and decode audio back to text</p>
       </div>
 
-      <div className="grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2rem' }}>
+      <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginBottom: '2rem' }}>
         {/* Encode Section */}
         <div className="card">
           <h2>📝 Encode Text to Audio</h2>
