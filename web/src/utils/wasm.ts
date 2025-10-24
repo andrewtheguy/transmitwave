@@ -9,7 +9,7 @@ import init, {
     WasmDecoderSpread,
     WasmEncoderLegacy,
     WasmDecoderLegacy,
-    MicrophoneListener,
+    PreambleDetector,
     PostambleDetector,
 } from 'testaudio-wasm';
 
@@ -80,7 +80,7 @@ export {
     WasmDecoderSpread,
     WasmEncoderLegacy,
     WasmDecoderLegacy,
-    MicrophoneListener,
+    PreambleDetector,
     PostambleDetector,
 };
 

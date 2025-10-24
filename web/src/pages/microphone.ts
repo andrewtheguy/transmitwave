@@ -2,7 +2,7 @@
  * Microphone preamble detection page component
  */
 
-import { initWasm, MicrophoneListener } from '../utils/wasm';
+import { initWasm, PreambleDetector } from '../utils/wasm';
 
 export async function MicrophonePage(): Promise<string> {
     const html = `
@@ -76,7 +76,7 @@ function setupMicrophoneListeners(): void {
     const bufferInfo = document.getElementById('bufferInfo')!;
     const detectionHistory = document.getElementById('detectionHistory')!;
 
-    let listener: MicrophoneListener | null = null;
+    let detector: PreambleDetector | null = null;
     let isListening = false;
 
     // Update threshold display
@@ -90,7 +90,7 @@ function setupMicrophoneListeners(): void {
             await initWasm();
 
             const threshold = parseFloat(thresholdSlider.value);
-            listener = new MicrophoneListener(threshold);
+            detector = new PreambleDetector(threshold);
 
             // Request microphone access
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -111,14 +111,14 @@ function setupMicrophoneListeners(): void {
             showStatus(status, 'Listening for preamble...', 'info');
 
             const detections: string[] = [];
-            const requiredSize = listener.required_size();
+            const requiredSize = PreambleDetector.required_size();
 
-            processor.onaudioprocess = (event: AudioProcessingEvent) => {
+            processor.onaudioprocess = (event: any) => {
                 const samples = event.inputData.getChannelData(0);
-                const position = listener!.add_samples(samples);
+                const position = detector!.add_samples(samples);
 
                 // Update buffer info
-                const bufferSize = listener!.buffer_size();
+                const bufferSize = detector!.buffer_size();
                 const bufferBar = document.getElementById('bufferBar')!;
                 const bufferSizeEl = document.getElementById('bufferSize')!;
                 const requiredSizeEl = document.getElementById('requiredSize')!;

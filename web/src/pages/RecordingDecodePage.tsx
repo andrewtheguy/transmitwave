@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MicrophoneListener, PostambleDetector, createDecoder } from '../utils/wasm'
+import { PreambleDetector, PostambleDetector, createDecoder } from '../utils/wasm'
 import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
 
@@ -116,8 +116,8 @@ const RecordingDecodePage: React.FC = () => {
 
       // Detect preamble
       setDetectionStatus('Detecting preamble...')
-      const listener = new MicrophoneListener(0.4)
-      const preamblePos = listener.add_samples(new Float32Array(resampledSamples))
+      const preambleDetectorInst = new PreambleDetector(0.4)
+      const preamblePos = preambleDetectorInst.add_samples(new Float32Array(resampledSamples))
 
       if (preamblePos === -1) {
         setDetectionStatus('Preamble not detected. Try adjusting threshold.')

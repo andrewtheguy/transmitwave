@@ -2,7 +2,7 @@
  * Live recording and decoding page component
  */
 
-import { initWasm, MicrophoneListener, PostambleDetector, createDecoder } from '../utils/wasm';
+import { initWasm, PreambleDetector, PostambleDetector, createDecoder } from '../utils/wasm';
 import { resampleAudio, stereoToMono } from '../utils/audio';
 
 export async function RecordingDecodePage(): Promise<string> {
@@ -89,8 +89,8 @@ function setupRecordingListeners(): void {
             await initWasm();
 
             const threshold = parseFloat(thresholdSlider.value);
-            const preListener = new MicrophoneListener(threshold);
-            const postListener = new PostambleDetector(threshold);
+            const preDetector = new PreambleDetector(threshold);
+            const postDetector = new PostambleDetector(threshold);
 
             // Request microphone access
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -121,16 +121,16 @@ function setupRecordingListeners(): void {
                 recordedSamples.push(...samples);
 
                 if (state === 'waiting_preamble') {
-                    const pos = preListener.add_samples(samples);
+                    const pos = preDetector.add_samples(samples);
                     if (pos >= 0) {
                         dataStart = recordedSamples.length;
                         state = 'waiting_postamble';
                         showStatus(status, 'Preamble detected! Waiting for postamble...', 'success');
                     }
                 } else if (state === 'waiting_postamble') {
-                    const pos = postListener.add_samples(samples);
+                    const pos = postDetector.add_samples(samples);
                     if (pos >= 0) {
-                        dataEnd = recordedSamples.length - postListener.buffer_size();
+                        dataEnd = recordedSamples.length - postDetector.buffer_size();
                         state = 'complete';
                         showStatus(status, 'Postamble detected! Decoding...', 'success');
 

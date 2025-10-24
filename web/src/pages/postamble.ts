@@ -1,18 +1,37 @@
 /**
- * Postamble detection page component
+ * Preamble & Postamble detection page component
  */
 
-import { initWasm, PostambleDetector } from '../utils/wasm';
+import { initWasm, PostambleDetector, PreambleDetector } from '../utils/wasm';
+
+type DetectionMode = 'preamble' | 'postamble';
+
 
 export async function PostamblePage(): Promise<string> {
     const html = `
         <div class="text-center mb-5">
-            <h1>🎯 Postamble Detection</h1>
-            <p>Real-time detection of descending chirp postamble (4000Hz → 200Hz)</p>
+            <h1>🎯 Preamble & Postamble Detection</h1>
+            <p id="modeDescription">Real-time detection of ascending chirp preamble (200Hz → 4000Hz)</p>
         </div>
 
         <div class="card">
-            <h2>Microphone Settings</h2>
+            <h2>Detection Mode</h2>
+
+            <div class="mt-4">
+                <label><strong>Select Mode</strong></label>
+                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="radio" id="preambleMode" name="detectionMode" value="preamble" checked />
+                        Preamble (200Hz → 4000Hz)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="radio" id="postambleMode" name="detectionMode" value="postamble" />
+                        Postamble (4000Hz → 200Hz)
+                    </label>
+                </div>
+            </div>
+
+            <h2 style="margin-top: 2rem;">Microphone Settings</h2>
 
             <div class="mt-4">
                 <label><strong>Detection Threshold</strong></label>
@@ -20,7 +39,7 @@ export async function PostamblePage(): Promise<string> {
                     <input type="range" id="thresholdSlider" min="0.1" max="0.9" step="0.1" value="0.4" />
                     <span id="thresholdValue">0.4</span>
                 </div>
-                <small>Higher values require stronger postamble detection. Recommended: 0.4</small>
+                <small>Higher values require stronger signal detection. Recommended: 0.4</small>
             </div>
 
             <div class="mt-4">
@@ -75,13 +94,34 @@ function setupPostambleListeners(): void {
     const status = document.getElementById('status')!;
     const bufferInfo = document.getElementById('bufferInfo')!;
     const detectionHistory = document.getElementById('detectionHistory')!;
+    const modeDescription = document.getElementById('modeDescription')!;
+    const preambleModeRadio = document.getElementById('preambleMode') as HTMLInputElement;
+    const postambleModeRadio = document.getElementById('postambleMode') as HTMLInputElement;
 
-    let detector: PostambleDetector | null = null;
+    let detector: PostambleDetector | PreambleDetector | null = null;
     let isListening = false;
+    let currentMode: DetectionMode = 'preamble';
 
     // Update threshold display
     thresholdSlider.addEventListener('input', () => {
         thresholdValue.textContent = thresholdSlider.value;
+    });
+
+    // Mode toggle handlers
+    preambleModeRadio.addEventListener('change', () => {
+        currentMode = 'preamble';
+        modeDescription.textContent = 'Real-time detection of ascending chirp preamble (200Hz → 4000Hz)';
+        if (isListening) {
+            stopBtn.click();
+        }
+    });
+
+    postambleModeRadio.addEventListener('change', () => {
+        currentMode = 'postamble';
+        modeDescription.textContent = 'Real-time detection of descending chirp postamble (4000Hz → 200Hz)';
+        if (isListening) {
+            stopBtn.click();
+        }
     });
 
     // Start button
@@ -90,7 +130,13 @@ function setupPostambleListeners(): void {
             await initWasm();
 
             const threshold = parseFloat(thresholdSlider.value);
-            detector = new PostambleDetector(threshold);
+
+            // Create appropriate detector based on mode
+            if (currentMode === 'postamble') {
+                detector = new PostambleDetector(threshold);
+            } else {
+                detector = new PreambleDetector(threshold);
+            }
 
             // Request microphone access
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -108,12 +154,15 @@ function setupPostambleListeners(): void {
             bufferInfo.style.display = 'block';
             detectionHistory.style.display = 'block';
 
-            showStatus(status, 'Listening for postamble...', 'info');
+            const modeLabel = currentMode === 'preamble' ? 'preamble' : 'postamble';
+            showStatus(status, `Listening for ${modeLabel}...`, 'info');
 
             const detections: string[] = [];
-            const requiredSize = detector.required_size();
+            const requiredSize = currentMode === 'preamble' ?
+                PreambleDetector.required_size() :
+                PostambleDetector.required_size();
 
-            processor.onaudioprocess = (event: AudioProcessingEvent) => {
+            processor.onaudioprocess = (event: any) => {
                 const samples = event.inputData.getChannelData(0);
                 const position = detector!.add_samples(samples);
 
@@ -136,9 +185,10 @@ function setupPostambleListeners(): void {
                     const historyList = document.getElementById('historyList')!;
                     historyList.innerHTML = detections.map(d => `<div>${d}</div>`).join('');
 
-                    showStatus(status, 'Postamble detected!', 'success');
+                    const detectedLabel = currentMode === 'preamble' ? 'Preamble' : 'Postamble';
+                    showStatus(status, `${detectedLabel} detected!`, 'success');
                     setTimeout(() => {
-                        showStatus(status, 'Listening for postamble...', 'info');
+                        showStatus(status, `Listening for ${modeLabel}...`, 'info');
                     }, 2000);
                 }
             };
