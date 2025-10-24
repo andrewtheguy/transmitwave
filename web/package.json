@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:wasm": "cd ../wasm && bash build.sh",
+    "build:all": "npm run build:wasm && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
