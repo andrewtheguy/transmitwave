@@ -7,7 +7,7 @@ const Navigation: React.FC = () => {
     <nav className="navbar">
       <div className="navbar-container">
         <Link to="/" className="navbar-brand">
-          🔊 Testaudio
+          🔊 transmitwave
         </Link>
         <ul className="navbar-menu">
           <li><Link to="/">Home</Link></li>

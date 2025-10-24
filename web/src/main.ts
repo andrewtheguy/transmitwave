@@ -22,27 +22,27 @@ interface Route {
 const routes: Route[] = [
     {
         path: '/',
-        title: 'Testaudio - Audio Modem',
+        title: 'transmitwave - Audio Modem',
         component: () => IndexPage(),
     },
     {
         path: '/demo',
-        title: 'Demo - Testaudio',
+        title: 'Demo - transmitwave',
         component: () => DemoPage(),
     },
     {
         path: '/microphone',
-        title: 'Microphone - Testaudio',
+        title: 'Microphone - transmitwave',
         component: () => MicrophonePage(),
     },
     {
         path: '/postamble',
-        title: 'Postamble - Testaudio',
+        title: 'Postamble - transmitwave',
         component: () => PostamblePage(),
     },
     {
         path: '/recording-decode',
-        title: 'Recording Decode - Testaudio',
+        title: 'Recording Decode - transmitwave',
         component: () => RecordingDecodePage(),
     },
 ];

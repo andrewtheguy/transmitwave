@@ -3,7 +3,7 @@
 # This script replaces the problematic 'import * as __wbg_star0 from 'env';'
 # with a fallback object that provides required functions, since 'env' is not available in browsers
 
-FILE="./pkg/testaudio_wasm.js"
+FILE="./pkg/transmitwave_wasm.js"
 
 if [ -f "$FILE" ]; then
     # Create the replacement with proper function implementations

@@ -23,7 +23,7 @@ def create_test_wav():
     5. Use the downloaded file to test decoding
     
     Or, to create via CLI (requires CLI tool):
-    cargo run --bin testaudio -- encode "Test message" output.wav
+    cargo run --bin transmitwave -- encode "Test message" output.wav
     """)
 
 if __name__ == '__main__':

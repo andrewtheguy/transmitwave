@@ -32,7 +32,7 @@ const IndexPage: React.FC = () => {
   return (
     <div className="container">
       <div className="text-center">
-        <h1>Testaudio</h1>
+        <h1>transmitwave</h1>
         <p style={{ fontSize: '1.25rem', opacity: 0.9 }}>Audio Modem for Reliable Low-Bandwidth Communication</p>
       </div>
 

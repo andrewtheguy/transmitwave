@@ -1,10 +1,10 @@
-# Testaudio Web Interface
+# transmitwave Web Interface
 
-A modern web application for the Testaudio audio modem system, built with Vite and WebAssembly.
+A modern web application for the transmitwave audio modem system, built with Vite and WebAssembly.
 
 ## Overview
 
-This web interface provides an interactive browser-based demonstration of the Testaudio audio modem system. It uses the compiled WebAssembly module from the Rust core library to encode and decode audio messages directly in the browser.
+This web interface provides an interactive browser-based demonstration of the transmitwave audio modem system. It uses the compiled WebAssembly module from the Rust core library to encode and decode audio messages directly in the browser.
 
 ## Features
 
@@ -270,4 +270,4 @@ To contribute improvements to the web interface:
 
 ## License
 
-Same as the main Testaudio project.
+Same as the main transmitwave project.

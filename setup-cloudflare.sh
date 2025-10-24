@@ -3,7 +3,7 @@
 
 set -e
 
-echo "🚀 Setting up testaudio for Cloudflare Pages deployment..."
+echo "🚀 Setting up transmitwave for Cloudflare Pages deployment..."
 echo ""
 
 # Check prerequisites
