@@ -501,7 +501,14 @@
             }
 
             try {
-                // Get microphone access
+                // Check if getUserMedia is available (Safari compatibility)
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    showStatus('recordingStatus', 'Microphone access not available in this browser', 'error');
+                    return;
+                }
+
+                // Request microphone permission and get audio stream
+                showStatus('recordingStatus', 'Requesting microphone permission...', 'info');
                 mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
@@ -562,7 +569,19 @@
 
             } catch (err) {
                 console.error('Error accessing microphone:', err);
-                showStatus('recordingStatus', 'Error: ' + err.message, 'error');
+                let errorMsg = err.message;
+
+                if (err.name === 'NotAllowedError') {
+                    errorMsg = 'Microphone permission denied. Please allow microphone access in browser settings.';
+                } else if (err.name === 'NotFoundError') {
+                    errorMsg = 'No microphone found on this device.';
+                } else if (err.name === 'NotReadableError') {
+                    errorMsg = 'Microphone is already in use by another application.';
+                } else if (err.name === 'SecurityError') {
+                    errorMsg = 'Microphone access requires HTTPS or localhost.';
+                }
+
+                showStatus('recordingStatus', 'Error: ' + errorMsg, 'error');
             }
         });
 
