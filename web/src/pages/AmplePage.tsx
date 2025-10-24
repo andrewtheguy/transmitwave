@@ -25,6 +25,11 @@ const AmplePage: React.FC = () => {
   const audioContextRef = useRef<AudioContext | null>(null)
   const resampleBufferRef = useRef<number[]>([])
   const samplesProcessedRef = useRef<number>(0)
+  const gainNodeRef = useRef<GainNode | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const volumeUpdateIntervalRef = useRef<number>(0)
+  const [micVolume, setMicVolume] = useState(0)
+  const [volumeGain, setVolumeGain] = useState(1)
 
   const startListening = async () => {
     try {
@@ -39,6 +44,17 @@ const AmplePage: React.FC = () => {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       audioContextRef.current = audioContext
       const source = audioContext.createMediaStreamSource(stream)
+
+      // Create gain node for volume control
+      const gainNode = audioContext.createGain()
+      gainNode.gain.value = volumeGain
+      gainNodeRef.current = gainNode
+
+      // Create analyser for volume visualization
+      const analyser = audioContext.createAnalyser()
+      analyser.fftSize = 2048
+      analyserRef.current = analyser
+
       const processor = audioContext.createScriptProcessor(4096, 1, 1)
 
       sourceRef.current = source
@@ -47,8 +63,23 @@ const AmplePage: React.FC = () => {
       resampleBufferRef.current = []
       samplesProcessedRef.current = 0
 
-      source.connect(processor)
+      // Connect with gain and analyser
+      source.connect(gainNode)
+      gainNode.connect(analyser)
+      analyser.connect(processor)
       processor.connect(audioContext.destination)
+
+      // Start volume meter updates
+      volumeUpdateIntervalRef.current = window.setInterval(() => {
+        if (analyserRef.current) {
+          const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+          analyserRef.current.getByteFrequencyData(dataArray)
+          const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+          const db = 20 * Math.log10(average / 128 + 0.0001)
+          const normalizedDb = Math.max(0, Math.min(100, (db + 60) / 0.6))
+          setMicVolume(normalizedDb)
+        }
+      }, 50)
 
       setIsListening(true)
       const modeLabel = mode === 'preamble' ? 'preamble' : 'postamble'
@@ -132,6 +163,10 @@ const AmplePage: React.FC = () => {
       streamRef.current.getTracks().forEach((track) => track.stop())
     }
 
+    if (volumeUpdateIntervalRef.current) {
+      clearInterval(volumeUpdateIntervalRef.current)
+    }
+
     setIsListening(false)
     setStatus('Stopped listening')
     setStatusType('info')
@@ -188,6 +223,46 @@ const AmplePage: React.FC = () => {
         </div>
 
         <h2 style={{ marginTop: '2rem' }}>Detection Settings</h2>
+
+        <div className="mt-4">
+          <label><strong>Microphone Volume</strong></label>
+          <div className="flex items-center gap-3 mt-2">
+            <input
+              type="range"
+              min="0.5"
+              max="3"
+              step="0.1"
+              value={volumeGain}
+              onChange={(e) => {
+                const newGain = parseFloat(e.target.value)
+                setVolumeGain(newGain)
+                if (gainNodeRef.current) {
+                  gainNodeRef.current.gain.value = newGain
+                }
+              }}
+              disabled={isListening}
+            />
+            <span>{volumeGain.toFixed(1)}x</span>
+          </div>
+          <small>Amplify microphone input (0.5x to 3x). Recommended: 1.0x</small>
+        </div>
+
+        <div className="mt-4">
+          <label><strong>Input Level</strong></label>
+          <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '0.5rem', marginTop: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', height: '20px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{
+                background: 'linear-gradient(90deg, #4ade80, #facc15, #ef4444)',
+                height: '100%',
+                width: `${micVolume}%`,
+                transition: 'width 0.05s linear'
+              }}></div>
+            </div>
+            <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#666' }}>
+              Peak: {(micVolume * 0.6 - 60).toFixed(1)} dB
+            </div>
+          </div>
+        </div>
 
         <div className="mt-4">
           <label><strong>Detection Threshold</strong></label>
