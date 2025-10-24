@@ -19,6 +19,9 @@ pub mod spread;
 pub mod trellis;
 pub mod resample;
 pub mod chunking;
+pub mod fsk;
+pub mod encoder_fsk;
+pub mod decoder_fsk;
 
 pub use encoder::Encoder;
 pub use encoder_cp::EncoderCp;
@@ -26,6 +29,8 @@ pub use decoder::Decoder;
 pub use decoder_cp::DecoderCp;
 pub use encoder_spread::EncoderSpread;
 pub use decoder_spread::DecoderSpread;
+pub use encoder_fsk::EncoderFsk;
+pub use decoder_fsk::DecoderFsk;
 pub use error::{AudioModemError, Result};
 pub use fft_correlation::{Mode, fft_correlate_1d};
 pub use sync::{detect_preamble, detect_postamble};
@@ -35,6 +40,7 @@ pub use resample::{resample_audio, stereo_to_mono};
 pub use chunking::{Chunk, ChunkEncoder, ChunkDecoder, interleave_chunks};
 pub use ofdm::{OfdmModulator, OfdmDemodulator};
 pub use fec::{FecEncoder, FecDecoder};
+pub use fsk::{FskModulator, FskDemodulator};
 
 // Configuration constants
 pub const SAMPLE_RATE: usize = 16000;
