@@ -35,7 +35,10 @@
       "Bash(./build.sh)",
       "Read(//private/tmp/**)",
       "Bash(git show:*)",
-      "Read(//Users/it3/codes/andrew/**)"
+      "Read(//Users/it3/codes/andrew/**)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(RUST_BACKTRACE=1 cargo test:*)"
     ],
     "deny": [],
     "ask": []

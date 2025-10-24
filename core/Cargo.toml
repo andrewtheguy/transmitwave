@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 rustfft = "6"
 realfft = "3"
-reed-solomon-erasure = "6"
+reed-solomon-simd = "3"
 thiserror = "1"
 bytemuck = "1"
 
