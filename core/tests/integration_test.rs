@@ -615,3 +615,213 @@ fn test_encode_decode_chunked_debug() {
     println!("Total FEC chunks processed: {}", fec_count);
     println!("Valid chunks: {}", valid_chunks);
 }
+
+// ============================================================================
+// COMPREHENSIVE ROUND-TRIP CORRECTNESS TESTS
+// These tests verify exact data match for critical algorithms
+// ============================================================================
+
+#[test]
+fn test_spread_spectrum_roundtrip_simple() {
+    use testaudio_core::{DecoderSpread, EncoderSpread};
+
+    let original_data = b"Test";
+    let mut encoder = EncoderSpread::new(2).expect("Failed to create spread encoder");
+    let samples = encoder.encode(original_data).expect("Failed to encode");
+
+    let mut decoder = DecoderSpread::new(2).expect("Failed to create spread decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Spread spectrum round-trip corruption detected");
+}
+
+#[test]
+fn test_spread_spectrum_roundtrip_max_payload() {
+    use testaudio_core::{DecoderSpread, EncoderSpread};
+
+    let original_data = vec![0xAA; 200]; // Max size with alternating bits
+    let mut encoder = EncoderSpread::new(2).expect("Failed to create spread encoder");
+    let samples = encoder.encode(&original_data).expect("Failed to encode");
+
+    let mut decoder = DecoderSpread::new(2).expect("Failed to create spread decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Spread spectrum max payload corruption");
+}
+
+#[test]
+fn test_spread_spectrum_roundtrip_binary_patterns() {
+    use testaudio_core::{DecoderSpread, EncoderSpread};
+
+    let test_patterns = vec![
+        vec![0xFF, 0xFF, 0xFF],      // All ones
+        vec![0x00, 0x00, 0x00],      // All zeros
+        vec![0xAA, 0x55, 0xAA],      // Alternating pattern
+        (0..=255).collect::<Vec<u8>>(), // All byte values
+    ];
+
+    for pattern in test_patterns {
+        let mut encoder = EncoderSpread::new(2).expect("Failed to create encoder");
+        let samples = encoder.encode(&pattern).expect("Failed to encode");
+
+        let mut decoder = DecoderSpread::new(2).expect("Failed to create decoder");
+        let decoded = decoder.decode(&samples).expect("Failed to decode");
+
+        assert_eq!(decoded, pattern, "Spread spectrum corrupted pattern: {:?}", pattern);
+    }
+}
+
+#[test]
+fn test_chunked_roundtrip_32bit_chunks() {
+    let original_data = b"Hi";
+
+    let mut encoder = EncoderChunked::new(32, 2).expect("Failed to create chunked encoder");
+    let samples = encoder.encode(original_data).expect("Failed to encode");
+
+    let mut decoder = DecoderChunked::new(32).expect("Failed to create chunked decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Chunked 32-bit round-trip corruption");
+}
+
+#[test]
+fn test_chunked_roundtrip_48bit_chunks() {
+    let original_data = b"Hello, World!";
+
+    let mut encoder = EncoderChunked::new(48, 3).expect("Failed to create chunked encoder");
+    let samples = encoder.encode(original_data).expect("Failed to encode");
+
+    let mut decoder = DecoderChunked::new(48).expect("Failed to create chunked decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Chunked 48-bit round-trip corruption");
+}
+
+#[test]
+fn test_chunked_roundtrip_64bit_chunks() {
+    let original_data = b"12345678"; // Exactly 8 bytes = 64 bits
+
+    let mut encoder = EncoderChunked::new(64, 2).expect("Failed to create chunked encoder");
+    let samples = encoder.encode(original_data).expect("Failed to encode");
+
+    let mut decoder = DecoderChunked::new(64).expect("Failed to create chunked decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Chunked 64-bit round-trip corruption");
+}
+
+#[test]
+fn test_chunked_roundtrip_max_payload() {
+    let original_data = vec![0x42; 200]; // Max size
+
+    let mut encoder = EncoderChunked::new(48, 3).expect("Failed to create chunked encoder");
+    let samples = encoder.encode(&original_data).expect("Failed to encode");
+
+    let mut decoder = DecoderChunked::new(48).expect("Failed to create chunked decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data, original_data, "Chunked max payload corruption detected");
+}
+
+#[test]
+fn test_chunked_roundtrip_boundary_sizes() {
+    let test_cases = vec![
+        1,    // Single byte
+        6,    // One 48-bit chunk
+        7,    // More than one 48-bit chunk
+        12,   // Two 48-bit chunks
+        200,  // Max size
+    ];
+
+    for size in test_cases {
+        let original_data = vec![size as u8; size];
+
+        let mut encoder = EncoderChunked::new(48, 3).expect("Failed to create encoder");
+        let samples = encoder.encode(&original_data).expect("Failed to encode");
+
+        let mut decoder = DecoderChunked::new(48).expect("Failed to create decoder");
+        let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+        assert_eq!(decoded_data, original_data,
+                   "Chunked corruption at boundary size {}: expected {}, got {}",
+                   size, original_data.len(), decoded_data.len());
+    }
+}
+
+#[test]
+fn test_chunked_roundtrip_binary_patterns() {
+    let patterns = vec![
+        vec![0xFF; 10],              // All ones
+        vec![0x00; 10],              // All zeros
+        {
+            let mut p = vec![];
+            for _ in 0..5 {
+                p.push(0xAA);
+                p.push(0x55);
+            }
+            p
+        },                           // Alternating pattern
+        (0..20).collect::<Vec<u8>>(), // Sequential
+    ];
+
+    for pattern in patterns {
+        let mut encoder = EncoderChunked::new(48, 3).expect("Failed to create encoder");
+        let samples = encoder.encode(&pattern).expect("Failed to encode");
+
+        let mut decoder = DecoderChunked::new(48).expect("Failed to create decoder");
+        let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+        assert_eq!(decoded_data, pattern, "Chunked corrupted pattern: {:?}", pattern);
+    }
+}
+
+#[test]
+fn test_chunked_with_different_interleave_factors() {
+    let original_data = b"Testing interleave";
+
+    for interleave in &[2, 3, 4, 5] {
+        let mut encoder = EncoderChunked::new(48, *interleave)
+            .expect("Failed to create chunked encoder");
+        let samples = encoder.encode(original_data).expect("Failed to encode");
+
+        let mut decoder = DecoderChunked::new(48).expect("Failed to create chunked decoder");
+        let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+        assert_eq!(decoded_data, original_data,
+                   "Chunked corruption with interleave factor {}", interleave);
+    }
+}
+
+#[test]
+fn test_chunked_correctness_with_all_bit_values() {
+    // Test that all possible byte values are correctly encoded/decoded
+    let original_data: Vec<u8> = (0..=255).collect();
+
+    let mut encoder = EncoderChunked::new(48, 3).expect("Failed to create encoder");
+    let samples = encoder.encode(&original_data).expect("Failed to encode");
+
+    let mut decoder = DecoderChunked::new(48).expect("Failed to create decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    assert_eq!(decoded_data.len(), 256, "Decoded size mismatch");
+    for (i, (expected, actual)) in original_data.iter().zip(decoded_data.iter()).enumerate() {
+        assert_eq!(expected, actual, "Byte corruption at position {}: expected {}, got {}", i, expected, actual);
+    }
+}
+
+#[test]
+fn test_chunked_padding_correctness() {
+    // Test that padding is correctly removed after decoding
+    // 5 bytes = 2.5 chunks of 48 bits, so last chunk is padded
+    let original_data = b"ABCDE";
+
+    let mut encoder = EncoderChunked::new(48, 2).expect("Failed to create encoder");
+    let samples = encoder.encode(original_data).expect("Failed to encode");
+
+    let mut decoder = DecoderChunked::new(48).expect("Failed to create decoder");
+    let decoded_data = decoder.decode(&samples).expect("Failed to decode");
+
+    // Critical: Check exact length match (no padding bytes remain)
+    assert_eq!(decoded_data.len(), 5, "Padding not removed: expected 5 bytes, got {}", decoded_data.len());
+    assert_eq!(decoded_data, original_data, "Decoded data doesn't match original");
+}
