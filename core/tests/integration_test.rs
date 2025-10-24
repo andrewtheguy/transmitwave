@@ -515,10 +515,11 @@ fn test_spread_spectrum_roundtrip_binary_patterns() {
 }
 
 // ============================================================================
-// 4-FSK (Four-Frequency Shift Keying) Integration Tests
+// Multi-tone FSK (ggwave-compatible) Integration Tests
 // ============================================================================
 // FSK mode tests for maximum reliability in over-the-air transmission
 // Tests focus on robustness to noise, silence, and edge cases
+// Uses 6 simultaneous frequencies (1875-6328 Hz) matching ggwave audible protocol
 
 #[test]
 fn test_fsk_encode_decode_round_trip() {

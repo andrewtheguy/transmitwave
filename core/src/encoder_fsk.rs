@@ -5,17 +5,18 @@ use crate::fsk::FskModulator;
 use crate::sync::{generate_preamble, generate_postamble_signal};
 use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
 
-/// Encoder using 4-FSK (Four-Frequency Shift Keying)
+/// Encoder using Multi-tone FSK (ggwave-compatible)
 ///
-/// Uses 4 distinct audio frequencies (1200, 1600, 2000, 2400 Hz) to encode
-/// 2 bits per symbol with non-coherent detection for maximum reliability
+/// Uses 6 simultaneous audio frequencies to encode 3 bytes (24 bits) per symbol
+/// with non-coherent energy detection (Goertzel algorithm) for maximum reliability
 /// in over-the-air transmission scenarios.
 ///
 /// Benefits:
 /// - Highly robust to noise and distortion
 /// - No phase synchronization required (non-coherent detection)
 /// - Well-suited for speaker-to-microphone transmission
-/// - Slower data rate but higher reliability than OFDM
+/// - Audible frequency band (1875-6328 Hz) compatible with ggwave
+/// - Simultaneous multi-tone transmission for reliability
 pub struct EncoderFsk {
     fsk: FskModulator,
     fec: FecEncoder,
@@ -29,8 +30,10 @@ impl EncoderFsk {
         })
     }
 
-    /// Encode binary data into audio samples using 4-FSK modulation
+    /// Encode binary data into audio samples using multi-tone FSK modulation
     /// Returns: preamble + (FSK symbols) + postamble
+    ///
+    /// Each symbol encodes 3 bytes (24 bits) using 6 simultaneous frequencies.
     ///
     /// Uses variable Reed-Solomon parity based on payload size:
     /// - Small payloads (< 20 bytes): 8 parity bytes (75% less overhead)
