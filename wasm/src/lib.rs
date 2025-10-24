@@ -3,7 +3,7 @@ use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, DecoderFsk,
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
-// Default mode: FSK (Four-Frequency Shift Keying) for maximum reliability
+// Default mode: Multi-tone FSK (ggwave-compatible) for maximum reliability
 // ============================================================================
 
 /// Default WASM Encoder (uses FSK for maximum reliability)

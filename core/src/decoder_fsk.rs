@@ -6,10 +6,11 @@ use crate::sync::{detect_postamble, detect_preamble};
 use crate::PREAMBLE_SAMPLES;
 use crate::fsk::FSK_SYMBOL_SAMPLES;
 
-/// Decoder using 4-FSK (Four-Frequency Shift Keying)
+/// Decoder using Multi-tone FSK (ggwave-compatible)
 ///
-/// Demodulates 4-FSK symbols using non-coherent energy detection (Goertzel algorithm)
-/// to recover the original binary data. Highly robust to noise and distortion.
+/// Demodulates multi-tone FSK symbols (6 simultaneous frequencies) using non-coherent
+/// energy detection (Goertzel algorithm) to recover the original binary data.
+/// Highly robust to noise and distortion.
 pub struct DecoderFsk {
     fsk: FskDemodulator,
     fec: FecDecoder,
@@ -63,26 +64,8 @@ impl DecoderFsk {
         let valid_samples = symbol_count * FSK_SYMBOL_SAMPLES;
         let fsk_samples = &fsk_region[..valid_samples];
 
-        // Demodulate FSK symbols to bits
-        let bits = self.fsk.demodulate(fsk_samples)?;
-
-        if bits.is_empty() {
-            return Err(AudioModemError::InvalidFrameSize);
-        }
-
-        // Convert bits back to bytes
-        let mut bytes = Vec::new();
-        for chunk in bits.chunks(8) {
-            if chunk.len() == 8 {
-                let mut byte = 0u8;
-                for (i, &bit) in chunk.iter().enumerate() {
-                    if bit {
-                        byte |= 1 << (7 - i);
-                    }
-                }
-                bytes.push(byte);
-            }
-        }
+        // Demodulate multi-tone FSK symbols to bytes
+        let bytes = self.fsk.demodulate(fsk_samples)?;
 
         if bytes.len() < 2 {
             return Err(AudioModemError::InvalidFrameSize);

@@ -14,7 +14,7 @@ use base64::Engine;
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
-// Default mode: FSK (Four-Frequency Shift Keying) for maximum reliability
+// Default mode: Multi-tone FSK (ggwave-compatible) for maximum reliability
 // CLI options: --spread for spread spectrum, --no-spread for legacy mode
 // ============================================================================
 
@@ -430,7 +430,7 @@ fn encode_fsk_command(
     let mut encoder = EncoderFsk::new()?;
     let samples = encoder.encode(&data)?;
     println!(
-        "Encoded with 4-FSK to {} audio samples",
+        "Encoded with multi-tone FSK to {} audio samples",
         samples.len()
     );
 
@@ -511,7 +511,7 @@ fn decode_fsk_command(
     // Decode with FSK
     let mut decoder = DecoderFsk::new()?;
     let data = decoder.decode(&samples)?;
-    println!("Decoded {} bytes with 4-FSK", data.len());
+    println!("Decoded {} bytes with multi-tone FSK", data.len());
 
     // Write binary file
     std::fs::write(output_path, &data)?;
@@ -524,7 +524,7 @@ fn decode_fsk_command(
 async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting testaudio server on http://localhost:{}", port);
     println!("Endpoints:");
-    println!("  POST /encode - Encode binary data to WAV with FSK (Four-Frequency Shift Keying)");
+    println!("  POST /encode - Encode binary data to WAV with multi-tone FSK (ggwave-compatible)");
     println!("  POST /decode - Decode WAV to binary data with FSK");
     println!("  GET / - Server status");
 
@@ -541,7 +541,7 @@ async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handler_status() -> String {
-    "testaudio server with FSK (Four-Frequency Shift Keying) encoding/decoding - Ready".to_string()
+    "testaudio server with multi-tone FSK (ggwave-compatible) encoding/decoding - Ready".to_string()
 }
 
 async fn handler_encode(

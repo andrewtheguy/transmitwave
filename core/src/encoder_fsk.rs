@@ -5,17 +5,18 @@ use crate::fsk::FskModulator;
 use crate::sync::{generate_preamble, generate_postamble_signal};
 use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
 
-/// Encoder using 4-FSK (Four-Frequency Shift Keying)
+/// Encoder using Multi-tone FSK (ggwave-compatible)
 ///
-/// Uses 4 distinct audio frequencies (1200, 1600, 2000, 2400 Hz) to encode
-/// 2 bits per symbol with non-coherent detection for maximum reliability
+/// Uses 6 simultaneous audio frequencies to encode 3 bytes (24 bits) per symbol
+/// with non-coherent energy detection (Goertzel algorithm) for maximum reliability
 /// in over-the-air transmission scenarios.
 ///
 /// Benefits:
 /// - Highly robust to noise and distortion
 /// - No phase synchronization required (non-coherent detection)
 /// - Well-suited for speaker-to-microphone transmission
-/// - Slower data rate but higher reliability than OFDM
+/// - Audible frequency band (1875-6328 Hz) compatible with ggwave
+/// - Simultaneous multi-tone transmission for reliability
 pub struct EncoderFsk {
     fsk: FskModulator,
     fec: FecEncoder,
@@ -29,8 +30,10 @@ impl EncoderFsk {
         })
     }
 
-    /// Encode binary data into audio samples using 4-FSK modulation
+    /// Encode binary data into audio samples using multi-tone FSK modulation
     /// Returns: preamble + (FSK symbols) + postamble
+    ///
+    /// Each symbol encodes 3 bytes (24 bits) using 6 simultaneous frequencies.
     ///
     /// Uses variable Reed-Solomon parity based on payload size:
     /// - Small payloads (< 20 bytes): 8 parity bytes (75% less overhead)
@@ -85,25 +88,20 @@ impl EncoderFsk {
             encoded_data.extend_from_slice(&fec_chunk[padding_needed..]);
         }
 
-        // Convert bytes to bits for FSK modulation
-        let mut bits = Vec::new();
-        for byte in encoded_data {
-            for i in (0..8).rev() {
-                bits.push((byte >> i) & 1 == 1);
-            }
-        }
-
-        // Ensure even number of bits (FSK encodes 2 bits per symbol)
-        if bits.len() % 2 != 0 {
-            bits.push(false); // Pad with zero if odd
+        // Pad encoded data to be a multiple of FSK_BYTES_PER_SYMBOL (3 bytes)
+        // Multi-tone FSK transmits 3 bytes per symbol
+        let remainder = encoded_data.len() % crate::fsk::FSK_BYTES_PER_SYMBOL;
+        if remainder != 0 {
+            let padding = crate::fsk::FSK_BYTES_PER_SYMBOL - remainder;
+            encoded_data.resize(encoded_data.len() + padding, 0u8);
         }
 
         // Generate preamble signal for synchronization
         let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);
 
-        // Modulate data bits using 4-FSK
+        // Modulate data bytes using multi-tone FSK
         let mut samples = preamble;
-        let fsk_samples = self.fsk.modulate(&bits)?;
+        let fsk_samples = self.fsk.modulate(&encoded_data)?;
         samples.extend_from_slice(&fsk_samples);
 
         // Generate postamble signal for frame boundary detection

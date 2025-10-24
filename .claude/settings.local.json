@@ -33,7 +33,8 @@
       "Bash(timeout 5 npm run dev:*)",
       "Bash(tree:*)",
       "Bash(./build.sh)",
-      "Read(//private/tmp/**)"
+      "Read(//private/tmp/**)",
+      "Bash(git show:*)"
     ],
     "deny": [],
     "ask": []
