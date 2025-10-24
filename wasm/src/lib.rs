@@ -6,9 +6,9 @@ use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, EncoderChun
 // Change these constants to switch encoder/decoder defaults
 // ============================================================================
 
-/// Encoder type: "spread" or "chunked"
+/// Encoder type: "spread" or "chunked" (chunked is EXPERIMENTAL - has InvalidFrameSize bugs)
 const DEFAULT_ENCODER_TYPE: &str = "spread";
-/// Decoder type: "spread" or "chunked"
+/// Decoder type: "spread" or "chunked" (chunked is EXPERIMENTAL - has InvalidFrameSize bugs)
 const DEFAULT_DECODER_TYPE: &str = "spread";
 /// Spread spectrum chip duration (only used if DEFAULT_ENCODER_TYPE = "spread")
 const DEFAULT_SPREAD_CHIP_DURATION: usize = 2;

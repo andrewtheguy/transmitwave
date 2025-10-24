@@ -17,9 +17,9 @@ use base64::Engine;
 // Change these constants to switch encoder/decoder defaults across CLI, web, and WASM
 // ============================================================================
 
-/// Encoder type: "spread" or "chunked"
+/// Encoder type: "spread" or "chunked" (chunked is EXPERIMENTAL - has InvalidFrameSize bugs)
 const DEFAULT_ENCODER_TYPE: &str = "spread";
-/// Decoder type: "spread" or "chunked"
+/// Decoder type: "spread" or "chunked" (chunked is EXPERIMENTAL - has InvalidFrameSize bugs)
 const DEFAULT_DECODER_TYPE: &str = "spread";
 
 /// Spread spectrum chip duration (only used if DEFAULT_ENCODER_TYPE = "spread")
@@ -86,6 +86,10 @@ struct Cli {
     /// Chip duration for spread spectrum (samples per Barker chip, default: 2)
     #[arg(short, long, default_value = "2")]
     chip_duration: usize,
+
+    /// Use chunked encoder/decoder (EXPERIMENTAL - has InvalidFrameSize bugs)
+    #[arg(long)]
+    chunked: bool,
 
     /// Use legacy encoder/decoder without spread spectrum
     #[arg(long)]
