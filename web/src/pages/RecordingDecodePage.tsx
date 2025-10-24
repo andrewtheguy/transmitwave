@@ -60,9 +60,7 @@ const RecordingDecodePage: React.FC = () => {
 
         // Auto-stop at 30 seconds
         if (elapsed >= MAX_DURATION) {
-          stopRecording()
-          setRecordingStatus(`Recording stopped (max ${MAX_DURATION}s reached)`)
-          setRecordingStatusType('info')
+          stopRecording(`Recording stopped (max ${MAX_DURATION}s reached)`)
         }
       }, 100)
 
@@ -77,7 +75,7 @@ const RecordingDecodePage: React.FC = () => {
     }
   }
 
-  const stopRecording = () => {
+  const stopRecording = (message?: string) => {
     if (processorRef.current && sourceRef.current && streamRef.current) {
       processorRef.current.disconnect()
       sourceRef.current.disconnect()
@@ -89,7 +87,13 @@ const RecordingDecodePage: React.FC = () => {
     }
 
     setIsRecording(false)
-    setRecordingStatus(null)
+    // Only set message if provided (when called from auto-stop), otherwise clear it
+    if (message) {
+      setRecordingStatus(message)
+      setRecordingStatusType('info')
+    } else {
+      setRecordingStatus(null)
+    }
   }
 
   const processDetectAndDecode = async () => {
@@ -272,7 +276,7 @@ const RecordingDecodePage: React.FC = () => {
           </button>
           {isRecording && (
             <button
-              onClick={stopRecording}
+              onClick={() => stopRecording()}
               className="btn-secondary w-full"
             >
               Stop Recording
