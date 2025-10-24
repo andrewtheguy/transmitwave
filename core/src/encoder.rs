@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::fec::FecEncoder;
-use crate::framing::{Frame, FrameEncoder};
+use crate::framing::{Frame, FrameEncoder, crc16};
 use crate::ofdm::OfdmModulator;
 use crate::sync::{generate_chirp, generate_postamble};
 use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, NUM_SUBCARRIERS};
@@ -26,10 +26,12 @@ impl Encoder {
         }
 
         // Create frame
+        let payload = data.to_vec();
         let frame = Frame {
             payload_len: data.len() as u16,
             frame_num: 0,
-            payload: data.to_vec(),
+            payload: payload.clone(),
+            payload_crc: crc16(&payload),
         };
 
         let frame_data = FrameEncoder::encode(&frame)?;
