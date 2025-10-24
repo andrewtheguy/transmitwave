@@ -137,30 +137,34 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
     // Generate expected ascending chirp (200 Hz to 4000 Hz)
     let template = generate_chirp(preamble_samples, 200.0, 4000.0, 1.0);
 
-    // Use sliding window with Pearson correlation for efficiency
+    // Use FFT-based correlation for O(N log N) complexity
+    let fft_correlation = fft_correlate_1d(samples, &template);
+
     let mut best_pos = 0;
     let mut best_correlation = 0.0;
 
     // Calculate template energy once
     let template_energy: f32 = template.iter().map(|x| x * x).sum();
 
-    // Slide window and compute normalized cross-correlation
+    // Build prefix-sum array of squared samples for O(1) window energy computation
+    let mut sq_prefix = vec![0.0; samples.len() + 1];
+    for k in 0..samples.len() {
+        sq_prefix[k + 1] = sq_prefix[k] + samples[k] * samples[k];
+    }
+
+    // Iterate through valid positions and normalize correlation coefficients
     for i in 0..=samples.len().saturating_sub(preamble_samples) {
-        let window = &samples[i..i + preamble_samples];
+        // FFT correlation output at index (i + preamble_samples - 1) corresponds to window starting at i
+        let fft_index = i + preamble_samples - 1;
+        let raw_correlation = fft_correlation[fft_index];
 
-        // Compute cross-correlation and energy
-        let mut correlation = 0.0;
-        let mut window_energy = 0.0;
+        // Calculate window energy using O(1) prefix-sum lookup
+        let window_energy = sq_prefix[i + preamble_samples] - sq_prefix[i];
 
-        for (&s, &t) in window.iter().zip(template.iter()) {
-            correlation += s * t;
-            window_energy += s * s;
-        }
-
-        // Normalized correlation coefficient
+        // Compute normalized correlation coefficient
         let denom = (window_energy * template_energy).sqrt();
         let normalized_corr = if denom > 1e-10 {
-            (correlation / denom).abs()
+            (raw_correlation / denom).abs()
         } else {
             0.0
         };
@@ -202,30 +206,34 @@ pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usi
     // Generate expected descending chirp (4000 Hz to 200 Hz)
     let template = generate_chirp(postamble_samples, 4000.0, 200.0, 1.0);
 
-    // Use sliding window with Pearson correlation for efficiency
+    // Use FFT-based correlation for O(N log N) complexity
+    let fft_correlation = fft_correlate_1d(samples, &template);
+
     let mut best_pos = 0;
     let mut best_correlation = 0.0;
 
     // Calculate template energy once
     let template_energy: f32 = template.iter().map(|x| x * x).sum();
 
-    // Slide window and compute normalized cross-correlation
+    // Build prefix-sum array of squared samples for O(1) window energy computation
+    let mut sq_prefix = vec![0.0; samples.len() + 1];
+    for k in 0..samples.len() {
+        sq_prefix[k + 1] = sq_prefix[k] + samples[k] * samples[k];
+    }
+
+    // Iterate through valid positions and normalize correlation coefficients
     for i in 0..=samples.len().saturating_sub(postamble_samples) {
-        let window = &samples[i..i + postamble_samples];
+        // FFT correlation output at index (i + postamble_samples - 1) corresponds to window starting at i
+        let fft_index = i + postamble_samples - 1;
+        let raw_correlation = fft_correlation[fft_index];
 
-        // Compute cross-correlation and energy
-        let mut correlation = 0.0;
-        let mut window_energy = 0.0;
+        // Calculate window energy using O(1) prefix-sum lookup
+        let window_energy = sq_prefix[i + postamble_samples] - sq_prefix[i];
 
-        for (&s, &t) in window.iter().zip(template.iter()) {
-            correlation += s * t;
-            window_energy += s * s;
-        }
-
-        // Normalized correlation coefficient
+        // Compute normalized correlation coefficient
         let denom = (window_energy * template_energy).sqrt();
         let normalized_corr = if denom > 1e-10 {
-            (correlation / denom).abs()
+            (raw_correlation / denom).abs()
         } else {
             0.0
         };
