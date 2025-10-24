@@ -52,7 +52,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <Router basename="/web">
+    <Router>
       <Navigation />
       <Routes>
         <Route path="/" element={<IndexPage />} />
