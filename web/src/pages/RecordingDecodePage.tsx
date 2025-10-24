@@ -23,6 +23,7 @@ const RecordingDecodePage: React.FC = () => {
 
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  const gainNodeRef = useRef<GainNode | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const recordedSamplesRef = useRef<number[]>([])
   const startTimeRef = useRef<number>(0)
@@ -31,18 +32,35 @@ const RecordingDecodePage: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Request audio with constraints to disable auto-gain control and noise suppression
+      // These features can reduce volume mid-recording, breaking FSK detection
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        } as any,
+      })
+
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
       audioContextRef.current = ctx
 
       const source = ctx.createMediaStreamSource(stream)
+
+      // Create a gain node to normalize microphone input volume
+      const gainNode = ctx.createGain()
+      gainNode.gain.value = 2.0 // Boost input by 2x to compensate for quiet mics
+
       const processor = ctx.createScriptProcessor(4096, 1, 1)
 
       sourceRef.current = source
+      gainNodeRef.current = gainNode
       processorRef.current = processor
       streamRef.current = stream
 
-      source.connect(processor)
+      // Connect with gain node for volume normalization
+      source.connect(gainNode)
+      gainNode.connect(processor)
       processor.connect(ctx.destination)
 
       setIsRecording(true)
@@ -66,7 +84,18 @@ const RecordingDecodePage: React.FC = () => {
 
       processor.onaudioprocess = (event: AudioProcessingEvent) => {
         const audioSamples = Array.from((event as any).inputBuffer.getChannelData(0))
-        recordedSamplesRef.current.push(...audioSamples)
+
+        // Normalize samples to prevent clipping while preserving quiet signals
+        // Apply soft normalization to maintain dynamic range
+        const normalizedSamples = audioSamples.map((sample) => {
+          // Soft clipping to prevent distortion
+          if (Math.abs(sample) > 1.0) {
+            return Math.sign(sample) * (1.0 - Math.exp(-Math.abs(sample)))
+          }
+          return sample
+        })
+
+        recordedSamplesRef.current.push(...normalizedSamples)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to start recording'
@@ -76,9 +105,20 @@ const RecordingDecodePage: React.FC = () => {
   }
 
   const stopRecording = (message?: string) => {
-    if (processorRef.current && sourceRef.current && streamRef.current) {
+    // Disconnect audio nodes in reverse order
+    if (processorRef.current) {
       processorRef.current.disconnect()
+    }
+
+    if (gainNodeRef.current) {
+      gainNodeRef.current.disconnect()
+    }
+
+    if (sourceRef.current) {
       sourceRef.current.disconnect()
+    }
+
+    if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
     }
 
