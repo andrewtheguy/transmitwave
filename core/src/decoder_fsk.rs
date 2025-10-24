@@ -3,7 +3,7 @@ use crate::fec::FecDecoder;
 use crate::framing::FrameDecoder;
 use crate::fsk::FskDemodulator;
 use crate::sync::{detect_postamble, detect_preamble};
-use crate::{PREAMBLE_SAMPLES, RS_TOTAL_BYTES};
+use crate::PREAMBLE_SAMPLES;
 use crate::fsk::FSK_SYMBOL_SAMPLES;
 
 /// Decoder using 4-FSK (Four-Frequency Shift Keying)
@@ -25,6 +25,9 @@ impl DecoderFsk {
 
     /// Decode audio samples back to binary data
     /// Expects: preamble + (FSK symbols) + postamble
+    ///
+    /// Handles shortened Reed-Solomon decoding by restoring padding zeros
+    /// before RS decoding, then removing them after.
     pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>> {
         if samples.len() < FSK_SYMBOL_SAMPLES * 2 {
             return Err(AudioModemError::InsufficientData);
@@ -81,25 +84,49 @@ impl DecoderFsk {
             }
         }
 
-        if bytes.is_empty() {
+        if bytes.len() < 2 {
             return Err(AudioModemError::InvalidFrameSize);
         }
 
-        // Decode FEC (Reed-Solomon)
+        // Read 2-byte length prefix to determine frame data length
+        let frame_len = ((bytes[0] as u16) << 8) | (bytes[1] as u16);
+        let mut byte_idx = 2;
+
+        // Decode shortened Reed-Solomon blocks
         let mut decoded_data = Vec::new();
-        for chunk in bytes.chunks(RS_TOTAL_BYTES) {
-            if chunk.len() == RS_TOTAL_BYTES {
-                match self.fec.decode(chunk) {
-                    Ok(decoded_chunk) => {
-                        decoded_data.extend_from_slice(&decoded_chunk);
-                    }
-                    Err(_) => {
-                        // FEC failed - might be partial frame or corruption
-                        // Try to continue with remaining blocks
-                        continue;
-                    }
+        let mut remaining_len = frame_len as usize;
+
+        while remaining_len > 0 {
+            let chunk_len = remaining_len.min(223);
+            let padding_needed = 223 - chunk_len;
+            let encoded_len = chunk_len + 32; // actual data + parity
+
+            // Check if we have enough bytes
+            if byte_idx + encoded_len > bytes.len() {
+                break;
+            }
+
+            // Extract the shortened RS block
+            let shortened_block = &bytes[byte_idx..byte_idx + encoded_len];
+            byte_idx += encoded_len;
+
+            // Restore to full RS block by prepending zeros
+            let mut full_block = vec![0u8; padding_needed];
+            full_block.extend_from_slice(shortened_block);
+
+            // Decode with RS
+            match self.fec.decode(&full_block) {
+                Ok(decoded_chunk) => {
+                    // Remove the prepended zeros (padding)
+                    decoded_data.extend_from_slice(&decoded_chunk[padding_needed..]);
+                }
+                Err(_) => {
+                    // FEC failed - might be corruption
+                    return Err(AudioModemError::FecDecodeFailure);
                 }
             }
+
+            remaining_len -= chunk_len;
         }
 
         if decoded_data.is_empty() {

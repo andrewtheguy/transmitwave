@@ -31,6 +31,9 @@ impl EncoderFsk {
 
     /// Encode binary data into audio samples using 4-FSK modulation
     /// Returns: preamble + (FSK symbols) + postamble
+    ///
+    /// Uses shortened Reed-Solomon encoding to avoid transmitting unnecessary
+    /// padding bytes for small payloads, significantly reducing transmission time.
     pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>> {
         if data.len() > MAX_PAYLOAD_SIZE {
             return Err(crate::error::AudioModemError::InvalidInputSize);
@@ -47,11 +50,32 @@ impl EncoderFsk {
 
         let frame_data = FrameEncoder::encode(&frame)?;
 
-        // Apply Reed-Solomon FEC encoding
+        // Apply shortened Reed-Solomon FEC encoding
+        // For small payloads, we only transmit actual_data + parity, not full 223 bytes
         let mut encoded_data = Vec::new();
+
+        // Add 2-byte length prefix so decoder knows the frame data length
+        let frame_len = frame_data.len() as u16;
+        encoded_data.push((frame_len >> 8) as u8);
+        encoded_data.push(frame_len as u8);
+
         for chunk in frame_data.chunks(223) {
-            let fec_chunk = self.fec.encode(chunk)?;
-            encoded_data.extend_from_slice(&fec_chunk);
+            let chunk_len = chunk.len();
+
+            // Shortened RS: prepend zeros, encode, remove zeros
+            // This avoids transmitting padding bytes for small payloads
+            let padding_needed = 223 - chunk_len;
+
+            // Create padded data for RS encoder
+            let mut padded = vec![0u8; padding_needed];
+            padded.extend_from_slice(chunk);
+
+            // Encode with RS (produces 255 bytes: 223 data + 32 parity)
+            let fec_chunk = self.fec.encode(&padded)?;
+
+            // Only transmit: actual data + parity (skip the prepended zeros)
+            // This is the "shortened" part: transmit only (chunk_len + 32) bytes
+            encoded_data.extend_from_slice(&fec_chunk[padding_needed..]);
         }
 
         // Convert bytes to bits for FSK modulation

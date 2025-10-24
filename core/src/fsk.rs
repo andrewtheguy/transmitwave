@@ -1,5 +1,4 @@
 use crate::error::{AudioModemError, Result};
-use crate::SAMPLES_PER_SYMBOL;
 use std::f32::consts::PI;
 
 // 4-FSK configuration
