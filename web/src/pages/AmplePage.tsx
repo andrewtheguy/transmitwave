@@ -1,7 +1,10 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MicrophoneListener, PostambleDetector } from '../utils/wasm'
+import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
+
+const TARGET_SAMPLE_RATE = 16000
 
 const PostamblePage: React.FC = () => {
   const navigate = useNavigate()
@@ -18,6 +21,8 @@ const PostamblePage: React.FC = () => {
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const detectorRef = useRef<MicrophoneListener | PostambleDetector | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const resampleBufferRef = useRef<number[]>([])
 
   const startListening = async () => {
     try {
@@ -29,12 +34,14 @@ const PostamblePage: React.FC = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
 
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      audioContextRef.current = audioContext
       const source = audioContext.createMediaStreamSource(stream)
       const processor = audioContext.createScriptProcessor(4096, 1, 1)
 
       sourceRef.current = source
       processorRef.current = processor
       streamRef.current = stream
+      resampleBufferRef.current = []
 
       source.connect(processor)
       processor.connect(audioContext.destination)
@@ -43,12 +50,35 @@ const PostamblePage: React.FC = () => {
       const typeLabel = detectionType === 'preamble' ? 'preamble' : 'postamble'
       setStatus(`Listening for ${typeLabel}...`)
       setStatusType('info')
-      setRequiredSize(detector.required_size())
+      // required_size() is a static method, call it on the class not the instance
+      const requiredSize = detectionType === 'preamble'
+        ? MicrophoneListener.required_size()
+        : PostambleDetector.required_size()
+      setRequiredSize(requiredSize)
       setDetections([])
 
       processor.onaudioprocess = (event: AudioProcessingEvent) => {
-        const samples = event.inputData.getChannelData(0)
-        const position = detector.add_samples(samples)
+        const samples = Array.from((event as any).inputBuffer.getChannelData(0))
+
+        // Resample audio to 16kHz for consistent detection
+        const actualSampleRate = audioContextRef.current?.sampleRate || 48000
+        let resampledSamples = samples
+        if (actualSampleRate !== TARGET_SAMPLE_RATE) {
+          // Accumulate samples for batch resampling to reduce artifacts
+          resampleBufferRef.current.push(...samples)
+
+          // Process in chunks of 4096 samples at original rate (reduces resampling artifacts)
+          const chunkSize = 4096
+          if (resampleBufferRef.current.length < chunkSize) {
+            return // Wait for more samples to accumulate
+          }
+
+          // Take a chunk and resample
+          const chunk = resampleBufferRef.current.splice(0, chunkSize)
+          resampledSamples = resampleAudio(chunk, actualSampleRate, TARGET_SAMPLE_RATE)
+        }
+
+        const position = detector.add_samples(new Float32Array(resampledSamples))
 
         // Update buffer info
         const size = detector.buffer_size()
