@@ -4,7 +4,7 @@ use crate::framing::{Frame, FrameEncoder};
 use crate::ofdm::OfdmModulator;
 use crate::spread::SpreadSpectrumSpreader;
 use crate::sync::{generate_chirp, generate_postamble};
-use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
+use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, NUM_SUBCARRIERS};
 
 /// Encoder with Spread Spectrum for redundancy and noise-like properties
 ///
@@ -69,8 +69,8 @@ impl EncoderSpread {
         // Modulate data bits to OFDM symbols with spread spectrum
         let mut samples = preamble;
 
-        // Process bits in OFDM symbol chunks (48 bits per symbol)
-        for symbol_bits in bits.chunks(48) {
+        // Process bits in OFDM symbol chunks (NUM_SUBCARRIERS bits per symbol)
+        for symbol_bits in bits.chunks(NUM_SUBCARRIERS) {
             let symbol_samples = self.ofdm.modulate(symbol_bits)?;
 
             // Apply spread spectrum to add redundancy and create "hiss" effect

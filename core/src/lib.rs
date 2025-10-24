@@ -42,10 +42,19 @@ pub const SYMBOL_DURATION_MS: usize = 100;
 pub const SAMPLES_PER_SYMBOL: usize = (SAMPLE_RATE * SYMBOL_DURATION_MS) / 1000; // 1600
 
 // OFDM configuration
-pub const NUM_SUBCARRIERS: usize = 48;
-pub const SUBCARRIER_SPACING: f32 = 79.0; // Hz
-pub const MIN_FREQUENCY: f32 = 400.0; // Hz (lower pitch, closer to chirp)
-pub const MAX_FREQUENCY: f32 = 3200.0; // Hz (lower max, narrower band)
+// Increased from 48 to 224 subcarriers for denser spectrum with white-noise-like hiss sound
+// Each subcarrier gets a deterministic phase offset for phase randomization
+pub const NUM_SUBCARRIERS: usize = 224;
+pub const MIN_FREQUENCY: f32 = 400.0; // Hz
+pub const MAX_FREQUENCY: f32 = 3200.0; // Hz
+// FFT bin resolution: 16000 Hz / 1600 samples = 10 Hz per bin
+pub const BIN_RESOLUTION_HZ: f32 = 10.0; // SAMPLE_RATE / SAMPLES_PER_SYMBOL
+pub const MIN_BIN: usize = 40; // 400 Hz / 10 Hz per bin = bin index 40
+pub const MAX_BIN: usize = 320; // 3200 Hz / 10 Hz per bin = bin index 320
+// Subcarriers are uniformly distributed across FFT bins [MIN_BIN, MAX_BIN]
+// using compute_carrier_bins() to ensure proper alignment on the 10 Hz grid
+// OFDM amplitude normalization target to prevent clipping across all symbols
+pub const OFDM_TARGET_AMPLITUDE: f32 = 0.7;
 
 // FEC configuration
 pub const RS_DATA_BYTES: usize = 223;
@@ -61,3 +70,15 @@ pub const POSTAMBLE_SAMPLES: usize = (SAMPLE_RATE * SYNC_DURATION_MS) / 1000; //
 
 pub const FRAME_HEADER_SIZE: usize = 8; // payload length (2) + frame number (2) + CRC-8 (1) + reserved (3)
 pub const MAX_PAYLOAD_SIZE: usize = 200;
+
+/// Precompute uniform carrier bin positions across the FFT grid
+/// Maps NUM_SUBCARRIERS uniformly across [MIN_BIN, MAX_BIN]
+pub fn compute_carrier_bins() -> [usize; NUM_SUBCARRIERS] {
+    let mut bins = [0usize; NUM_SUBCARRIERS];
+    for i in 0..NUM_SUBCARRIERS {
+        let normalized = i as f32 / ((NUM_SUBCARRIERS - 1) as f32);
+        let bin_float = MIN_BIN as f32 + normalized * ((MAX_BIN - MIN_BIN) as f32);
+        bins[i] = bin_float.round() as usize;
+    }
+    bins
+}

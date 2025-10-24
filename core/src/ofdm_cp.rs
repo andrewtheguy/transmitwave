@@ -1,5 +1,6 @@
 use crate::error::{AudioModemError, Result};
-use crate::{NUM_SUBCARRIERS, SAMPLES_PER_SYMBOL, MIN_FREQUENCY, SUBCARRIER_SPACING, SAMPLE_RATE};
+use crate::{NUM_SUBCARRIERS, SAMPLES_PER_SYMBOL, compute_carrier_bins, OFDM_TARGET_AMPLITUDE};
+use crate::ofdm::deterministic_phase;
 use rustfft::{num_complex::Complex, FftPlanner};
 
 /// OFDM with Cyclic Prefix (CP) for ISI immunity
@@ -17,11 +18,13 @@ use rustfft::{num_complex::Complex, FftPlanner};
 pub struct OfdmModulatorCp {
     fft_planner: FftPlanner<f32>,
     cp_len: usize, // Cyclic prefix length in samples
+    symbol_counter: usize,
 }
 
 pub struct OfdmDemodulatorCp {
     fft_planner: FftPlanner<f32>,
     cp_len: usize,
+    symbol_counter: usize,
 }
 
 impl OfdmModulatorCp {
@@ -38,6 +41,7 @@ impl OfdmModulatorCp {
         Self {
             fft_planner: FftPlanner::new(),
             cp_len,
+            symbol_counter: 0,
         }
     }
 
@@ -53,15 +57,18 @@ impl OfdmModulatorCp {
         // Create frequency domain symbols (BPSK: 1.0 for true, -1.0 for false)
         let mut freq_domain = vec![Complex::new(0.0, 0.0); SAMPLES_PER_SYMBOL];
 
-        // Place subcarriers at the configured frequency range
-        let sample_rate = SAMPLE_RATE as f32;
+        // Place subcarriers at the configured frequency range with deterministic phase randomization
+        let carrier_bins = compute_carrier_bins();
+        let current_symbol = self.symbol_counter;
+        self.symbol_counter = self.symbol_counter.wrapping_add(1);
+
         for (i, &bit) in bits.iter().enumerate() {
             let amplitude = if bit { 1.0 } else { -1.0 };
-            let frequency = MIN_FREQUENCY + (i as f32) * SUBCARRIER_SPACING;
-            // Convert frequency to FFT bin
-            let bin = ((frequency / sample_rate) * SAMPLES_PER_SYMBOL as f32) as usize;
+            let phase = deterministic_phase(i, current_symbol);
+            let bin = carrier_bins[i];
             if bin < SAMPLES_PER_SYMBOL {
-                freq_domain[bin] = Complex::new(amplitude, 0.0);
+                // Apply BPSK with phase randomization (varies per symbol)
+                freq_domain[bin] = Complex::new(amplitude * phase.cos(), amplitude * phase.sin());
             }
         }
 
@@ -72,10 +79,17 @@ impl OfdmModulatorCp {
 
         fft.process(&mut time_domain);
 
-        // Extract real parts and normalize
-        // Amplify by 4x to lift signal above acoustic recording noise floor
+        // Extract real parts and normalize to consistent amplitude
         let mut symbol = vec![0.0; SAMPLES_PER_SYMBOL];
-        let scale = 4.0 / (SAMPLES_PER_SYMBOL as f32).sqrt();
+
+        // Find peak amplitude to normalize consistently across all symbols
+        let mut peak = 0.0f32;
+        for sample in time_domain.iter() {
+            peak = peak.max(sample.re.abs());
+        }
+
+        // Normalize to consistent amplitude to prevent clipping
+        let scale = if peak > 0.0 { OFDM_TARGET_AMPLITUDE / peak } else { 0.0 };
         for (i, sample) in time_domain.iter().enumerate() {
             symbol[i] = sample.re * scale;
         }
@@ -115,6 +129,7 @@ impl OfdmDemodulatorCp {
         Self {
             fft_planner: FftPlanner::new(),
             cp_len,
+            symbol_counter: 0,
         }
     }
 
@@ -142,16 +157,20 @@ impl OfdmDemodulatorCp {
         let fft = self.fft_planner.plan_fft_forward(SAMPLES_PER_SYMBOL);
         fft.process(&mut freq_domain);
 
-        // Extract bits by threshold (BPSK detection) at configured subcarrier frequencies
+        // Extract bits by threshold (BPSK detection) with phase compensation
         let mut bits = Vec::new();
-        let sample_rate = SAMPLE_RATE as f32;
+        let carrier_bins = compute_carrier_bins();
+        let current_symbol = self.symbol_counter;
+        self.symbol_counter = self.symbol_counter.wrapping_add(1);
+
         for i in 0..NUM_SUBCARRIERS {
-            let frequency = MIN_FREQUENCY + (i as f32) * SUBCARRIER_SPACING;
-            // Convert frequency to FFT bin
-            let bin = ((frequency / sample_rate) * SAMPLES_PER_SYMBOL as f32) as usize;
+            let phase = deterministic_phase(i, current_symbol);
+            let bin = carrier_bins[i];
             if bin < SAMPLES_PER_SYMBOL {
+                // Apply phase compensation to remove the randomization
+                let phase_compensated = freq_domain[bin] * Complex::new(phase.cos(), -phase.sin());
                 // Threshold at 0: positive real part = 1, negative = 0
-                let bit = freq_domain[bin].re > 0.0;
+                let bit = phase_compensated.re > 0.0;
                 bits.push(bit);
             }
         }
@@ -187,7 +206,7 @@ mod tests {
     #[test]
     fn test_cp_modulator_basic() {
         let mut modulator = OfdmModulatorCp::new();
-        let bits = vec![true; 48]; // All 1s
+        let bits = vec![true; NUM_SUBCARRIERS]; // All 1s
 
         let output = modulator.modulate(&bits).unwrap();
 
@@ -198,7 +217,7 @@ mod tests {
     #[test]
     fn test_cp_structure() {
         let mut modulator = OfdmModulatorCp::new_with_cp(160);
-        let bits = vec![true; 48];
+        let bits = vec![true; NUM_SUBCARRIERS];
 
         let output = modulator.modulate(&bits).unwrap();
 
@@ -217,11 +236,11 @@ mod tests {
         let mut modulator = OfdmModulatorCp::new();
         let mut demodulator = OfdmDemodulatorCp::new();
 
-        let bits = vec![true; 48];
+        let bits = vec![true; NUM_SUBCARRIERS];
         let encoded = modulator.modulate(&bits).unwrap();
         let decoded = demodulator.demodulate(&encoded).unwrap();
 
-        assert_eq!(decoded.len(), 48);
+        assert_eq!(decoded.len(), NUM_SUBCARRIERS);
         assert_eq!(decoded, bits);
     }
 
@@ -239,7 +258,7 @@ mod tests {
 
             // Check demodulation works
             let decoded = demodulator.demodulate(&encoded).unwrap();
-            assert_eq!(decoded.len(), 48); // Always 48 subcarriers
+            assert_eq!(decoded.len(), NUM_SUBCARRIERS); // Always NUM_SUBCARRIERS subcarriers
         }
     }
 
@@ -248,14 +267,7 @@ mod tests {
         let mut modulator = OfdmModulatorCp::new();
         let mut demodulator = OfdmDemodulatorCp::new();
 
-        let bits = vec![
-            true, false, true, true, false, false, true, false,
-            true, true, false, false, true, true, true, false,
-            false, true, false, true, true, false, false, true,
-            true, false, true, false, false, true, true, false,
-            true, true, true, true, false, false, false, false,
-            true, false, true, false, true, true, false, false,
-        ];
+        let bits: Vec<bool> = (0..NUM_SUBCARRIERS).map(|i| i % 3 != 0).collect();
 
         let encoded = modulator.modulate(&bits).unwrap();
         let decoded = demodulator.demodulate(&encoded).unwrap();
@@ -281,7 +293,7 @@ mod tests {
         // - FFT treats it as a simple phase rotation
 
         let mut modulator = OfdmModulatorCp::new();
-        let bits = vec![true; 48];
+        let bits = vec![true; NUM_SUBCARRIERS];
         let encoded = modulator.modulate(&bits).unwrap();
 
         // Simulate multipath: delayed copy (conceptual)

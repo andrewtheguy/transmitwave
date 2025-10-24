@@ -4,7 +4,7 @@ A Rust library for reliable low-bandwidth communication over audio channels. Enc
 
 ## Features
 
-- **OFDM Modulation**: 48 overlapping subcarriers for robust multi-frequency transmission
+- **OFDM Modulation**: 224 overlapping subcarriers with phase randomization for white-noise-like hiss sound
 - **Reed-Solomon FEC**: Forward error correction for reliability
 - **CRC Validation**: Integrity checks on frame headers
 - **Preamble/Postamble Detection**: Frame synchronization with chirp and tone signals
@@ -47,10 +47,11 @@ const recoveredData = decoder.decode(audioSamples);
 
 **Audio Parameters:**
 - Sample Rate: 16 kHz
-- Subcarriers: 48 (200-4000 Hz)
+- Subcarriers: 224 (400-3200 Hz) with deterministic phase randomization
 - Symbol Duration: 100 ms
 - Preamble: 300 ms chirp (200-4000 Hz)
 - Postamble: 50 ms tone (2 kHz)
+- Phase Randomization: Deterministic per-subcarrier phase offsets create white-noise-like hiss instead of tonal patterns
 
 **FEC Configuration:**
 - Reed-Solomon: (255, 223) - 32 bytes ECC
