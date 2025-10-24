@@ -3,7 +3,8 @@ use crate::fec::FecDecoder;
 use crate::framing::FrameDecoder;
 use crate::fsk::FskDemodulator;
 use crate::sync::{detect_postamble, detect_preamble};
-use crate::{PREAMBLE_SAMPLES, RS_TOTAL_BYTES, SAMPLES_PER_SYMBOL};
+use crate::{PREAMBLE_SAMPLES, RS_TOTAL_BYTES};
+use crate::fsk::FSK_SYMBOL_SAMPLES;
 
 /// Decoder using 4-FSK (Four-Frequency Shift Keying)
 ///
@@ -25,7 +26,7 @@ impl DecoderFsk {
     /// Decode audio samples back to binary data
     /// Expects: preamble + (FSK symbols) + postamble
     pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>> {
-        if samples.len() < SAMPLES_PER_SYMBOL * 2 {
+        if samples.len() < FSK_SYMBOL_SAMPLES * 2 {
             return Err(AudioModemError::InsufficientData);
         }
 
@@ -36,7 +37,7 @@ impl DecoderFsk {
         // Data starts after preamble
         let data_start = preamble_pos + PREAMBLE_SAMPLES;
 
-        if data_start + SAMPLES_PER_SYMBOL > samples.len() {
+        if data_start + FSK_SYMBOL_SAMPLES > samples.len() {
             return Err(AudioModemError::InsufficientData);
         }
 
@@ -51,12 +52,12 @@ impl DecoderFsk {
         let fsk_region = &samples[data_start..data_end];
 
         // Ensure we have complete symbols
-        let symbol_count = fsk_region.len() / SAMPLES_PER_SYMBOL;
+        let symbol_count = fsk_region.len() / FSK_SYMBOL_SAMPLES;
         if symbol_count == 0 {
             return Err(AudioModemError::InsufficientData);
         }
 
-        let valid_samples = symbol_count * SAMPLES_PER_SYMBOL;
+        let valid_samples = symbol_count * FSK_SYMBOL_SAMPLES;
         let fsk_samples = &fsk_region[..valid_samples];
 
         // Demodulate FSK symbols to bits
