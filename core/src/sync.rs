@@ -38,7 +38,7 @@ pub fn generate_postamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
 }
 
 /// Detect preamble using efficient FFT-based cross-correlation
-/// Returns the position where the preamble (ascending chirp) is most likely to start
+/// Returns the position where the preamble (ascending chirp, low frequency) is most likely to start
 pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usize> {
     let preamble_samples = crate::PREAMBLE_SAMPLES;
 
@@ -46,7 +46,7 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
         return None;
     }
 
-    // Generate expected ascending chirp (200 Hz to 4000 Hz)
+    // Generate expected ascending chirp for preamble (200 Hz to 4000 Hz - kept low)
     let template = generate_chirp(preamble_samples, 200.0, 4000.0, 1.0);
 
     // Use FFT-based correlation for O(N log N) complexity

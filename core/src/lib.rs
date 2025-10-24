@@ -41,20 +41,24 @@ pub const SAMPLE_RATE: usize = 16000;
 pub const SYMBOL_DURATION_MS: usize = 100;
 pub const SAMPLES_PER_SYMBOL: usize = (SAMPLE_RATE * SYMBOL_DURATION_MS) / 1000; // 1600
 
-// OFDM configuration
+// OFDM configuration for DATA portion (raised pitch)
 // Increased from 48 to 224 subcarriers for denser spectrum with white-noise-like hiss sound
 // Each subcarrier gets a deterministic phase offset for phase randomization
 pub const NUM_SUBCARRIERS: usize = 224;
-pub const MIN_FREQUENCY: f32 = 400.0; // Hz
-pub const MAX_FREQUENCY: f32 = 3200.0; // Hz
+pub const MIN_FREQUENCY: f32 = 1500.0; // Hz - raised for data portion
+pub const MAX_FREQUENCY: f32 = 4000.0; // Hz - raised for data portion
 // FFT bin resolution: 16000 Hz / 1600 samples = 10 Hz per bin
 pub const BIN_RESOLUTION_HZ: f32 = 10.0; // SAMPLE_RATE / SAMPLES_PER_SYMBOL
-pub const MIN_BIN: usize = 40; // 400 Hz / 10 Hz per bin = bin index 40
-pub const MAX_BIN: usize = 320; // 3200 Hz / 10 Hz per bin = bin index 320
+pub const MIN_BIN: usize = 150; // 1500 Hz / 10 Hz per bin = bin index 150
+pub const MAX_BIN: usize = 400; // 4000 Hz / 10 Hz per bin = bin index 400
 // Subcarriers are uniformly distributed across FFT bins [MIN_BIN, MAX_BIN]
 // using compute_carrier_bins() to ensure proper alignment on the 10 Hz grid
 // OFDM amplitude normalization target to prevent clipping across all symbols
 pub const OFDM_TARGET_AMPLITUDE: f32 = 0.7;
+
+// Preamble/Postamble PN sync signal frequencies (kept low)
+pub const PN_MIN_FREQUENCY: f32 = 400.0; // Hz
+pub const PN_MAX_FREQUENCY: f32 = 3200.0; // Hz
 
 // FEC configuration
 pub const RS_DATA_BYTES: usize = 223;
