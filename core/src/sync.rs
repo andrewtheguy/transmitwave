@@ -1,4 +1,4 @@
-use crate::SAMPLE_RATE;
+use crate::{fft_correlate_1d, Mode, SAMPLE_RATE};
 use std::f32::consts::PI;
 
 // ============================================================================
