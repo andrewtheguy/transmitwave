@@ -368,13 +368,13 @@ fn test_fec_chunk_roundtrip() {
         padded_data.push(0);
     }
 
-    let mut encoder = FecEncoder::new().expect("Failed to create FEC encoder");
+    let encoder = FecEncoder::new().expect("Failed to create FEC encoder");
     let encoded = encoder.encode(&padded_data[..223]).expect("Failed to FEC encode");
 
     println!("Original padded data (first 10): {:?}", &padded_data[..10]);
     println!("FEC encoded length: {}", encoded.len());
 
-    let mut decoder = FecDecoder::new().expect("Failed to create FEC decoder");
+    let decoder = FecDecoder::new().expect("Failed to create FEC decoder");
     let decoded = decoder.decode(&encoded).expect("Failed to FEC decode");
 
     println!("Decoded length: {}", decoded.len());
@@ -399,7 +399,7 @@ fn test_ofdm_fec_bit_roundtrip() {
     }
 
     // FEC encode
-    let mut fec_encoder = FecEncoder::new().expect("Failed to create FEC encoder");
+    let fec_encoder = FecEncoder::new().expect("Failed to create FEC encoder");
     let fec_encoded = fec_encoder.encode(&padded_data[..223]).expect("Failed to FEC encode");
     println!("FEC encoded length: {} (should be 255)", fec_encoded.len());
 
@@ -452,7 +452,7 @@ fn test_ofdm_fec_bit_roundtrip() {
     println!("Recovered bytes: {} (should be 255)", recovered_bytes.len());
 
     // FEC decode
-    let mut fec_decoder = FecDecoder::new().expect("Failed to create FEC decoder");
+    let fec_decoder = FecDecoder::new().expect("Failed to create FEC decoder");
     let decoded = match fec_decoder.decode(&recovered_bytes[..255.min(recovered_bytes.len())]) {
         Ok(d) => d,
         Err(e) => {

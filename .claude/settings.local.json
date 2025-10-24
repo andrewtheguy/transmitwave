@@ -23,7 +23,8 @@
       "Bash(chmod:*)",
       "Bash(/Users/it3/codes/andrew/testaudio/target/release/testaudio encode-chunked:*)",
       "Bash(git stash:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": [],
     "ask": []
