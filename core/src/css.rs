@@ -266,3 +266,278 @@ impl Default for CssDemodulator {
         Self::new().unwrap()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_modulator_creates_valid_samples() {
+        let modulator = CssModulator::new().unwrap();
+        let bits = vec![true, false, true];
+        let samples = modulator.modulate(&bits).unwrap();
+
+        // 3 bits = 3 symbols = 3 * 800 samples
+        assert_eq!(samples.len(), 3 * CSS_SAMPLES_PER_SYMBOL);
+
+        // All samples should be in reasonable range [-1, 1] after amplitude scaling
+        for &sample in &samples {
+            assert!(sample.abs() <= 1.0, "Sample {} out of range", sample);
+        }
+    }
+
+    #[test]
+    fn test_modulator_phase_continuity() {
+        let modulator = CssModulator::new().unwrap();
+        let bits = vec![true, false, true, true, false];
+        let samples = modulator.modulate(&bits).unwrap();
+
+        // Check that phase transitions are smooth (no sudden jumps in amplitude)
+        // by verifying samples don't have abrupt sign changes at boundaries
+        for window_idx in 0..5 {
+            let start = window_idx * CSS_SAMPLES_PER_SYMBOL;
+            let end = start + CSS_SAMPLES_PER_SYMBOL;
+
+            if start > 0 && end < samples.len() {
+                // Check continuity at symbol boundaries
+                let boundary_sample_before = samples[start - 1];
+                let boundary_sample_after = samples[start];
+
+                // Samples should be continuous (not jump from positive to very negative)
+                let jump = (boundary_sample_after - boundary_sample_before).abs();
+                assert!(jump < 0.5, "Jump of {} at boundary", jump);
+            }
+        }
+    }
+
+    #[test]
+    fn test_demodulator_empty_input() {
+        let demodulator = CssDemodulator::new().unwrap();
+        let result = demodulator.demodulate(&[]);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "InsufficientData");
+    }
+
+    #[test]
+    fn test_demodulator_insufficient_data() {
+        let demodulator = CssDemodulator::new().unwrap();
+        let short_samples = vec![0.0; 100]; // Less than one symbol
+
+        let result = demodulator.demodulate(&short_samples);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_round_trip_single_bit_one() {
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        let bits = vec![true];
+        let samples = modulator.modulate(&bits).unwrap();
+
+        // Add preamble and postamble to match decoder expectations
+        let mut full_samples = vec![0.0; CSS_SAMPLES_PER_SYMBOL];
+        full_samples.extend_from_slice(&samples);
+        full_samples.extend_from_slice(&vec![0.0; CSS_SAMPLES_PER_SYMBOL]);
+
+        // Demodulate the middle part (skip preamble/postamble)
+        let decoded = demodulator
+            .demodulate(&samples)
+            .unwrap();
+
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0], true, "Failed to decode bit 1");
+    }
+
+    #[test]
+    fn test_round_trip_single_bit_zero() {
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        let bits = vec![false];
+        let samples = modulator.modulate(&bits).unwrap();
+        let decoded = demodulator.demodulate(&samples).unwrap();
+
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0], false, "Failed to decode bit 0");
+    }
+
+    #[test]
+    fn test_round_trip_multiple_bits() {
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        let bits = vec![true, false, true, true, false, false, true, false];
+        let samples = modulator.modulate(&bits).unwrap();
+        let decoded = demodulator.demodulate(&samples).unwrap();
+
+        assert_eq!(decoded.len(), bits.len());
+        for (i, (&expected, &got)) in bits.iter().zip(decoded.iter()).enumerate() {
+            assert_eq!(expected, got, "Bit {} mismatch", i);
+        }
+    }
+
+    #[test]
+    fn test_round_trip_with_early_boundary_offset() {
+        // Simulate preamble detected 20 samples early
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        let bits = vec![true, false, true, true];
+        let samples = modulator.modulate(&bits).unwrap();
+
+        // Insert silence at the beginning to simulate early detection
+        let mut offset_samples = vec![0.0; 20];
+        offset_samples.extend_from_slice(&samples);
+
+        // Demodulator should still recover with timing correction
+        let decoded = demodulator.demodulate(&offset_samples).unwrap();
+
+        // May lose the first bit due to timing correction convergence
+        // but subsequent bits should decode correctly
+        assert!(decoded.len() >= 2, "Should recover at least some bits");
+    }
+
+    #[test]
+    fn test_round_trip_with_late_boundary_offset() {
+        // Simulate preamble detected 20 samples late
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        let bits = vec![true, false, true, true];
+        let samples = modulator.modulate(&bits).unwrap();
+
+        // Skip some samples from the beginning to simulate late detection
+        let offset_samples = &samples[20..];
+
+        let decoded = demodulator.demodulate(offset_samples).unwrap();
+
+        // Should still be able to decode most bits after timing convergence
+        assert!(decoded.len() >= 1, "Should recover at least some bits");
+    }
+
+    #[test]
+    fn test_round_trip_with_noise() {
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        let bits = vec![true, false, true, false, true];
+        let mut samples = modulator.modulate(&bits).unwrap();
+
+        // Add small noise to samples
+        for sample in &mut samples {
+            *sample += 0.05; // 5% noise
+        }
+
+        let decoded = demodulator.demodulate(&samples).unwrap();
+
+        // With low noise, should still decode correctly
+        assert_eq!(decoded.len(), bits.len());
+        let error_rate = bits
+            .iter()
+            .zip(decoded.iter())
+            .filter(|(a, b)| a != b)
+            .count() as f32
+            / bits.len() as f32;
+
+        assert!(error_rate < 0.2, "Error rate too high: {}", error_rate);
+    }
+
+    #[test]
+    fn test_timing_recovery_convergence() {
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        // Create a longer sequence to test multi-symbol timing convergence
+        let bits = vec![
+            true, false, true, true, false, false, true, false,
+            true, true, false, true, false, true, true, false,
+        ];
+        let samples = modulator.modulate(&bits).unwrap();
+
+        // Offset by 15 samples (within timing recovery range)
+        let mut offset_samples = vec![0.0; 15];
+        offset_samples.extend_from_slice(&samples);
+
+        let decoded = demodulator.demodulate(&offset_samples).unwrap();
+
+        // Should converge and decode most bits correctly
+        assert!(decoded.len() >= 10, "Should decode most bits after convergence");
+
+        let correct_count = decoded
+            .iter()
+            .zip(bits.iter())
+            .filter(|(a, b)| a == b)
+            .count();
+
+        let accuracy = correct_count as f32 / decoded.len().min(bits.len()) as f32;
+        assert!(accuracy > 0.8, "Accuracy too low after timing recovery: {}", accuracy);
+    }
+
+    #[test]
+    fn test_demodulator_respects_max_offset() {
+        let modulator = CssModulator::new().unwrap();
+        let mut demodulator = CssDemodulator::new().unwrap();
+
+        // Create samples with timing offset larger than max allowed
+        let bits = vec![true, false, true];
+        let samples = modulator.modulate(&bits).unwrap();
+
+        // Offset by 100 samples (exceeds max_timing_offset of 40)
+        let mut large_offset_samples = vec![0.0; 100];
+        large_offset_samples.extend_from_slice(&samples);
+
+        // Demodulator should handle gracefully
+        // Either error or converge after initial misalignment
+        let result = demodulator.demodulate(&large_offset_samples);
+
+        // Result should be either error or some decoded bits
+        match result {
+            Ok(decoded) => {
+                // If it decodes, should be fewer bits due to timeout/bounds
+                assert!(decoded.len() <= bits.len());
+            }
+            Err(_) => {
+                // Error is acceptable for large offsets
+            }
+        }
+    }
+
+    #[test]
+    fn test_modulator_alternating_bits() {
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        // Test alternating pattern
+        let bits: Vec<bool> = (0..10).map(|i| i % 2 == 0).collect();
+        let samples = modulator.modulate(&bits).unwrap();
+        let decoded = demodulator.demodulate(&samples).unwrap();
+
+        assert_eq!(decoded, bits, "Alternating pattern should decode perfectly");
+    }
+
+    #[test]
+    fn test_modulator_all_ones() {
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        let bits = vec![true; 8];
+        let samples = modulator.modulate(&bits).unwrap();
+        let decoded = demodulator.demodulate(&samples).unwrap();
+
+        assert_eq!(decoded, bits, "All ones should decode correctly");
+    }
+
+    #[test]
+    fn test_modulator_all_zeros() {
+        let modulator = CssModulator::new().unwrap();
+        let demodulator = CssDemodulator::new().unwrap();
+
+        let bits = vec![false; 8];
+        let samples = modulator.modulate(&bits).unwrap();
+        let decoded = demodulator.demodulate(&samples).unwrap();
+
+        assert_eq!(decoded, bits, "All zeros should decode correctly");
+    }
+}

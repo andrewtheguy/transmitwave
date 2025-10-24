@@ -101,3 +101,178 @@ impl Default for DecoderCss {
         Self::new().unwrap()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::EncoderCss;
+
+    #[test]
+    fn test_round_trip_simple_message() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        let original_data = b"Hello";
+        let samples = encoder.encode(original_data).unwrap();
+        let decoded_data = decoder.decode(&samples).unwrap();
+
+        assert_eq!(original_data.to_vec(), decoded_data, "Round-trip failed for simple message");
+    }
+
+    #[test]
+    fn test_round_trip_longer_message() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        let original_data = b"The quick brown fox jumps over the lazy dog";
+        let samples = encoder.encode(original_data).unwrap();
+        let decoded_data = decoder.decode(&samples).unwrap();
+
+        assert_eq!(original_data.to_vec(), decoded_data);
+    }
+
+    #[test]
+    fn test_round_trip_binary_data() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        let original_data: Vec<u8> = (0..100).map(|i| (i * 17 + 42) as u8).collect();
+        let samples = encoder.encode(&original_data).unwrap();
+        let decoded_data = decoder.decode(&samples).unwrap();
+
+        assert_eq!(original_data, decoded_data);
+    }
+
+    #[test]
+    fn test_round_trip_all_bytes() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        // Test various byte patterns
+        let test_cases = vec![
+            vec![0x00],
+            vec![0xFF],
+            vec![0xAA, 0x55],
+            (0..256).map(|i| i as u8).collect::<Vec<u8>>()[0..100].to_vec(),
+        ];
+
+        for original_data in test_cases {
+            let samples = encoder.encode(&original_data).unwrap();
+            let decoded_data = decoder.decode(&samples).unwrap();
+            assert_eq!(original_data, decoded_data, "Round-trip failed for pattern");
+        }
+    }
+
+    #[test]
+    fn test_round_trip_minimum_payload() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        let original_data = vec![42u8];
+        let samples = encoder.encode(&original_data).unwrap();
+        let decoded_data = decoder.decode(&samples).unwrap();
+
+        assert_eq!(original_data, decoded_data);
+    }
+
+    #[test]
+    fn test_round_trip_maximum_payload() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        let original_data = vec![0u8; crate::MAX_PAYLOAD_SIZE];
+        let samples = encoder.encode(&original_data).unwrap();
+        let decoded_data = decoder.decode(&samples).unwrap();
+
+        assert_eq!(original_data, decoded_data);
+    }
+
+    #[test]
+    fn test_decoder_insufficient_samples() {
+        let mut decoder = DecoderCss::new().unwrap();
+
+        // Too few samples to contain preamble and postamble
+        let short_samples = vec![0.0; 1000];
+        let result = decoder.decode(&short_samples);
+
+        // Should error on missing preamble or postamble
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decoder_empty_input() {
+        let mut decoder = DecoderCss::new().unwrap();
+
+        let result = decoder.decode(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_round_trip_multiple_encodes() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        let messages = vec![
+            b"First".to_vec(),
+            b"Second message".to_vec(),
+            b"Third".to_vec(),
+        ];
+
+        for original_data in messages {
+            let samples = encoder.encode(&original_data).unwrap();
+            let decoded_data = decoder.decode(&samples).unwrap();
+            assert_eq!(original_data, decoded_data);
+        }
+    }
+
+    #[test]
+    fn test_round_trip_with_repetition() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        // Test encoding/decoding the same data multiple times
+        let original_data = b"Repeat test";
+
+        for _ in 0..5 {
+            let samples = encoder.encode(original_data).unwrap();
+            let decoded_data = decoder.decode(&samples).unwrap();
+            assert_eq!(original_data.to_vec(), decoded_data);
+        }
+    }
+
+    #[test]
+    fn test_round_trip_preserves_data_integrity() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        // Create data with specific byte patterns
+        let mut original_data = Vec::new();
+        for i in 0..100 {
+            original_data.push((i ^ 0xAB) as u8);
+        }
+
+        let samples = encoder.encode(&original_data).unwrap();
+        let decoded_data = decoder.decode(&samples).unwrap();
+
+        // Verify every single byte
+        assert_eq!(original_data.len(), decoded_data.len());
+        for (i, (orig, decoded)) in original_data.iter().zip(decoded_data.iter()).enumerate() {
+            assert_eq!(orig, decoded, "Byte {} mismatch: {} vs {}", i, orig, decoded);
+        }
+    }
+
+    #[test]
+    fn test_round_trip_various_data_lengths() {
+        let mut encoder = EncoderCss::new().unwrap();
+        let mut decoder = DecoderCss::new().unwrap();
+
+        // Test different data lengths
+        for len in vec![1, 2, 5, 10, 50, 100, 150, crate::MAX_PAYLOAD_SIZE] {
+            let original_data = vec![0x42; len];
+            let samples = encoder.encode(&original_data).unwrap();
+            let decoded_data = decoder.decode(&samples).unwrap();
+
+            assert_eq!(original_data, decoded_data, "Round-trip failed for length {}", len);
+        }
+    }
+}
