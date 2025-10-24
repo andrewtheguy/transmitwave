@@ -83,6 +83,10 @@ struct Cli {
     #[arg(long)]
     no_spread: bool,
 
+    /// Use CSS (Chirp Spread Spectrum) modulation for hiss-like sound
+    #[arg(long)]
+    css: bool,
+
     /// Start web server on port 8000
     #[arg(long)]
     server: bool,
@@ -193,12 +197,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if mode == "encode" || mode == "enc" {
-            if cli.no_spread {
+            if cli.css {
+                encode_css_command(&input, &output)?
+            } else if cli.no_spread {
                 encode_legacy_command(&input, &output)? } else {
                 encode_spread_command(&input, &output, cli.chip_duration)?
             }
         } else if mode == "decode" || mode == "dec" {
-            if cli.no_spread {
+            if cli.css {
+                decode_css_command(&input, &output)?
+            } else if cli.no_spread {
                 decode_legacy_command(&input, &output)? } else {
                 decode_spread_command(&input, &output, cli.chip_duration)?
             }

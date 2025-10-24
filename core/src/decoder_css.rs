@@ -3,7 +3,7 @@ use crate::css::CssDemodulator;
 use crate::fec::FecDecoder;
 use crate::framing::FrameDecoder;
 use crate::sync::{detect_postamble, detect_preamble};
-use crate::{FRAME_HEADER_SIZE, PREAMBLE_SAMPLES, RS_TOTAL_BYTES, CSS_SAMPLES_PER_SYMBOL};
+use crate::{PREAMBLE_SAMPLES, RS_TOTAL_BYTES, CSS_SAMPLES_PER_SYMBOL};
 
 pub struct DecoderCss {
     css: CssDemodulator,
@@ -45,7 +45,15 @@ impl DecoderCss {
 
         // Demodulate all CSS symbols between data_start and data_end
         let data_samples = &samples[data_start..data_end];
-        let bits = self.css.demodulate(data_samples)?;
+        let mut bits = self.css.demodulate(data_samples)?;
+
+        if bits.is_empty() {
+            return Err(AudioModemError::InvalidFrameSize);
+        }
+
+        // Trim bits to complete bytes (multiple of 8)
+        let complete_bytes = bits.len() / 8;
+        bits.truncate(complete_bytes * 8);
 
         if bits.is_empty() {
             return Err(AudioModemError::InvalidFrameSize);
@@ -65,9 +73,10 @@ impl DecoderCss {
             }
         }
 
-        // Pad bytes to multiple of RS_TOTAL_BYTES for FEC decoding
-        while bytes.len() % RS_TOTAL_BYTES != 0 && bytes.len() < FRAME_HEADER_SIZE + 256 {
-            bytes.push(0);
+        // Trim bytes to exact multiple of RS_TOTAL_BYTES (don't pad with zeros)
+        // This ensures we don't feed malformed RS blocks to the decoder
+        while bytes.len() % RS_TOTAL_BYTES != 0 {
+            bytes.pop();
         }
 
         if bytes.len() < RS_TOTAL_BYTES {
@@ -82,8 +91,8 @@ impl DecoderCss {
         }
 
         // Decode frame
-        let payload = FrameDecoder::decode(&decoded_data)?;
-        Ok(payload)
+        let frame = FrameDecoder::decode(&decoded_data)?;
+        Ok(frame.payload)
     }
 }
 
