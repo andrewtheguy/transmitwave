@@ -650,7 +650,6 @@ fn test_spread_spectrum_roundtrip_max_payload() {
 }
 
 #[test]
-#[ignore = "spread spectrum encoder appears to have issues with all byte values pattern"]
 fn test_spread_spectrum_roundtrip_binary_patterns() {
     use testaudio_core::{DecoderSpread, EncoderSpread};
 
@@ -658,7 +657,7 @@ fn test_spread_spectrum_roundtrip_binary_patterns() {
         vec![0xFF, 0xFF, 0xFF],      // All ones
         vec![0x00, 0x00, 0x00],      // All zeros
         vec![0xAA, 0x55, 0xAA],      // Alternating pattern
-        (0..=255).collect::<Vec<u8>>(), // All byte values
+        (0..200).map(|i| i as u8).collect::<Vec<u8>>(), // Various byte values (limited to 200 by MAX_PAYLOAD_SIZE)
     ];
 
     for pattern in test_patterns {
