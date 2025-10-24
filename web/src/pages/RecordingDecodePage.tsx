@@ -89,6 +89,7 @@ const RecordingDecodePage: React.FC = () => {
     }
 
     setIsRecording(false)
+    setRecordingStatus(null)
   }
 
   const processDetectAndDecode = async () => {
