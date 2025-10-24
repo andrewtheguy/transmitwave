@@ -4,7 +4,7 @@
 cd "$(dirname "$0")"
 
 echo "Building WASM with wasm-pack..."
-wasm-pack build --target web
+wasm-pack build --release --target web
 
 echo ""
 echo "Applying browser compatibility fixes..."
