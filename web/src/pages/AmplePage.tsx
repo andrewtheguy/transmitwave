@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { PostambleDetector } from '../utils/wasm'
+import { MicrophoneListener, PostambleDetector } from '../utils/wasm'
 import Status from '../components/Status'
 
 const PostamblePage: React.FC = () => {
   const navigate = useNavigate()
+  const [detectionType, setDetectionType] = useState<'preamble' | 'postamble'>('preamble')
   const [threshold, setThreshold] = useState(0.4)
   const [isListening, setIsListening] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
@@ -16,10 +17,15 @@ const PostamblePage: React.FC = () => {
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const detectorRef = useRef<MicrophoneListener | PostambleDetector | null>(null)
 
   const startListening = async () => {
     try {
-      const detector = new PostambleDetector(threshold)
+      const detector = detectionType === 'preamble'
+        ? new MicrophoneListener(threshold)
+        : new PostambleDetector(threshold)
+      detectorRef.current = detector
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
 
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
@@ -34,7 +40,8 @@ const PostamblePage: React.FC = () => {
       processor.connect(audioContext.destination)
 
       setIsListening(true)
-      setStatus('Listening for postamble...')
+      const typeLabel = detectionType === 'preamble' ? 'preamble' : 'postamble'
+      setStatus(`Listening for ${typeLabel}...`)
       setStatusType('info')
       setRequiredSize(detector.required_size())
       setDetections([])
@@ -50,13 +57,14 @@ const PostamblePage: React.FC = () => {
         // Handle detection
         if (position >= 0) {
           const timestamp = new Date().toLocaleTimeString()
-          const detection = `${timestamp}: Detected at position ${position}`
+          const typeLabel = detectionType === 'preamble' ? 'Preamble' : 'Postamble'
+          const detection = `${timestamp}: ${typeLabel} detected at position ${position}`
           setDetections((prev) => [detection, ...prev.slice(0, 9)])
-          setStatus('Postamble detected!')
+          setStatus(`${typeLabel} detected!`)
           setStatusType('success')
 
           setTimeout(() => {
-            setStatus('Listening for postamble...')
+            setStatus(`Listening for ${detectionType}...`)
             setStatusType('info')
           }, 2000)
         }
@@ -82,15 +90,45 @@ const PostamblePage: React.FC = () => {
 
   const bufferProgress = requiredSize > 0 ? (bufferSize / requiredSize) * 100 : 0
 
+  const getDescription = () => {
+    if (detectionType === 'preamble') {
+      return 'Real-time detection of ascending chirp preamble (200Hz → 4000Hz)'
+    } else {
+      return 'Real-time detection of descending chirp postamble (4000Hz → 200Hz)'
+    }
+  }
+
   return (
     <div className="container">
       <div className="text-center mb-5">
-        <h1>🎯 Postamble Detection</h1>
-        <p>Real-time detection of descending chirp postamble (4000Hz → 200Hz)</p>
+        <h1>🎯 Preamble & Postamble Detection</h1>
+        <p>{getDescription()}</p>
       </div>
 
       <div className="card">
-        <h2>Microphone Settings</h2>
+        <h2>Detection Settings</h2>
+
+        <div className="mt-4">
+          <label><strong>Detection Type</strong></label>
+          <div className="flex gap-3 mt-2">
+            <button
+              onClick={() => setDetectionType('preamble')}
+              className={detectionType === 'preamble' ? 'btn-primary' : 'btn-secondary'}
+              style={{ flex: 1 }}
+              disabled={isListening}
+            >
+              📈 Preamble
+            </button>
+            <button
+              onClick={() => setDetectionType('postamble')}
+              className={detectionType === 'postamble' ? 'btn-primary' : 'btn-secondary'}
+              style={{ flex: 1 }}
+              disabled={isListening}
+            >
+              📉 Postamble
+            </button>
+          </div>
+        </div>
 
         <div className="mt-4">
           <label><strong>Detection Threshold</strong></label>
@@ -102,10 +140,11 @@ const PostamblePage: React.FC = () => {
               step="0.1"
               value={threshold}
               onChange={(e) => setThreshold(parseFloat(e.target.value))}
+              disabled={isListening}
             />
             <span>{threshold.toFixed(1)}</span>
           </div>
-          <small>Higher values require stronger postamble detection. Recommended: 0.4</small>
+          <small>Higher values require stronger detection. Recommended: 0.4</small>
         </div>
 
         <div className="mt-4">

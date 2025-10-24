@@ -8,6 +8,7 @@ export default defineConfig({
     port: 5173,
     open: '/index.html',
     middlewareMode: false,
+    allowedHosts: ['.trycloudflare.com'],
     fs: {
       // Allow serving from parent directories and node_modules
       allow: ['..'],
