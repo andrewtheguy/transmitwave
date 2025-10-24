@@ -13,6 +13,8 @@ const DemoPage: React.FC = () => {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [decodedText, setDecodedText] = useState<string | null>(null)
   const [decodeFile, setDecodeFile] = useState<File | null>(null)
+  const [decodeStatus, setDecodeStatus] = useState<string | null>(null)
+  const [decodeStatusType, setDecodeStatusType] = useState<'success' | 'error' | 'info' | 'warning'>('info')
   const audioRef = useRef<HTMLAudioElement>(null)
   const downloadRef = useRef<HTMLAnchorElement>(null)
 
@@ -26,10 +28,41 @@ const DemoPage: React.FC = () => {
   }
 
   const handleDecode = async () => {
-    if (!decodeFile) return
-    const text = await decode(decodeFile)
-    if (text !== null) {
-      setDecodedText(text)
+    if (!decodeFile) {
+      setDecodeStatus('No file selected')
+      setDecodeStatusType('error')
+      return
+    }
+
+    setDecodeStatus('Decoding audio...')
+    setDecodeStatusType('info')
+
+    try {
+      const text = await decode(decodeFile)
+
+      if (text !== null) {
+        setDecodedText(text)
+        setDecodeStatus(`Decoded successfully: "${text}"`)
+        setDecodeStatusType('success')
+      } else if (decodeError) {
+        // Error was set by the hook, show it
+        setDecodeStatus(decodeError)
+        setDecodeStatusType('error')
+      }
+    } catch (error) {
+      let message = 'Decoding failed'
+
+      if (error instanceof Error) {
+        message = error.message
+      } else if (typeof error === 'string') {
+        message = error
+      } else if (error && typeof error === 'object' && 'message' in error) {
+        message = String((error as any).message)
+      }
+
+      console.error('Decode error details:', error)
+      setDecodeStatus(message)
+      setDecodeStatusType('error')
     }
   }
 
@@ -99,7 +132,11 @@ const DemoPage: React.FC = () => {
             <input
               type="file"
               accept=".wav,.mp3"
-              onChange={(e) => setDecodeFile(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                setDecodeFile(e.target.files?.[0] || null)
+                setDecodeStatus(null)
+                setDecodedText(null)
+              }}
             />
           </div>
 
@@ -114,6 +151,7 @@ const DemoPage: React.FC = () => {
           </div>
 
           {decodeError && <Status message={decodeError} type="error" />}
+          {decodeStatus && <Status message={decodeStatus} type={decodeStatusType} />}
 
           {decodedText !== null && (
             <div className="mt-4">

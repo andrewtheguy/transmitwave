@@ -42,7 +42,17 @@ export const useDecoder = (): UseDecoderResult => {
 
       return text
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Decoding failed'
+      let message = 'Decoding failed'
+
+      if (err instanceof Error) {
+        message = err.message
+      } else if (typeof err === 'string') {
+        message = err
+      } else if (err && typeof err === 'object' && 'message' in err) {
+        message = String((err as any).message)
+      }
+
+      console.error('Decode error details:', err)
       setError(message)
       return null
     } finally {
