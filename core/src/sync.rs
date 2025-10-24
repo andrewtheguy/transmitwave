@@ -10,7 +10,7 @@ use std::f32::consts::PI;
 //
 // This controls what `generate_preamble()` and `generate_postamble_signal()`
 // actually generate, allowing easy comparison between signal types.
-const SIGNAL_TYPE: SignalType = SignalType::PrnNoise;
+const SIGNAL_TYPE: SignalType = SignalType::Chirp;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
