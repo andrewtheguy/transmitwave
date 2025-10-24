@@ -24,11 +24,42 @@ export async function initWasm(): Promise<void> {
     }
 
     try {
+        // First try: let the WASM binding figure out the path (works in production)
+        console.log('Initializing WASM module...');
         await init();
         wasmInitialized = true;
+        console.log('WASM initialized successfully');
     } catch (error) {
-        console.error('Failed to initialize WASM:', error);
-        throw new Error('WASM initialization failed');
+        // Fallback: manually fetch from known locations
+        console.log('Default WASM init failed, trying alternate paths...', error);
+
+        const possiblePaths = [
+            // Production: WASM is bundled in dist
+            '/testaudio_wasm_bg.wasm',
+            // Development: WASM is in node_modules via Vite's alias
+            '/node_modules/testaudio-wasm/testaudio_wasm_bg.wasm',
+        ];
+
+        for (const wasmPath of possiblePaths) {
+            try {
+                console.log(`Trying WASM path: ${wasmPath}`);
+                const response = await fetch(wasmPath);
+                if (!response.ok) {
+                    console.log(`Path not found: ${wasmPath} (${response.status})`);
+                    continue;
+                }
+                await init(response);
+                wasmInitialized = true;
+                console.log(`WASM initialized from: ${wasmPath}`);
+                return;
+            } catch (err) {
+                console.log(`Failed to load from ${wasmPath}:`, err);
+                continue;
+            }
+        }
+
+        // All paths failed
+        throw new Error(`WASM initialization failed: could not load from any path`);
     }
 }
 

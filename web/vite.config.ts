@@ -1,10 +1,15 @@
 import { defineConfig } from 'vite'
+import path from 'path'
 
 export default defineConfig({
   server: {
     port: 5173,
     open: '/index.html',
     middlewareMode: false,
+    fs: {
+      // Allow serving from parent directories and node_modules
+      allow: ['..'],
+    },
   },
   build: {
     target: 'esnext',
@@ -21,5 +26,10 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['testaudio-wasm'],
+  },
+  resolve: {
+    alias: {
+      'testaudio-wasm': path.resolve(__dirname, 'node_modules/testaudio-wasm'),
+    },
   },
 })
