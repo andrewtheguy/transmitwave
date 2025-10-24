@@ -1,9 +1,0 @@
-name = "transmitwave"
-pages_build_output_dir = "web/dist"
-
-[build]
-command = "npm run build:all"
-cwd = "."
-
-[env.production]
-name = "transmitwave-prod"
