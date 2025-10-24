@@ -12,7 +12,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.4",
-    "testaudio-wasm": "file:../wasm/pkg"
+    "testaudio-wasm": "file:../wasm/pkg",
+    "vite-plugin-wasm": "^3.5.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

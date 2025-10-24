@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import wasm from 'vite-plugin-wasm'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [wasm(), react()],
   server: {
     port: 5173,
     open: '/index.html',
@@ -20,6 +21,7 @@ export default defineConfig({
     sourcemap: true,
     outDir: 'dist',
     rollupOptions: {
+      external: ['env'],
       output: {
         entryFileNames: '[name].[hash].js',
         chunkFileNames: '[name].[hash].js',
