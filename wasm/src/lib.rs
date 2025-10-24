@@ -1,53 +1,111 @@
 use wasm_bindgen::prelude::*;
 use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, EncoderChunked, DecoderChunked, detect_preamble, detect_postamble};
 
-/// Default WASM Encoder (uses chunked encoding with interleaving)
+// ============================================================================
+// DEFAULT ENCODER/DECODER CONFIGURATION
+// Change these constants to switch encoder/decoder defaults
+// ============================================================================
+
+/// Encoder type: "spread" or "chunked"
+const DEFAULT_ENCODER_TYPE: &str = "spread";
+/// Decoder type: "spread" or "chunked"
+const DEFAULT_DECODER_TYPE: &str = "spread";
+/// Spread spectrum chip duration (only used if DEFAULT_ENCODER_TYPE = "spread")
+const DEFAULT_SPREAD_CHIP_DURATION: usize = 2;
+/// Chunked encoder chunk bits (only used if DEFAULT_ENCODER_TYPE = "chunked")
+const DEFAULT_CHUNK_BITS: usize = 48;
+/// Chunked encoder interleave factor (only used if DEFAULT_ENCODER_TYPE = "chunked")
+const DEFAULT_INTERLEAVE_FACTOR: usize = 3;
+
+/// Default WASM Encoder (uses spread spectrum by default)
 #[wasm_bindgen]
 pub struct WasmEncoder {
-    inner: EncoderChunked,
+    spread_encoder: Option<EncoderSpread>,
+    chunked_encoder: Option<EncoderChunked>,
 }
 
 #[wasm_bindgen]
 impl WasmEncoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmEncoder, JsValue> {
-        EncoderChunked::new(48, 3)
-            .map(|encoder| WasmEncoder { inner: encoder })
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        if DEFAULT_ENCODER_TYPE == "chunked" {
+            EncoderChunked::new(DEFAULT_CHUNK_BITS, DEFAULT_INTERLEAVE_FACTOR)
+                .map(|encoder| WasmEncoder {
+                    spread_encoder: None,
+                    chunked_encoder: Some(encoder),
+                })
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        } else {
+            EncoderSpread::new(DEFAULT_SPREAD_CHIP_DURATION)
+                .map(|encoder| WasmEncoder {
+                    spread_encoder: Some(encoder),
+                    chunked_encoder: None,
+                })
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        }
     }
 
-    /// Encode binary data into audio samples with chunked encoding
+    /// Encode binary data into audio samples with default encoder
     /// Takes a Uint8Array and returns Float32Array of audio samples
     #[wasm_bindgen]
     pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>, JsValue> {
-        self.inner
-            .encode(data)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        if let Some(ref mut encoder) = self.chunked_encoder {
+            encoder
+                .encode(data)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        } else if let Some(ref mut encoder) = self.spread_encoder {
+            encoder
+                .encode(data)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        } else {
+            Err(JsValue::from_str("No encoder initialized"))
+        }
     }
 }
 
-/// Default WASM Decoder (uses chunked decoding with early termination)
+/// Default WASM Decoder (uses spread spectrum by default)
 #[wasm_bindgen]
 pub struct WasmDecoder {
-    inner: DecoderChunked,
+    spread_decoder: Option<DecoderSpread>,
+    chunked_decoder: Option<DecoderChunked>,
 }
 
 #[wasm_bindgen]
 impl WasmDecoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmDecoder, JsValue> {
-        DecoderChunked::new(48)
-            .map(|decoder| WasmDecoder { inner: decoder })
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        if DEFAULT_DECODER_TYPE == "chunked" {
+            DecoderChunked::new(DEFAULT_CHUNK_BITS)
+                .map(|decoder| WasmDecoder {
+                    spread_decoder: None,
+                    chunked_decoder: Some(decoder),
+                })
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        } else {
+            DecoderSpread::new(DEFAULT_SPREAD_CHIP_DURATION)
+                .map(|decoder| WasmDecoder {
+                    spread_decoder: Some(decoder),
+                    chunked_decoder: None,
+                })
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        }
     }
 
-    /// Decode audio samples back to binary data with chunked decoding
+    /// Decode audio samples back to binary data with default decoder
     /// Takes a Float32Array and returns Uint8Array of decoded data
     #[wasm_bindgen]
     pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
-        self.inner
-            .decode(samples)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        if let Some(ref mut decoder) = self.chunked_decoder {
+            decoder
+                .decode(samples)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        } else if let Some(ref mut decoder) = self.spread_decoder {
+            decoder
+                .decode(samples)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        } else {
+            Err(JsValue::from_str("No decoder initialized"))
+        }
     }
 }
 

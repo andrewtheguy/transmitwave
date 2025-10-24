@@ -12,6 +12,23 @@ use testaudio_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, EncoderChun
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
+// ============================================================================
+// DEFAULT ENCODER/DECODER CONFIGURATION
+// Change these constants to switch encoder/decoder defaults across CLI, web, and WASM
+// ============================================================================
+
+/// Encoder type: "spread" or "chunked"
+const DEFAULT_ENCODER_TYPE: &str = "spread";
+/// Decoder type: "spread" or "chunked"
+const DEFAULT_DECODER_TYPE: &str = "spread";
+
+/// Spread spectrum chip duration (only used if DEFAULT_ENCODER_TYPE = "spread")
+const DEFAULT_SPREAD_CHIP_DURATION: usize = 2;
+/// Chunked encoder chunk bits (only used if DEFAULT_ENCODER_TYPE = "chunked")
+const DEFAULT_CHUNK_BITS: usize = 48;
+/// Chunked encoder interleave factor (only used if DEFAULT_ENCODER_TYPE = "chunked")
+const DEFAULT_INTERLEAVE_FACTOR: usize = 3;
+
 #[derive(Serialize, Deserialize)]
 struct EncodeRequest {
     data: String, // base64-encoded input data
@@ -20,7 +37,7 @@ struct EncodeRequest {
 }
 
 fn default_chip_duration() -> usize {
-    2
+    DEFAULT_SPREAD_CHIP_DURATION
 }
 
 #[derive(Serialize, Deserialize)]
@@ -183,15 +200,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Encode { input, output, chunk_bits, interleave, no_spread } => {
                 if no_spread {
                     encode_legacy_command(&input, &output)?
-                } else {
+                } else if DEFAULT_ENCODER_TYPE == "chunked" {
                     encode_chunked_command(&input, &output, chunk_bits, interleave)?
+                } else {
+                    encode_spread_command(&input, &output, chunk_bits)?
                 }
             }
             Commands::Decode { input, output, chunk_bits, no_spread } => {
                 if no_spread {
                     decode_legacy_command(&input, &output)?
-                } else {
+                } else if DEFAULT_DECODER_TYPE == "chunked" {
                     decode_chunked_command(&input, &output, chunk_bits)?
+                } else {
+                    decode_spread_command(&input, &output, chunk_bits)?
                 }
             }
             Commands::EncodeChunked { input, output, chunk_bits, interleave } => {
@@ -224,16 +245,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if mode == "encode" || mode == "enc" {
             if cli.no_spread {
                 encode_legacy_command(&input, &output)?
+            } else if DEFAULT_ENCODER_TYPE == "chunked" {
+                encode_chunked_command(&input, &output, DEFAULT_CHUNK_BITS, DEFAULT_INTERLEAVE_FACTOR)?
             } else {
-                // Default: use chunked encoding
-                encode_chunked_command(&input, &output, 48, 3)?
+                encode_spread_command(&input, &output, DEFAULT_SPREAD_CHIP_DURATION)?
             }
         } else if mode == "decode" || mode == "dec" {
             if cli.no_spread {
                 decode_legacy_command(&input, &output)?
+            } else if DEFAULT_DECODER_TYPE == "chunked" {
+                decode_chunked_command(&input, &output, DEFAULT_CHUNK_BITS)?
             } else {
-                // Default: use chunked decoding
-                decode_chunked_command(&input, &output, 48)?
+                decode_spread_command(&input, &output, DEFAULT_SPREAD_CHIP_DURATION)?
             }
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
@@ -449,8 +472,8 @@ fn decode_spread_command(
 async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting testaudio server on http://localhost:{}", port);
     println!("Endpoints:");
-    println!("  POST /encode - Encode binary data to WAV with chunked encoding (default)");
-    println!("  POST /decode - Decode WAV to binary data with chunked decoding (default)");
+    println!("  POST /encode - Encode binary data to WAV with {} encoding (default)", DEFAULT_ENCODER_TYPE);
+    println!("  POST /decode - Decode WAV to binary data with {} decoding (default)", DEFAULT_DECODER_TYPE);
     println!("  GET / - Server status");
 
     let app = Router::new()
@@ -465,8 +488,8 @@ async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn handler_status() -> &'static str {
-    "testaudio server with chunked encoding/decoding (default) - Ready"
+async fn handler_status() -> String {
+    format!("testaudio server with {} encoding/decoding (default) - Ready", DEFAULT_ENCODER_TYPE)
 }
 
 async fn handler_encode(
@@ -496,90 +519,96 @@ async fn handler_encode(
         ));
     }
 
-    // Use chunked encoder by default
-    match EncoderChunked::new(48, 3) {
-        Ok(mut encoder) => match encoder.encode(&data) {
-            Ok(samples) => {
-                // Convert to WAV
-                let spec = WavSpec {
-                    channels: 1,
-                    sample_rate: testaudio_core::SAMPLE_RATE as u32,
-                    bits_per_sample: 16,
-                    sample_format: hound::SampleFormat::Int,
-                };
+    // Use default encoder based on configuration
+    let encode_result = if DEFAULT_ENCODER_TYPE == "chunked" {
+        EncoderChunked::new(DEFAULT_CHUNK_BITS, DEFAULT_INTERLEAVE_FACTOR)
+            .map_err(|e| e.to_string())
+            .and_then(|mut encoder| {
+                encoder.encode(&data)
+                    .map_err(|e| e.to_string())
+            })
+    } else {
+        EncoderSpread::new(req.chip_duration)
+            .map_err(|e| e.to_string())
+            .and_then(|mut encoder| {
+                encoder.encode(&data)
+                    .map_err(|e| e.to_string())
+            })
+    };
 
-                let wav_data_result = {
-                    let mut wav_data = Vec::new();
-                    {
-                        let cursor = std::io::Cursor::new(&mut wav_data);
-                        match hound::WavWriter::new(cursor, spec) {
-                            Ok(mut writer) => {
-                                for sample in samples {
-                                    let clamped = sample.max(-1.0).min(1.0);
-                                    let i16_sample = (clamped * 32767.0) as i16;
-                                    if writer.write_sample(i16_sample).is_err() {
-                                        return Err((
-                                            StatusCode::INTERNAL_SERVER_ERROR,
-                                            Json(EncodeResponse {
-                                                success: false,
-                                                message: "Failed to write WAV samples".to_string(),
-                                                wav_base64: None,
-                                            }),
-                                        ));
-                                    }
-                                }
-                                if writer.finalize().is_err() {
+    match encode_result {
+        Ok(samples) => {
+            // Convert to WAV
+            let spec = WavSpec {
+                channels: 1,
+                sample_rate: testaudio_core::SAMPLE_RATE as u32,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+
+            let wav_data_result = {
+                let mut wav_data = Vec::new();
+                {
+                    let cursor = std::io::Cursor::new(&mut wav_data);
+                    match hound::WavWriter::new(cursor, spec) {
+                        Ok(mut writer) => {
+                            for sample in samples {
+                                let clamped = sample.max(-1.0).min(1.0);
+                                let i16_sample = (clamped * 32767.0) as i16;
+                                if writer.write_sample(i16_sample).is_err() {
                                     return Err((
                                         StatusCode::INTERNAL_SERVER_ERROR,
                                         Json(EncodeResponse {
                                             success: false,
-                                            message: "Failed to finalize WAV".to_string(),
+                                            message: "Failed to write WAV samples".to_string(),
                                             wav_base64: None,
                                         }),
                                     ));
                                 }
                             }
-                            Err(e) => {
+                            if writer.finalize().is_err() {
                                 return Err((
                                     StatusCode::INTERNAL_SERVER_ERROR,
                                     Json(EncodeResponse {
                                         success: false,
-                                        message: format!("Failed to create WAV: {}", e),
+                                        message: "Failed to finalize WAV".to_string(),
                                         wav_base64: None,
                                     }),
                                 ));
                             }
                         }
+                        Err(e) => {
+                            return Err((
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(EncodeResponse {
+                                    success: false,
+                                    message: format!("Failed to create WAV: {}", e),
+                                    wav_base64: None,
+                                }),
+                            ));
+                        }
                     }
-                    wav_data
-                };
+                }
+                wav_data
+            };
 
-                let wav_base64 = base64::engine::general_purpose::STANDARD.encode(&wav_data_result);
-                Ok(Json(EncodeResponse {
-                    success: true,
-                    message: format!(
-                        "Encoded {} bytes with chip_duration={} to {} samples",
-                        data.len(),
-                        req.chip_duration,
-                        (wav_data_result.len() - 44) / 2
-                    ),
-                    wav_base64: Some(wav_base64),
-                }))
-            }
-            Err(e) => Err((
-                StatusCode::BAD_REQUEST,
-                Json(EncodeResponse {
-                    success: false,
-                    message: format!("Encoding failed: {}", e),
-                    wav_base64: None,
-                }),
-            )),
-        },
+            let wav_base64 = base64::engine::general_purpose::STANDARD.encode(&wav_data_result);
+            Ok(Json(EncodeResponse {
+                success: true,
+                message: format!(
+                    "Encoded {} bytes to {} samples ({})",
+                    data.len(),
+                    (wav_data_result.len() - 44) / 2,
+                    DEFAULT_ENCODER_TYPE
+                ),
+                wav_base64: Some(wav_base64),
+            }))
+        }
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
             Json(EncodeResponse {
                 success: false,
-                message: format!("Failed to create encoder: {}", e),
+                message: format!("Encoding failed: {}", e),
                 wav_base64: None,
             }),
         )),
@@ -661,35 +690,41 @@ async fn handler_decode(
                 }
             };
 
-            // Use chunked decoder by default
-            match DecoderChunked::new(48) {
-                Ok(mut decoder) => match decoder.decode(&samples) {
-                    Ok(decoded_data) => {
-                        let data_base64 = base64::engine::general_purpose::STANDARD.encode(&decoded_data);
-                        Ok(Json(DecodeResponse {
-                            success: true,
-                            message: format!(
-                                "Decoded {} bytes with chip_duration={}",
-                                decoded_data.len(),
-                                req.chip_duration
-                            ),
-                            data: Some(data_base64),
-                        }))
-                    }
-                    Err(e) => Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(DecodeResponse {
-                            success: false,
-                            message: format!("Decoding failed: {}", e),
-                            data: None,
-                        }),
-                    )),
-                },
+            // Use default decoder
+            let decode_result = if DEFAULT_DECODER_TYPE == "chunked" {
+                DecoderChunked::new(DEFAULT_CHUNK_BITS)
+                    .map_err(|e| e.to_string())
+                    .and_then(|mut decoder| {
+                        decoder.decode(&samples)
+                            .map_err(|e| e.to_string())
+                    })
+            } else {
+                DecoderSpread::new(req.chip_duration)
+                    .map_err(|e| e.to_string())
+                    .and_then(|mut decoder| {
+                        decoder.decode(&samples)
+                            .map_err(|e| e.to_string())
+                    })
+            };
+
+            match decode_result {
+                Ok(decoded_data) => {
+                    let data_base64 = base64::engine::general_purpose::STANDARD.encode(&decoded_data);
+                    Ok(Json(DecodeResponse {
+                        success: true,
+                        message: format!(
+                            "Decoded {} bytes ({})",
+                            decoded_data.len(),
+                            DEFAULT_DECODER_TYPE
+                        ),
+                        data: Some(data_base64),
+                    }))
+                }
                 Err(e) => Err((
                     StatusCode::BAD_REQUEST,
                     Json(DecodeResponse {
                         success: false,
-                        message: format!("Failed to create decoder: {}", e),
+                        message: format!("Decoding failed: {}", e),
                         data: None,
                     }),
                 )),
