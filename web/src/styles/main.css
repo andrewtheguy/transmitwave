@@ -37,9 +37,12 @@ body {
 
 #app {
     min-height: 100vh;
-    padding: 2rem;
+}
+
+.container {
     max-width: 1200px;
     margin: 0 auto;
+    padding: 2rem;
 }
 
 /* Typography */

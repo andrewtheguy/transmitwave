@@ -9,10 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.4",
     "testaudio-wasm": "file:../wasm/pkg"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
     "terser": "^5.44.0",
     "typescript": "^5.0.0",
     "vite": "^5.0.0"
