@@ -12,7 +12,6 @@ const Navigation: React.FC = () => {
         <ul className="navbar-menu">
           <li><Link to="/">Home</Link></li>
           <li><Link to="/demo">Demo</Link></li>
-          <li><Link to="/microphone">Microphone</Link></li>
           <li><Link to="/ample">Preamble & Postamble</Link></li>
           <li><Link to="/recording-decode">Recording</Link></li>
         </ul>
