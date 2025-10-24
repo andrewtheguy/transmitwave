@@ -1,7 +1,7 @@
 use testaudio_core::sync::{
     detect_preamble, detect_postamble, generate_chirp, generate_postamble, barker_code,
 };
-use testaudio_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
+use testaudio_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, fft_correlate_1d, Mode};
 
 #[test]
 fn test_detect_preamble_with_chirp() {
@@ -247,4 +247,50 @@ fn test_postamble_generation() {
 
     let energy: f32 = postamble.iter().map(|s| s * s).sum();
     assert!(energy > 0.0, "Postamble should have non-zero energy");
+}
+
+#[test]
+fn test_fft_correlation_index_mapping_with_preamble() {
+    // Comment 10: Integration test ensuring sync.rs uses the correct FFT index mapping (i + L-1)
+    // Build a short synthetic signal where a template is inserted at known position i0
+
+    let template_len = PREAMBLE_SAMPLES;  // Use proper preamble length
+    let insert_pos = 500;  // Insert template at this position in signal
+
+    // Create template (proper preamble chirp)
+    let template = generate_chirp(template_len, 200.0, 4000.0, 0.5);
+
+    // Create signal with silence before and after
+    let mut signal = vec![0.0; insert_pos];
+    signal.extend_from_slice(&template);
+    signal.extend_from_slice(&vec![0.0; 1000]);
+
+    // Compute FFT correlation
+    let fft_result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
+
+    // Find peak index
+    let peak_idx = fft_result.iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .map(|(i, _)| i)
+        .unwrap();
+
+    // According to index mapping: window at position i maps to output index i + template_len - 1
+    // So if template inserted at position insert_pos, peak should be at insert_pos + template_len - 1
+    let expected_peak_idx = insert_pos + template_len - 1;
+
+    assert_eq!(peak_idx, expected_peak_idx,
+        "FFT correlation peak should be at i + L - 1 = {} + {} - 1 = {}, got {}",
+        insert_pos, template_len, expected_peak_idx, peak_idx);
+
+    // Now verify that detect_preamble returns the correct window start position
+    let detected = detect_preamble(&signal, 0.1);
+
+    assert!(detected.is_some(), "Preamble should be detected");
+    let detected_pos = detected.unwrap();
+
+    // The detection should find the start of the template
+    assert_eq!(detected_pos, insert_pos,
+        "Preamble should be detected at window start position {}, got {}",
+        insert_pos, detected_pos);
 }
