@@ -24,7 +24,9 @@
       "Bash(/Users/it3/codes/andrew/testaudio/target/release/testaudio encode-chunked:*)",
       "Bash(git stash:*)",
       "Bash(cargo check:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []
