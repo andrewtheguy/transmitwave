@@ -4,15 +4,22 @@ import { MicrophoneListener, PostambleDetector, createDecoder } from '../utils/w
 import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
 
+const MAX_DURATION = 30
+const TARGET_SAMPLE_RATE = 16000
+
 const RecordingDecodePage: React.FC = () => {
   const navigate = useNavigate()
-  const [threshold, setThreshold] = useState(0.4)
   const [isRecording, setIsRecording] = useState(false)
-  const [status, setStatus] = useState<string | null>(null)
-  const [statusType, setStatusType] = useState<'success' | 'error' | 'info' | 'warning'>('info')
+  const [recordingStatus, setRecordingStatus] = useState<string | null>(null)
+  const [recordingStatusType, setRecordingStatusType] = useState<'success' | 'error' | 'info' | 'warning'>('info')
+  const [detectionStatus, setDetectionStatus] = useState<string | null>(null)
+  const [detectionStatusType, setDetectionStatusType] = useState<'success' | 'error' | 'info' | 'warning'>('info')
   const [duration, setDuration] = useState(0)
   const [samples, setSamples] = useState(0)
   const [decodedText, setDecodedText] = useState<string | null>(null)
+  const [isDetecting, setIsDetecting] = useState(false)
+  const [preambleDetected, setPreambleDetected] = useState(false)
+  const [postambleDetected, setPostambleDetected] = useState(false)
 
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -20,76 +27,53 @@ const RecordingDecodePage: React.FC = () => {
   const recordedSamplesRef = useRef<number[]>([])
   const startTimeRef = useRef<number>(0)
   const durationIntervalRef = useRef<number>(0)
+  const audioContextRef = useRef<AudioContext | null>(null)
 
   const startRecording = async () => {
     try {
-      const preListener = new MicrophoneListener(threshold)
-      const postListener = new PostambleDetector(threshold)
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      audioContextRef.current = ctx
 
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-      const source = audioContext.createMediaStreamSource(stream)
-      const processor = audioContext.createScriptProcessor(4096, 1, 1)
+      const source = ctx.createMediaStreamSource(stream)
+      const processor = ctx.createScriptProcessor(4096, 1, 1)
 
       sourceRef.current = source
       processorRef.current = processor
       streamRef.current = stream
 
       source.connect(processor)
-      processor.connect(audioContext.destination)
+      processor.connect(ctx.destination)
 
       setIsRecording(true)
       recordedSamplesRef.current = []
       setDecodedText(null)
+      setRecordingStatus('Recording...')
+      setRecordingStatusType('info')
       startTimeRef.current = Date.now()
 
-      setStatus('Waiting for preamble...')
-      setStatusType('info')
-
-      let recordingState: 'waiting_preamble' | 'waiting_postamble' | 'complete' = 'waiting_preamble'
-      let dataStart = 0
-      let dataEnd = 0
-
-      // Update duration every second
+      // Update duration every 100ms
       durationIntervalRef.current = window.setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000)
         setDuration(elapsed)
+        setSamples(recordedSamplesRef.current.length)
+
+        // Auto-stop at 30 seconds
+        if (elapsed >= MAX_DURATION) {
+          stopRecording()
+          setRecordingStatus(`Recording stopped (max ${MAX_DURATION}s reached)`)
+          setRecordingStatusType('info')
+        }
       }, 100)
 
       processor.onaudioprocess = (event: AudioProcessingEvent) => {
-        const audioSamples = Array.from(event.inputData.getChannelData(0))
+        const audioSamples = Array.from((event as any).inputBuffer.getChannelData(0))
         recordedSamplesRef.current.push(...audioSamples)
-        setSamples(recordedSamplesRef.current.length)
-
-        if (recordingState === 'waiting_preamble') {
-          const pos = preListener.add_samples(audioSamples)
-          if (pos >= 0) {
-            dataStart = recordedSamplesRef.current.length
-            recordingState = 'waiting_postamble'
-            setStatus('Preamble detected! Waiting for postamble...')
-            setStatusType('success')
-          }
-        } else if (recordingState === 'waiting_postamble') {
-          const pos = postListener.add_samples(audioSamples)
-          if (pos >= 0) {
-            dataEnd = recordedSamplesRef.current.length - postListener.buffer_size()
-            recordingState = 'complete'
-            setStatus('Postamble detected! Decoding...')
-            setStatusType('success')
-
-            // Stop recording and process
-            stopRecording()
-            processDecode(
-              recordedSamplesRef.current.slice(dataStart, dataEnd),
-              audioContext.sampleRate
-            )
-          }
-        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to start recording'
-      setStatus(`Error: ${message}`)
-      setStatusType('error')
+      setRecordingStatus(`Error: ${message}`)
+      setRecordingStatusType('error')
     }
   }
 
@@ -107,54 +91,177 @@ const RecordingDecodePage: React.FC = () => {
     setIsRecording(false)
   }
 
-  const processDecode = async (samplesData: number[], sampleRate: number) => {
+  const processDetectAndDecode = async () => {
+    if (recordedSamplesRef.current.length === 0) {
+      setDetectionStatus('No audio recorded to detect')
+      setDetectionStatusType('error')
+      return
+    }
+
     try {
-      let processedSamples = samplesData
-      if (sampleRate !== 16000) {
-        processedSamples = resampleAudio(samplesData, sampleRate, 16000)
+      setIsDetecting(true)
+      setDetectionStatus('Resampling to 16kHz...')
+      setDetectionStatusType('info')
+
+      const actualSampleRate = audioContextRef.current?.sampleRate || 48000
+      let resampledSamples = recordedSamplesRef.current
+      if (actualSampleRate !== TARGET_SAMPLE_RATE) {
+        resampledSamples = resampleAudio(recordedSamplesRef.current, actualSampleRate, TARGET_SAMPLE_RATE)
       }
 
+      // Detect preamble
+      setDetectionStatus('Detecting preamble...')
+      const listener = new MicrophoneListener(0.4)
+      const preamblePos = listener.add_samples(new Float32Array(resampledSamples))
+
+      if (preamblePos === -1) {
+        setDetectionStatus('Preamble not detected. Try adjusting threshold.')
+        setDetectionStatusType('error')
+        setIsDetecting(false)
+        return
+      }
+
+      setPreambleDetected(true)
+      setDetectionStatus('Preamble detected! Detecting postamble...')
+      setDetectionStatusType('success')
+
+      // Detect postamble
+      const detector = new PostambleDetector(0.4)
+      const postambleSearchStart = preamblePos + 8000
+      if (postambleSearchStart >= resampledSamples.length) {
+        setDetectionStatus('Not enough audio after preamble for postamble detection')
+        setDetectionStatusType('error')
+        setIsDetecting(false)
+        return
+      }
+
+      const postambleSegment = resampledSamples.slice(postambleSearchStart)
+      const postamblePos = detector.add_samples(new Float32Array(postambleSegment))
+
+      if (postamblePos === -1) {
+        setDetectionStatus('Postamble not detected. Try adjusting threshold.')
+        setDetectionStatusType('error')
+        setIsDetecting(false)
+        return
+      }
+
+      setPostambleDetected(true)
+      setDetectionStatus('Both detected! Decoding...')
+      setDetectionStatusType('success')
+
+      // Decode using full resampled audio
       const decoder = await createDecoder()
-      const data = await decoder.decode(processedSamples)
+      const data = decoder.decode(new Float32Array(resampledSamples))
       const text = new TextDecoder().decode(data)
 
       setDecodedText(text)
-      setStatus('Decoded successfully!')
-      setStatusType('success')
+      setDetectionStatus(`Decoded successfully: "${text}"`)
+      setDetectionStatusType('success')
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Decode failed'
-      setStatus(`Decode failed: ${message}`)
-      setStatusType('error')
+      let message = 'Detection/decode failed'
+
+      if (error instanceof Error) {
+        message = error.message
+      } else if (typeof error === 'string') {
+        message = error
+      } else if (error && typeof error === 'object' && 'message' in error) {
+        message = String((error as any).message)
+      }
+
+      console.error('Detection/decode error details:', error)
+      setDetectionStatus(message)
+      setDetectionStatusType('error')
+    } finally {
+      setIsDetecting(false)
     }
+  }
+
+  const saveWave = () => {
+    if (recordedSamplesRef.current.length === 0) {
+      setRecordingStatus('No audio recorded to save')
+      setRecordingStatusType('error')
+      return
+    }
+
+    try {
+      const actualSampleRate = audioContextRef.current?.sampleRate || 48000
+
+      // Resample to 16kHz for standard WAV download
+      let samplesToSave = recordedSamplesRef.current
+      if (actualSampleRate !== TARGET_SAMPLE_RATE) {
+        samplesToSave = resampleAudio(recordedSamplesRef.current, actualSampleRate, TARGET_SAMPLE_RATE)
+      }
+
+      // Convert to WAV
+      const wav = encodeWAV(samplesToSave, TARGET_SAMPLE_RATE)
+      const blob = new Blob([wav], { type: 'audio/wav' })
+      const url = URL.createObjectURL(blob)
+
+      // Trigger download
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `recording-${Date.now()}.wav`
+      a.click()
+      URL.revokeObjectURL(url)
+
+      setRecordingStatus('Recording saved at 16kHz!')
+      setRecordingStatusType('success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save'
+      setRecordingStatus(`Error: ${message}`)
+      setRecordingStatusType('error')
+    }
+  }
+
+  const encodeWAV = (samples: number[], sampleRate: number): ArrayBuffer => {
+    const numChannels = 1
+    const frame = samples.length
+    const length = frame * numChannels * 2 + 44
+
+    const arrayBuffer = new ArrayBuffer(length)
+    const view = new DataView(arrayBuffer)
+
+    const writeString = (offset: number, string: string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i))
+      }
+    }
+
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + frame * numChannels * 2, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, numChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * 2 * numChannels, true)
+    view.setUint16(32, numChannels * 2, true)
+    view.setUint16(34, 16, true)
+    writeString(36, 'data')
+    view.setUint32(40, frame * numChannels * 2, true)
+
+    let offset = 44
+    for (let i = 0; i < frame; i++) {
+      let s = Math.max(-1, Math.min(1, samples[i]))
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+      offset += 2
+    }
+
+    return arrayBuffer
   }
 
   return (
     <div className="container">
       <div className="text-center mb-5">
-        <h1>🎙️ Live Recording & Decode</h1>
-        <p>Record from microphone, detect preamble/postamble, and decode the message</p>
+        <h1>🎤 Live Recording & Decode</h1>
+        <p>Record audio (max {MAX_DURATION}s), save WAV, or detect & decode</p>
       </div>
 
       <div className="card">
-        <h2>Recording Settings</h2>
+        <h2>Recording Controls</h2>
 
-        <div className="mt-4">
-          <label><strong>Detection Threshold</strong></label>
-          <div className="flex items-center gap-3 mt-2">
-            <input
-              type="range"
-              min="0.1"
-              max="0.9"
-              step="0.1"
-              value={threshold}
-              onChange={(e) => setThreshold(parseFloat(e.target.value))}
-              disabled={isRecording}
-            />
-            <span>{threshold.toFixed(1)}</span>
-          </div>
-        </div>
-
-        <div className="mt-4">
+        <div className="mt-4 flex gap-3">
           <button
             onClick={startRecording}
             disabled={isRecording}
@@ -165,43 +272,84 @@ const RecordingDecodePage: React.FC = () => {
           {isRecording && (
             <button
               onClick={stopRecording}
-              className="btn-secondary w-full mt-3"
+              className="btn-secondary w-full"
             >
               Stop Recording
             </button>
           )}
         </div>
 
-        {status && <Status message={status} type={statusType} />}
+        {recordingStatus && <Status message={recordingStatus} type={recordingStatusType} />}
 
-        {isRecording && (
+        {(isRecording || samples > 0) && (
           <div className="mt-4">
             <p><strong>Recording Status:</strong></p>
             <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '0.5rem' }}>
-              <div>Duration: {duration}s</div>
+              <div>Duration: {duration}s / {MAX_DURATION}s</div>
               <div>Samples: {samples}</div>
             </div>
           </div>
         )}
 
-        {decodedText !== null && (
-          <div className="mt-4">
-            <p><strong>Decoded Message:</strong></p>
-            <div
-              style={{
-                background: '#f7fafc',
-                padding: '1rem',
-                borderRadius: '0.5rem',
-                wordBreak: 'break-word',
-                fontFamily: 'monospace',
-                minHeight: '80px',
-              }}
+        {!isRecording && samples > 0 && (
+          <div className="mt-4 flex gap-3">
+            <button
+              onClick={saveWave}
+              className="btn-secondary w-full"
             >
-              {decodedText}
-            </div>
+              💾 Download WAV
+            </button>
+            <button
+              onClick={processDetectAndDecode}
+              disabled={isDetecting}
+              className="btn-primary w-full"
+            >
+              {isDetecting ? 'Detecting...' : '🔍 Detect & Decode'}
+            </button>
           </div>
         )}
       </div>
+
+      {(preambleDetected || postambleDetected || detectionStatus) && (
+        <div className="card">
+          <h2>Detection Status</h2>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+            <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '0.5rem' }}>
+              <div style={{ color: '#999', fontSize: '0.9rem', marginBottom: '0.5rem' }}>PREAMBLE</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: preambleDetected ? '#48bb78' : '#999' }}>
+                {preambleDetected ? '✓ Detected' : '○ Not detected'}
+              </div>
+            </div>
+            <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '0.5rem' }}>
+              <div style={{ color: '#999', fontSize: '0.9rem', marginBottom: '0.5rem' }}>POSTAMBLE</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: postambleDetected ? '#48bb78' : '#999' }}>
+                {postambleDetected ? '✓ Detected' : '○ Not detected'}
+              </div>
+            </div>
+          </div>
+
+          {detectionStatus && <Status message={detectionStatus} type={detectionStatusType} />}
+        </div>
+      )}
+
+      {decodedText !== null && (
+        <div className="card">
+          <h2>Decoded Message</h2>
+          <div
+            style={{
+              background: '#f7fafc',
+              padding: '1rem',
+              borderRadius: '0.5rem',
+              wordBreak: 'break-word',
+              fontFamily: 'monospace',
+              minHeight: '80px',
+            }}
+          >
+            {decodedText}
+          </div>
+        </div>
+      )}
 
       <button onClick={() => navigate('/')} className="btn-secondary">
         ← Back to Home

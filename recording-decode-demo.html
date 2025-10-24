@@ -397,11 +397,8 @@
             <div class="info-box">
                 <strong>ℹ️ How it works:</strong><br>
                 1. Click "Start Recording" to capture audio from your microphone<br>
-                2. The demo detects the preamble (ascending chirp 200→4000Hz)<br>
-                3. Once detected, it waits for the postamble (descending chirp 4000→200Hz)<br>
-                4. The audio segment between preamble and postamble is extracted<br>
-                5. Audio is resampled to 16kHz mono if needed<br>
-                6. WASM decoder extracts the original message<br>
+                2. Audio is resampled to 16kHz mono if needed<br>
+                3. WASM decoder extracts the original message<br>
                 Session times out after 30 seconds of recording
             </div>
         </div>
