@@ -1,13 +1,15 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { PostambleDetector } from '../utils/wasm'
+import { PostambleDetector, PreambleDetector } from '../utils/wasm'
 import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
 
 const TARGET_SAMPLE_RATE = 16000
+type DetectionMode = 'preamble' | 'postamble'
 
-const PostamblePage: React.FC = () => {
+const AmplePage: React.FC = () => {
   const navigate = useNavigate()
+  const [mode, setMode] = useState<DetectionMode>('preamble')
   const [threshold, setThreshold] = useState(0.4)
   const [isListening, setIsListening] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
@@ -19,14 +21,17 @@ const PostamblePage: React.FC = () => {
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const detectorRef = useRef<PostambleDetector | null>(null)
+  const detectorRef = useRef<PostambleDetector | PreambleDetector | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const resampleBufferRef = useRef<number[]>([])
   const samplesProcessedRef = useRef<number>(0)
 
   const startListening = async () => {
     try {
-      const detector = new PostambleDetector(threshold)
+      // Create appropriate detector based on mode
+      const detector = mode === 'preamble'
+        ? new PreambleDetector(threshold)
+        : new PostambleDetector(threshold)
       detectorRef.current = detector
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -46,9 +51,13 @@ const PostamblePage: React.FC = () => {
       processor.connect(audioContext.destination)
 
       setIsListening(true)
-      setStatus('Listening for postamble...')
+      const modeLabel = mode === 'preamble' ? 'preamble' : 'postamble'
+      setStatus(`Listening for ${modeLabel}...`)
       setStatusType('info')
-      setRequiredSize(PostambleDetector.required_size())
+      const requiredSizeValue = mode === 'preamble'
+        ? PreambleDetector.required_size()
+        : PostambleDetector.required_size()
+      setRequiredSize(requiredSizeValue)
       setDetections([])
 
       processor.onaudioprocess = (event: AudioProcessingEvent) => {
@@ -86,9 +95,10 @@ const PostamblePage: React.FC = () => {
         // Handle detection
         if (position >= 0) {
           const timestamp = new Date().toLocaleTimeString()
-          const detection = `${timestamp}: Postamble detected at position ${position}`
+          const modeLabel = mode === 'preamble' ? 'Preamble' : 'Postamble'
+          const detection = `${timestamp}: ${modeLabel} detected at position ${position}`
           setDetections((prev) => [detection, ...prev.slice(0, 9)])
-          setStatus('Postamble detected!')
+          setStatus(`${modeLabel} detected!`)
           setStatusType('success')
 
           // Clear detector buffer to prevent unbounded growth
@@ -102,7 +112,8 @@ const PostamblePage: React.FC = () => {
 
         if (position >= 0) {
           setTimeout(() => {
-            setStatus('Listening for postamble...')
+            const modeLabel = mode === 'preamble' ? 'preamble' : 'postamble'
+            setStatus(`Listening for ${modeLabel}...`)
             setStatusType('info')
           }, 2000)
         }
@@ -131,12 +142,52 @@ const PostamblePage: React.FC = () => {
   return (
     <div className="container">
       <div className="text-center mb-5">
-        <h1>📉 Postamble Detection</h1>
-        <p>Real-time detection of descending chirp postamble (4000Hz → 200Hz)</p>
+        <h1>🎯 Signal Detection (Ample)</h1>
+        <p id="modeDescription">
+          {mode === 'preamble'
+            ? 'Real-time detection of ascending chirp preamble (200Hz → 4000Hz)'
+            : 'Real-time detection of descending chirp postamble (4000Hz → 200Hz)'}
+        </p>
       </div>
 
       <div className="card">
-        <h2>Detection Settings</h2>
+        <h2>Detection Mode</h2>
+
+        <div className="mt-4">
+          <label><strong>Select Detection Mode</strong></label>
+          <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="detectionMode"
+                value="preamble"
+                checked={mode === 'preamble'}
+                onChange={(e) => {
+                  setMode(e.target.value as DetectionMode)
+                  setDetections([])
+                }}
+                disabled={isListening}
+              />
+              Preamble (200Hz → 4000Hz)
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="detectionMode"
+                value="postamble"
+                checked={mode === 'postamble'}
+                onChange={(e) => {
+                  setMode(e.target.value as DetectionMode)
+                  setDetections([])
+                }}
+                disabled={isListening}
+              />
+              Postamble (4000Hz → 200Hz)
+            </label>
+          </div>
+        </div>
+
+        <h2 style={{ marginTop: '2rem' }}>Detection Settings</h2>
 
         <div className="mt-4">
           <label><strong>Detection Threshold</strong></label>
@@ -204,4 +255,4 @@ const PostamblePage: React.FC = () => {
   )
 }
 
-export default PostamblePage
+export default AmplePage
