@@ -41,12 +41,12 @@ fn generate_prn_noise(seed: u32, duration_samples: usize, amplitude: f32) -> Vec
 // SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
 // ============================================================================
 // Toggle this constant to switch between different synchronization signal types:
-//   - PreambleType::PrnNoise (current: recommended for better correlation properties)
-//   - PreambleType::Chirp    (legacy: frequency sweep from low to high)
+//   - PreambleType::PrnNoise (blends in better with the sound of the payload)
+//   - PreambleType::Chirp    (frequency sweep from low to high, better detection in noisy environments)
 //
 // This controls what `generate_preamble_noise()` and `generate_postamble_noise()`
 // actually generate, allowing easy comparison between signal types.
-const PREAMBLE_TYPE: PreambleType = PreambleType::PrnNoise;
+const PREAMBLE_TYPE: PreambleType = PreambleType::Chirp;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum PreambleType {
@@ -75,15 +75,21 @@ pub fn generate_chirp(
     samples
 }
 
-/// Generates postamble (descending chirp from 4000 Hz to 200 Hz)
-/// Mirrors the preamble pattern but in reverse
-pub fn generate_postamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+/// Generates preamble chirp (ascending chirp from 200 Hz to 4000 Hz)
+/// Used as the chirp variant of preamble for synchronization
+pub fn generate_preamble_chirp(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    generate_chirp(duration_samples, 200.0, 4000.0, amplitude)
+}
+
+/// Generates postamble chirp (descending chirp from 4000 Hz to 200 Hz)
+/// Mirrors the preamble chirp pattern but in reverse
+pub fn generate_postamble_chirp(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     generate_chirp(duration_samples, 4000.0, 200.0, amplitude)
 }
 
 /// Generate preamble signal
 /// Type determined by PREAMBLE_TYPE configuration constant (PrnNoise or Chirp)
-pub fn generate_preamble_noise(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match PREAMBLE_TYPE {
         PreambleType::PrnNoise => {
             // PRN noise: Fixed seed 0xDEADBEEF for reproducibility
@@ -92,14 +98,14 @@ pub fn generate_preamble_noise(duration_samples: usize, amplitude: f32) -> Vec<f
         }
         PreambleType::Chirp => {
             // Chirp: Linear frequency sweep from 200 Hz to 4000 Hz
-            generate_chirp(duration_samples, 200.0, 4000.0, amplitude)
+            generate_preamble_chirp(duration_samples, amplitude)
         }
     }
 }
 
 /// Generate postamble signal
 /// Type determined by PREAMBLE_TYPE configuration constant (PrnNoise or Chirp)
-pub fn generate_postamble_noise(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match PREAMBLE_TYPE {
         PreambleType::PrnNoise => {
             // PRN noise: Different seed 0xCAFEBABE (distinct from preamble)
@@ -108,7 +114,7 @@ pub fn generate_postamble_noise(duration_samples: usize, amplitude: f32) -> Vec<
         }
         PreambleType::Chirp => {
             // Chirp: Reverse sweep from 4000 Hz to 200 Hz (mirror of preamble)
-            generate_chirp(duration_samples, 4000.0, 200.0, amplitude)
+            generate_postamble_chirp(duration_samples, amplitude)
         }
     }
 }
@@ -122,8 +128,8 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
         return None;
     }
 
-    // Generate expected preamble PRN noise pattern (same seed = same pattern)
-    let template = generate_preamble_noise(preamble_samples, 1.0);
+    // Generate expected preamble signal pattern (same seed = same pattern)
+    let template = generate_preamble(preamble_samples, 1.0);
 
     // Use FFT-based correlation for O(N log N) complexity
     let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
@@ -202,8 +208,8 @@ pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usi
         return None;
     }
 
-    // Generate expected postamble PRN noise pattern (different seed from preamble)
-    let template = generate_postamble_noise(postamble_samples, 1.0);
+    // Generate expected postamble signal pattern (different seed from preamble)
+    let template = generate_postamble_signal(postamble_samples, 1.0);
 
     // Use FFT-based correlation for O(N log N) complexity
     let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
@@ -468,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_postamble_descending() {
-        let postamble = generate_postamble(1600, 1.0);
+        let postamble = generate_postamble_chirp(1600, 1.0);
         assert_eq!(postamble.len(), 1600);
 
         // Postamble should be reverse frequency sweep
@@ -503,15 +509,15 @@ mod tests {
     // Helper functions for signal-agnostic testing
     fn create_preamble(amplitude: f32) -> Vec<f32> {
         match TEST_SIGNAL_TYPE {
-            SignalType::PrnNoise => generate_preamble_noise(crate::PREAMBLE_SAMPLES, amplitude),
+            SignalType::PrnNoise => generate_preamble(crate::PREAMBLE_SAMPLES, amplitude),
             SignalType::Chirp => generate_chirp(crate::PREAMBLE_SAMPLES, 200.0, 4000.0, amplitude),
         }
     }
 
     fn create_postamble(amplitude: f32) -> Vec<f32> {
         match TEST_SIGNAL_TYPE {
-            SignalType::PrnNoise => generate_postamble_noise(crate::POSTAMBLE_SAMPLES, amplitude),
-            SignalType::Chirp => generate_postamble(crate::POSTAMBLE_SAMPLES, amplitude),
+            SignalType::PrnNoise => generate_postamble_signal(crate::POSTAMBLE_SAMPLES, amplitude),
+            SignalType::Chirp => generate_postamble_chirp(crate::POSTAMBLE_SAMPLES, amplitude),
         }
     }
 

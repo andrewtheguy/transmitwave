@@ -23,6 +23,7 @@ const PostamblePage: React.FC = () => {
   const detectorRef = useRef<MicrophoneListener | PostambleDetector | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const resampleBufferRef = useRef<number[]>([])
+  const samplesProcessedRef = useRef<number>(0)
 
   const startListening = async () => {
     try {
@@ -42,6 +43,7 @@ const PostamblePage: React.FC = () => {
       processorRef.current = processor
       streamRef.current = stream
       resampleBufferRef.current = []
+      samplesProcessedRef.current = 0
 
       source.connect(processor)
       processor.connect(audioContext.destination)
@@ -79,10 +81,15 @@ const PostamblePage: React.FC = () => {
         }
 
         const position = detector.add_samples(new Float32Array(resampledSamples))
+        samplesProcessedRef.current += resampledSamples.length
 
-        // Update buffer info
-        const size = detector.buffer_size()
-        setBufferSize(size)
+        // Periodically clear buffer to prevent unbounded growth (every ~5 seconds at 16kHz)
+        // Clear if we've accumulated more than 80k samples without detection
+        const MAX_BUFFER_SAMPLES = 80000
+        if (samplesProcessedRef.current > MAX_BUFFER_SAMPLES) {
+          detector.clear()
+          samplesProcessedRef.current = 0
+        }
 
         // Handle detection
         if (position >= 0) {
@@ -93,6 +100,16 @@ const PostamblePage: React.FC = () => {
           setStatus(`${typeLabel} detected!`)
           setStatusType('success')
 
+          // Clear detector buffer to prevent unbounded growth
+          detector.clear()
+          samplesProcessedRef.current = 0
+        }
+
+        // Update buffer info AFTER clearing
+        const size = detector.buffer_size()
+        setBufferSize(size)
+
+        if (position >= 0) {
           setTimeout(() => {
             setStatus(`Listening for ${detectionType}...`)
             setStatusType('info')
@@ -197,27 +214,7 @@ const PostamblePage: React.FC = () => {
 
         {status && <Status message={status} type={statusType} />}
 
-        {isListening && (
-          <>
-            <div className="mt-4">
-              <p><strong>Buffer Status:</strong></p>
-              <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '0.5rem' }}>
-                <div>Buffer: {bufferSize} / {requiredSize} samples</div>
-                <div style={{ background: 'var(--border-color)', height: '8px', borderRadius: '4px', marginTop: '0.5rem' }}>
-                  <div
-                    style={{
-                      background: 'var(--primary-color)',
-                      height: '100%',
-                      borderRadius: '4px',
-                      width: `${bufferProgress}%`,
-                      transition: 'width 0.2s',
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {detections.length > 0 && (
+        {isListening && detections.length > 0 && (
               <div className="mt-4">
                 <p><strong>Detection History:</strong></p>
                 <div
@@ -237,8 +234,6 @@ const PostamblePage: React.FC = () => {
                 </div>
               </div>
             )}
-          </>
-        )}
       </div>
 
       <button onClick={() => navigate('/')} className="btn-secondary">

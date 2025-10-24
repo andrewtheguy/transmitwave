@@ -1,6 +1,6 @@
 use testaudio_core::sync::{
-    detect_preamble, detect_postamble, generate_chirp, generate_postamble,
-    generate_preamble_noise, generate_postamble_noise, barker_code,
+    detect_preamble, detect_postamble, generate_chirp, generate_postamble_chirp,
+    generate_preamble, generate_postamble_signal, barker_code,
 };
 use testaudio_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, fft_correlate_1d, Mode};
 use rand::SeedableRng;
@@ -11,7 +11,7 @@ use rand_distr::Normal;
 // ============================================================================
 // NOTE: The actual signal type is controlled by PREAMBLE_TYPE in core/src/sync.rs
 // These helper functions automatically respect that configuration:
-//   - generate_preamble_noise() and generate_postamble_noise() use PREAMBLE_TYPE
+//   - generate_preamble() and generate_postamble_signal() use PREAMBLE_TYPE
 //
 // To toggle signal types:
 // 1. Edit core/src/sync.rs line ~49: const PREAMBLE_TYPE: PreambleType = ...
@@ -21,11 +21,11 @@ use rand_distr::Normal;
 
 // Signal generation helpers - these respect the PREAMBLE_TYPE configuration in sync.rs
 fn create_test_preamble(amplitude: f32) -> Vec<f32> {
-    generate_preamble_noise(PREAMBLE_SAMPLES, amplitude)
+    generate_preamble(PREAMBLE_SAMPLES, amplitude)
 }
 
 fn create_test_postamble(amplitude: f32) -> Vec<f32> {
-    generate_postamble_noise(POSTAMBLE_SAMPLES, amplitude)
+    generate_postamble_signal(POSTAMBLE_SAMPLES, amplitude)
 }
 
 #[test]
@@ -263,7 +263,7 @@ fn test_chirp_generation() {
 
 #[test]
 fn test_postamble_generation() {
-    let postamble = generate_postamble(16000, 0.5);
+    let postamble = generate_postamble_chirp(16000, 0.5);
     assert_eq!(
         postamble.len(),
         16000,

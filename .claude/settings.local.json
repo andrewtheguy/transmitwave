@@ -28,7 +28,8 @@
       "Bash(npm install:*)",
       "Bash(npm run build:*)",
       "Bash(lsof:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(gtimeout 120 cargo test:*)"
     ],
     "deny": [],
     "ask": []
