@@ -9,17 +9,17 @@ use rand_distr::Normal;
 // ============================================================================
 // SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
 // ============================================================================
-// NOTE: The actual signal type is controlled by PREAMBLE_TYPE in core/src/sync.rs
+// NOTE: The actual signal type is controlled by SIGNAL_TYPE in core/src/sync.rs
 // These helper functions automatically respect that configuration:
-//   - generate_preamble() and generate_postamble_signal() use PREAMBLE_TYPE
+//   - generate_preamble() and generate_postamble_signal() use SIGNAL_TYPE
 //
 // To toggle signal types:
-// 1. Edit core/src/sync.rs line ~49: const PREAMBLE_TYPE: PreambleType = ...
-// 2. Change between PreambleType::PrnNoise or PreambleType::Chirp
+// 1. Edit core/src/sync.rs line ~49: const SIGNAL_TYPE: SignalType = ...
+// 2. Change between SignalType::PrnNoise or SignalType::Chirp
 // 3. All tests automatically use the selected signal type
 // ============================================================================
 
-// Signal generation helpers - these respect the PREAMBLE_TYPE configuration in sync.rs
+// Signal generation helpers - these respect the SIGNAL_TYPE configuration in sync.rs
 fn create_test_preamble(amplitude: f32) -> Vec<f32> {
     generate_preamble(PREAMBLE_SAMPLES, amplitude)
 }
