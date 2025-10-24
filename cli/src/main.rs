@@ -252,7 +252,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else if DEFAULT_ENCODER_TYPE == "chunked" {
                 encode_chunked_command(&input, &output, DEFAULT_CHUNK_BITS, DEFAULT_INTERLEAVE_FACTOR)?
             } else {
-                encode_spread_command(&input, &output, DEFAULT_SPREAD_CHIP_DURATION)?
+                encode_spread_command(&input, &output, cli.chip_duration)?
             }
         } else if mode == "decode" || mode == "dec" {
             if cli.no_spread {
@@ -260,7 +260,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else if DEFAULT_DECODER_TYPE == "chunked" {
                 decode_chunked_command(&input, &output, DEFAULT_CHUNK_BITS)?
             } else {
-                decode_spread_command(&input, &output, DEFAULT_SPREAD_CHIP_DURATION)?
+                decode_spread_command(&input, &output, cli.chip_duration)?
             }
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
