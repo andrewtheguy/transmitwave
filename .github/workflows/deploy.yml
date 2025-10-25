@@ -36,7 +36,7 @@ jobs:
       - name: Build WASM module
         run: |
           cd wasm
-          bash build.sh
+          wasm-pack build --release --target web
 
       - name: Build web app
         run: |
