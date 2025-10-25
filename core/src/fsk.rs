@@ -14,18 +14,19 @@ use std::f32::consts::PI;
 // - Fastest: 3 frames/tx = 64ms per symbol
 //
 // Our implementation (at 16kHz):
-// - Uses the same frequency spacing (46.875 Hz)
-// - Uses the same frequency range (1875-6328 Hz)
+// - Uses reduced frequency spacing (20 Hz) for lower range
+// - Uses very low frequency range (400-2320 Hz) for sub-bass band
 // - Transmits 3 bytes (6 nibbles) per symbol like ggwave
-// - Symbol duration adjusted for 16kHz sample rate
+// - Symbol duration increased 2.3x to compensate for lower delta (reduces data rate)
 
-/// Base frequency in Hz (ggwave audible mode, bin 40)
-/// Calculated as: 40 bins * 46.875 Hz/bin = 1875 Hz
-const FSK_BASE_FREQ: f32 = 1875.0;
+/// Base frequency in Hz (very low for sub-bass range)
+/// Original: 1875 Hz, reduced to 400 Hz for low-frequency band
+const FSK_BASE_FREQ: f32 = 400.0;
 
-/// Frequency spacing in Hz between adjacent bins (ggwave standard)
-/// This is hzPerSample at 48kHz/1024 samples per frame
-const FSK_FREQ_DELTA: f32 = 46.875;
+/// Frequency spacing in Hz between adjacent bins (reduced for lower range)
+/// Original: 46.875 Hz, reduced to 20.0 Hz to lower frequency span
+/// This reduces data rate by ~2.3x but keeps frequencies well below 2kHz
+const FSK_FREQ_DELTA: f32 = 20.0;
 
 /// Total number of frequency bins (ggwave uses bins 40-135 for audible)
 /// 6 nibbles * 16 tones per nibble = 96 bins
@@ -50,11 +51,12 @@ pub enum FskSpeed {
 
 impl FskSpeed {
     /// Get symbol duration in samples for this speed at 16kHz sample rate
+    /// Increased 1.5x from original to compensate for tighter frequency spacing (20Hz vs 46.875Hz)
     pub fn samples_per_symbol(&self) -> usize {
         match self {
-            FskSpeed::Normal => 2048,   // 128ms at 16kHz
-            FskSpeed::Fast => 1024,     // 64ms at 16kHz
-            FskSpeed::Fastest => 512,   // 32ms at 16kHz
+            FskSpeed::Normal => 3072,    // ~192ms at 16kHz (was 128ms, now 1.5x slower)
+            FskSpeed::Fast => 1536,      // ~96ms at 16kHz (was 64ms, now 1.5x slower)
+            FskSpeed::Fastest => 768,    // ~48ms at 16kHz (was 32ms, now 1.5x slower)
         }
     }
 
@@ -65,11 +67,11 @@ impl FskSpeed {
     }
 }
 
-/// Default FSK symbol duration (Normal speed: 128ms at 16kHz)
-/// This is similar to ggwave's Fast mode adjusted for 16kHz sample rate
-/// - ggwave Fast at 48kHz: 6 frames * 1024 samples = 128ms
-/// - Our Normal at 16kHz: 2048 samples = 128ms
-pub const FSK_SYMBOL_SAMPLES: usize = 2048;
+/// Default FSK symbol duration (Normal speed: ~192ms at 16kHz)
+/// Increased 1.5x from original to compensate for tighter frequency spacing
+/// - Original: 2048 samples = 128ms
+/// - Now: 3072 samples = 192ms (1.5x slower for lower frequency delta)
+pub const FSK_SYMBOL_SAMPLES: usize = 3072;
 
 /// Calculate frequency for a given bin index
 /// freq_hz = FSK_BASE_FREQ + bin_index * FSK_FREQ_DELTA
