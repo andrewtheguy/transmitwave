@@ -34,16 +34,21 @@ When a user sets a custom threshold to detect preamble/postamble during recordin
 ### Solution (Future Enhancement)
 
 **Option A: Skip Re-detection**
+- Modify backend decoder to accept audio clips without preamble/postamble on the clip
+- Decode the content without re-detecting boundaries
+- It works for current approach because preamble/postamble are just guide markers for the decoder to find the data section but they are not needed for the actual decoding process.
+
+**Option B: Skip Re-detection**
 - Backend should accept a `--no-detect-boundaries` flag or detect mode parameter
 - For pre-recorded audio clips, skip preamble/postamble detection
 - Decode using the audio as-is
 
-**Option B: Accept Boundary Parameters**
+**Option C: Accept Boundary Parameters**
 - API should accept pre-detected preamble/postamble positions
 - Backend uses provided boundaries instead of re-detecting
 - Ensures consistency with UI threshold settings
 
-**Option C: Threshold Configuration**
+**Option D: Threshold Configuration**
 - Allow threshold to be passed through the API/CLI
 - Backend uses user-specified threshold instead of hardcoded values
 - Ensures consistent behavior between UI and backend
@@ -56,16 +61,9 @@ When a user sets a custom threshold to detect preamble/postamble during recordin
 - Backend Decoder: WASM module (transmitwave-wasm)
 - Note: This warning is visible to users at the top of the Auto-Record page
 
-### Related Issues
-
-- Users may be confused when threshold settings in the UI don't affect decoding
-- Downloaded WAV files work because they contain the raw audio, but the decoder still re-detects
-- CLI/backend users may have different detection thresholds than web UI users
-
 ---
 
 ## Notes
 
-- Ensure any solution maintains backward compatibility
 - Consider adding threshold parameter validation
 - Document threshold behavior clearly in API documentation
