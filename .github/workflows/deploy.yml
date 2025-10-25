@@ -44,10 +44,11 @@ jobs:
           npm run build
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: transmitwave
-          directory: web/dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: pages deploy web/dist --project-name=transmitwave
+          secrets: GITHUB_TOKEN
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
