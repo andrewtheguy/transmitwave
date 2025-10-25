@@ -51,12 +51,12 @@ pub enum FskSpeed {
 
 impl FskSpeed {
     /// Get symbol duration in samples for this speed at 16kHz sample rate
-    /// Increased 2.3x from original to compensate for tighter frequency spacing (20Hz vs 46.875Hz)
+    /// Increased 1.5x from original to compensate for tighter frequency spacing (20Hz vs 46.875Hz)
     pub fn samples_per_symbol(&self) -> usize {
         match self {
-            FskSpeed::Normal => 4704,    // ~294ms at 16kHz (was 128ms, now 2.3x slower)
-            FskSpeed::Fast => 2352,      // ~147ms at 16kHz (was 64ms, now 2.3x slower)
-            FskSpeed::Fastest => 1176,   // ~74ms at 16kHz (was 32ms, now 2.3x slower)
+            FskSpeed::Normal => 3072,    // ~192ms at 16kHz (was 128ms, now 1.5x slower)
+            FskSpeed::Fast => 1536,      // ~96ms at 16kHz (was 64ms, now 1.5x slower)
+            FskSpeed::Fastest => 768,    // ~48ms at 16kHz (was 32ms, now 1.5x slower)
         }
     }
 
@@ -67,11 +67,11 @@ impl FskSpeed {
     }
 }
 
-/// Default FSK symbol duration (Normal speed: ~294ms at 16kHz)
-/// Increased 2.3x from original to compensate for tighter frequency spacing
+/// Default FSK symbol duration (Normal speed: ~192ms at 16kHz)
+/// Increased 1.5x from original to compensate for tighter frequency spacing
 /// - Original: 2048 samples = 128ms
-/// - Now: 4704 samples = 294ms (2.3x slower for lower frequency delta)
-pub const FSK_SYMBOL_SAMPLES: usize = 4704;
+/// - Now: 3072 samples = 192ms (1.5x slower for lower frequency delta)
+pub const FSK_SYMBOL_SAMPLES: usize = 3072;
 
 /// Calculate frequency for a given bin index
 /// freq_hz = FSK_BASE_FREQ + bin_index * FSK_FREQ_DELTA
