@@ -42,6 +42,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
   // Detection refs
   const detectorRef = useRef<PreambleDetector | null>(null)
   const resampleBufferRef = useRef<number[]>([])
+  const allResampledSamplesRef = useRef<number[]>([]) // Keep all resampled samples for recording
   const samplesProcessedRef = useRef<number>(0)
   const volumeUpdateIntervalRef = useRef<number>(0)
 
@@ -149,6 +150,9 @@ const PreamblePostambleRecordPage: React.FC = () => {
             resampledChunk = resampleAudio(chunk, actualSampleRate, TARGET_SAMPLE_RATE)
           }
 
+          // Keep track of ALL resampled samples for later recording
+          allResampledSamplesRef.current.push(...resampledChunk)
+
           const position = detector.add_samples(new Float32Array(resampledChunk))
           samplesProcessedRef.current += resampledChunk.length
 
@@ -157,6 +161,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
             detector.clear()
             samplesProcessedRef.current = 0
             resampleBufferRef.current = [] // Clear the raw sample buffer too
+            allResampledSamplesRef.current = [] // Clear resampled samples too
           }
 
           // Preamble detected - start recording
@@ -169,18 +174,13 @@ const PreamblePostambleRecordPage: React.FC = () => {
             setIsRecording(true)
             recordingStartTimeRef.current = Date.now()
 
-            // Keep the audio accumulated so far (before preamble) + the chunk that detected preamble
-            // Resample and normalize all accumulated audio
-            const allAccumulatedSamples = resampleBufferRef.current.slice()
-            resampleBufferRef.current = [] // Clear the listening buffer
+            // Use all resampled samples collected so far (includes preamble!)
+            const allResampled = allResampledSamplesRef.current.slice()
+            allResampledSamplesRef.current = [] // Clear for next phase
+            resampleBufferRef.current = [] // Clear the raw buffer too
 
-            let resampledAccumulated: number[] = allAccumulatedSamples
-            if (actualSampleRate !== TARGET_SAMPLE_RATE) {
-              resampledAccumulated = resampleAudio(allAccumulatedSamples, actualSampleRate, TARGET_SAMPLE_RATE)
-            }
-
-            // Normalize the accumulated samples
-            const normalizedAccumulated = resampledAccumulated.map((sample) => {
+            // Normalize the accumulated resampled samples
+            const normalizedAccumulated = allResampled.map((sample) => {
               if (Math.abs(sample) > 1.0) {
                 return Math.sign(sample) * (1.0 - Math.exp(-Math.abs(sample)))
               }
@@ -360,11 +360,9 @@ const PreamblePostambleRecordPage: React.FC = () => {
       setDetectionStatus('Processing...')
       setDetectionStatusType('info')
 
-      const actualSampleRate = audioContextRef.current?.sampleRate || 48000
-      let resampledSamples = recordedSamplesRef.current
-      if (actualSampleRate !== TARGET_SAMPLE_RATE) {
-        resampledSamples = resampleAudio(recordedSamplesRef.current, actualSampleRate, TARGET_SAMPLE_RATE)
-      }
+      // recordedSamplesRef.current is already normalized and resampled to 16kHz
+      // Do NOT resample again - use it directly
+      const resampledSamples = recordedSamplesRef.current
 
       // Detect preamble if not already detected
       let preamblePos = -1
@@ -380,8 +378,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
           return
         }
       } else {
-        // If preamble was detected during recording, assume it's at the start
-        // (In reality, we'd need to track the actual position)
+        // If preamble was detected during recording, it's at the start of our recorded buffer
         preamblePos = 0
       }
 
