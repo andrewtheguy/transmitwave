@@ -14,6 +14,7 @@ const Navigation: React.FC = () => {
           <li><Link to="/demo">Demo</Link></li>
           <li><Link to="/ample">Preamble & Postamble</Link></li>
           <li><Link to="/recording-decode">Recording</Link></li>
+          <li><Link to="/preamble-postamble-record">Auto-Record</Link></li>
         </ul>
       </div>
     </nav>

@@ -27,6 +27,12 @@ const IndexPage: React.FC = () => {
       title: 'Live Recording & Decode',
       description: 'Record from microphone, automatically detect boundaries, and decode the message.',
     },
+    {
+      path: '/preamble-postamble-record',
+      icon: '🎯',
+      title: 'Auto-Record on Preamble',
+      description: 'Listen for preamble to auto-start recording, stop on postamble or timeout, then save/decode.',
+    },
   ]
 
   return (
