@@ -72,18 +72,64 @@ pub fn generate_chirp(
     samples
 }
 
-/// Generates preamble chirp (ascending chirp from 2800 Hz to 4200 Hz)
-/// Mid-treble range - pleasant tone without excessive harshness
-/// Distinct from police sirens and postamble's low frequency
-pub fn generate_preamble_chirp(duration_samples: usize, amplitude: f32) -> Vec<f32> {
-    generate_chirp(duration_samples, 2800.0, 4200.0, amplitude)
+/// Generates a smooth amplitude envelope with soft attack and decay
+/// Mimics the natural shape of a whistled note
+fn amplitude_envelope(t: f32, duration: f32) -> f32 {
+    let attack_time = duration * 0.1;   // 10% attack
+    let decay_time = duration * 0.15;   // 15% decay
+    let sustain_end = duration - decay_time;
+
+    if t < attack_time {
+        // Soft attack: smooth sine-based ramp from 0 to 1
+        (PI * t / (2.0 * attack_time)).sin().powi(2)
+    } else if t < sustain_end {
+        // Sustain: full amplitude
+        1.0
+    } else {
+        // Smooth decay: sine-based fade from 1 to 0
+        let decay_progress = (t - sustain_end) / decay_time;
+        (PI / 2.0 + PI * decay_progress / 2.0).cos().powi(2)
+    }
 }
 
-/// Generates postamble chirp (slow descending chirp from 800 Hz to 300 Hz)
-/// Low frequency rumble pattern - distinctly different from preamble
-/// Provides clear acoustic separation for frame boundary detection
+/// Generates preamble chirp with human whistling characteristics
+/// Ascending chirp from 800 Hz to 1800 Hz (human whistling range)
+/// Applies smooth amplitude envelope (soft attack/decay) for natural sound
+pub fn generate_preamble_chirp(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    let sample_rate = SAMPLE_RATE as f32;
+    let duration = duration_samples as f32 / sample_rate;
+    let start_freq = 800.0;
+    let end_freq = 1800.0;
+
+    let mut samples = vec![0.0; duration_samples];
+    for n in 0..duration_samples {
+        let t = n as f32 / sample_rate;
+        let k = (end_freq - start_freq) / duration;
+        let phase = 2.0 * PI * (start_freq * t + k * t * t / 2.0);
+        let envelope = amplitude_envelope(t, duration);
+        samples[n] = amplitude * envelope * phase.sin();
+    }
+    samples
+}
+
+/// Generates postamble chirp with complementary whistling characteristics
+/// Descending chirp from 1000 Hz to 400 Hz (low whistle range)
+/// Applies smooth amplitude envelope for natural sound
 pub fn generate_postamble_chirp(duration_samples: usize, amplitude: f32) -> Vec<f32> {
-    generate_chirp(duration_samples, 800.0, 300.0, amplitude)
+    let sample_rate = SAMPLE_RATE as f32;
+    let duration = duration_samples as f32 / sample_rate;
+    let start_freq = 1000.0;
+    let end_freq = 400.0;
+
+    let mut samples = vec![0.0; duration_samples];
+    for n in 0..duration_samples {
+        let t = n as f32 / sample_rate;
+        let k = (end_freq - start_freq) / duration;
+        let phase = 2.0 * PI * (start_freq * t + k * t * t / 2.0);
+        let envelope = amplitude_envelope(t, duration);
+        samples[n] = amplitude * envelope * phase.sin();
+    }
+    samples
 }
 
 /// Generate preamble signal
