@@ -94,9 +94,18 @@ const PreamblePostambleRecordPage: React.FC = () => {
       sourceRef.current = source
       processorRef.current = processor
       streamRef.current = stream
+
+      // Reset all buffers and refs
       resampleBufferRef.current = []
+      allResampledSamplesRef.current = []
       samplesProcessedRef.current = 0
       recordedSamplesRef.current = []
+      recordingResampleBufferRef.current = []
+      isRecordingRef.current = false
+      preambleDetectedRef.current = false
+      preamblePosInRecordingRef.current = 0
+      postambleDetectorRef.current = null
+      detectorRef.current = new PreambleDetector(threshold)
 
       // Connect with gain and analyser
       source.connect(gainNode)
@@ -116,12 +125,17 @@ const PreamblePostambleRecordPage: React.FC = () => {
         }
       }, 50)
 
+      // Reset all UI state
       setIsListening(true)
+      setIsRecording(false)
       setDetectionStatus('Listening for preamble...')
       setDetectionStatusType('info')
       setPreambleDetected(false)
       setPostambleDetected(false)
       setDecodedText(null)
+      setRecordingStatus(null)
+      setRecordingDuration(0)
+      setRecordingSamples(0)
 
       processor.onaudioprocess = (event: AudioProcessingEvent) => {
         const samples = Array.from((event as any).inputBuffer.getChannelData(0))
@@ -483,12 +497,18 @@ const PreamblePostambleRecordPage: React.FC = () => {
   }
 
   const resetRecording = () => {
+    // Reset all refs
     preambleDetectedRef.current = false
     isRecordingRef.current = false
+    preamblePosInRecordingRef.current = 0
+    recordedSamplesRef.current = []
+    recordingResampleBufferRef.current = []
+    postambleDetectorRef.current = null
+
+    // Reset all state
     setPreambleDetected(false)
     setPostambleDetected(false)
     setDecodedText(null)
-    recordedSamplesRef.current = []
     setRecordingSamples(0)
     setRecordingDuration(0)
     setRecordingStatus(null)

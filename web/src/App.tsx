@@ -5,7 +5,6 @@ import Navigation from './components/Navigation'
 import IndexPage from './pages/IndexPage'
 import DemoPage from './pages/DemoPage'
 import AmplePage from './pages/AmplePage'
-import RecordingDecodePage from './pages/RecordingDecodePage'
 import PreamblePostambleRecordPage from './pages/PreamblePostambleRecordPage'
 
 const App: React.FC = () => {
@@ -58,7 +57,6 @@ const App: React.FC = () => {
         <Route path="/" element={<IndexPage />} />
         <Route path="/demo" element={<DemoPage />} />
         <Route path="/ample" element={<AmplePage />} />
-        <Route path="/recording-decode" element={<RecordingDecodePage />} />
         <Route path="/preamble-postamble-record" element={<PreamblePostambleRecordPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

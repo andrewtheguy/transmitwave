@@ -22,14 +22,8 @@ const IndexPage: React.FC = () => {
       description: 'Real-time detection of the descending chirp postamble from your microphone input.',
     },
     {
-      path: '/recording-decode',
-      icon: '🎙️',
-      title: 'Live Recording & Decode',
-      description: 'Record from microphone, automatically detect boundaries, and decode the message.',
-    },
-    {
       path: '/preamble-postamble-record',
-      icon: '🎯',
+      icon: '🎙️',
       title: 'Auto-Record on Preamble',
       description: 'Listen for preamble to auto-start recording, stop on postamble or timeout, then save/decode.',
     },
