@@ -522,6 +522,17 @@ const PreamblePostambleRecordPage: React.FC = () => {
         <p>Listen for preamble signal to auto-start recording, stop on postamble or after 30s, then save/decode</p>
       </div>
 
+      <div className="card" style={{ background: '#fef3c7', borderLeft: '4px solid #f59e0b', marginBottom: '2rem' }}>
+        <h3 style={{ color: '#92400e', marginTop: 0 }}>⚠️ Technical Debt</h3>
+        <p style={{ color: '#92400e', marginBottom: 0 }}>
+          <strong>Threshold Inconsistency:</strong> The web UI allows setting a custom detection threshold (0.1-0.9),
+          but the backend decoder re-detects preamble/postamble signals with its own hardcoded threshold instead of
+          skipping detection and decoding directly. This can cause inconsistencies if the UI threshold differs from the
+          backend's detection threshold. Future improvement: Backend should accept pre-detected boundaries or disable
+          re-detection when decoding already-captured audio clips.
+        </p>
+      </div>
+
       <div className="card">
         <h2>Listening & Recording Settings</h2>
 
