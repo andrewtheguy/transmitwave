@@ -3,4 +3,4 @@
 - I'll run my vite http server, don't try to start another server
 - run integration tests in release mode for performance
 - use gtimeout command instead of timeout on macOS systems
-- build WASM with standard `wasm-pack build --release --target web` (env imports handled via wasm-env-shim.js workaround)
+- build WASM with standard `wasm-pack build --release --target web`

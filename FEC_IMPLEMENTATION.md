@@ -4,6 +4,12 @@
 
 The audio modem uses **Reed-Solomon (255, 223)** forward error correction to detect and correct transmission errors. This enables reliable communication even in noisy acoustic environments.
 
+### Library Implementation
+- **Library**: `reed-solomon-simd` v3.1.0
+- **Algorithm**: Leopard-RS with O(n log n) complexity
+- **Performance**: SIMD optimizations (AVX2, SSSE3, Neon) for fast encoding/decoding
+- **Dependencies**: No outdated dependencies (no parking_lot 0.11)
+
 ---
 
 ## 🎯 Key Capabilities
@@ -197,28 +203,32 @@ Recover original [A, B, C, D, E]
 
 ### Test Coverage
 
-```rust
-#[test]
-fn test_encode_decode() {
-    let encoder = FecEncoder::new().unwrap();
-    let decoder = FecDecoder::new().unwrap();
+**18 comprehensive tests** covering:
 
-    let data = b"Test data";
-    let encoded = encoder.encode(data).unwrap();
-    let decoded = decoder.decode(&encoded).unwrap();
+#### Core Functionality (5 tests)
+- ✅ Basic encode/decode round-trip
+- ✅ Empty input handling
+- ✅ Single byte encoding
+- ✅ Maximum data size (223 bytes)
+- ✅ Oversized data error handling
 
-    assert_eq!(&decoded[..9], data);
-}
-```
+#### FEC Modes (6 tests)
+- ✅ Light mode (8-byte parity)
+- ✅ Medium mode (16-byte parity)
+- ✅ Full mode (32-byte parity)
+- ✅ Mode conversion and selection
+- ✅ All modes produce correct output sizes
 
-### Tested Scenarios
-✅ Clean data (no errors)
-✅ Single byte errors
-✅ Multiple byte errors (up to 16)
-✅ Known error positions (erasures)
-✅ Maximum payload (223 bytes)
-✅ Empty data (0 bytes)
-✅ Integration with OFDM pipeline
+#### Data Integrity (4 tests)
+- ✅ Various byte patterns (all zeros, ones, incrementing)
+- ✅ Multiple data sizes (1 to 223 bytes)
+- ✅ Deterministic parity generation
+- ✅ Different inputs produce different parity
+
+#### Additional Tests (3 tests)
+- ✅ Light mode decoding
+- ✅ Mode conversions (from_u8, to_u8, from_data_size)
+- ✅ Multi-mode encoding
 
 ---
 
