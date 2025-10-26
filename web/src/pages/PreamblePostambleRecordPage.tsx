@@ -12,6 +12,13 @@ const MAX_RECORDING_SAMPLES = 480000 // Recording phase buffer cap (~30 seconds 
 const PreamblePostambleRecordPage: React.FC = () => {
   const navigate = useNavigate()
 
+  // Helper function to calculate RMS (Root Mean Square) amplitude
+  const calculateRMS = (samples: number[]): number => {
+    if (samples.length === 0) return 0
+    const sumSquares = samples.reduce((sum, sample) => sum + sample * sample, 0)
+    return Math.sqrt(sumSquares / samples.length)
+  }
+
   // Detection phase states
   const [isListening, setIsListening] = useState(false)
   const [detectionStatus, setDetectionStatus] = useState<string | null>(null)
@@ -34,7 +41,6 @@ const PreamblePostambleRecordPage: React.FC = () => {
   // Audio I/O refs
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
-  const gainNodeRef = useRef<GainNode | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -56,10 +62,12 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const isRecordingRef = useRef<boolean>(false)
   const preambleDetectedRef = useRef<boolean>(false)
   const preamblePosInRecordingRef = useRef<number>(0)
+  const autoGainAdjustmentRef = useRef<number>(1.0) // Persistent ref for gain adjustment
 
   // UI refs
   const [micVolume, setMicVolume] = useState(0)
-  const [volumeGain, setVolumeGain] = useState(1)
+  const [targetAmplitude, setTargetAmplitude] = useState(0.5)
+  const [autoGainAdjustment, setAutoGainAdjustment] = useState(1.0)
 
   const startListening = async () => {
     try {
@@ -78,11 +86,6 @@ const PreamblePostambleRecordPage: React.FC = () => {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       audioContextRef.current = audioContext
       const source = audioContext.createMediaStreamSource(stream)
-
-      // Create gain node for volume control
-      const gainNode = audioContext.createGain()
-      gainNode.gain.value = volumeGain
-      gainNodeRef.current = gainNode
 
       // Create analyser for volume visualization
       const analyser = audioContext.createAnalyser()
@@ -107,9 +110,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
       postambleDetectorRef.current = null
       detectorRef.current = new PreambleDetector(threshold)
 
-      // Connect with gain and analyser
-      source.connect(gainNode)
-      gainNode.connect(analyser)
+      // Connect audio graph
+      source.connect(analyser)
       analyser.connect(processor)
       processor.connect(audioContext.destination)
 
@@ -193,12 +195,30 @@ const PreamblePostambleRecordPage: React.FC = () => {
             allResampledSamplesRef.current = [] // Clear for next phase
             resampleBufferRef.current = [] // Clear the raw buffer too
 
-            // Normalize the accumulated resampled samples
+            // Calculate preamble amplitude (RMS of detected preamble)
+            const preambleAmplitude = calculateRMS(allResampled)
+
+            // Calculate gain adjustment to reach target amplitude
+            // If preamble is 0.2 and target is 0.5, we need to apply 0.5/0.2 = 2.5x gain
+            let gainAdjustment = 1.0
+            if (preambleAmplitude > 0) {
+              gainAdjustment = targetAmplitude / preambleAmplitude
+              // Clamp gain adjustment to reasonable range (0.5x to 5x)
+              gainAdjustment = Math.max(0.5, Math.min(5.0, gainAdjustment))
+            }
+            // Store in both ref (for consistent use in callbacks) and state (for UI display)
+            autoGainAdjustmentRef.current = gainAdjustment
+            setAutoGainAdjustment(gainAdjustment)
+
+            // Normalize the accumulated resampled samples with gain adjustment
             const normalizedAccumulated = allResampled.map((sample) => {
-              if (Math.abs(sample) > 1.0) {
-                return Math.sign(sample) * (1.0 - Math.exp(-Math.abs(sample)))
+              // Apply gain adjustment first
+              const gainedSample = sample * gainAdjustment
+              // Then apply soft clipping if needed
+              if (Math.abs(gainedSample) > 1.0) {
+                return Math.sign(gainedSample) * (1.0 - Math.exp(-Math.abs(gainedSample)))
               }
-              return sample
+              return gainedSample
             })
 
             // Start recording with the preamble and everything before it
@@ -239,12 +259,15 @@ const PreamblePostambleRecordPage: React.FC = () => {
             resampledChunk = resampleAudio(chunk, actualSampleRate, TARGET_SAMPLE_RATE)
           }
 
-          // Normalize samples with soft clipping
+          // Apply auto-gain adjustment and normalize samples with soft clipping
           const normalizedSamples = resampledChunk.map((sample) => {
-            if (Math.abs(sample) > 1.0) {
-              return Math.sign(sample) * (1.0 - Math.exp(-Math.abs(sample)))
+            // Apply the auto-gain adjustment that was calculated from preamble
+            const gainedSample = sample * autoGainAdjustmentRef.current
+            // Then apply soft clipping if needed
+            if (Math.abs(gainedSample) > 1.0) {
+              return Math.sign(gainedSample) * (1.0 - Math.exp(-Math.abs(gainedSample)))
             }
-            return sample
+            return gainedSample
           })
 
           recordedSamplesRef.current.push(...normalizedSamples)
@@ -297,16 +320,14 @@ const PreamblePostambleRecordPage: React.FC = () => {
     setIsRecording(false)
     setDetectionStatus('Stopped listening')
     setDetectionStatusType('info')
+    autoGainAdjustmentRef.current = 1.0 // Reset auto-gain adjustment
+    setAutoGainAdjustment(1.0)
   }
 
   const stopRecording = (message?: string) => {
     // Immediately disconnect audio to stop processing
     if (processorRef.current) {
       processorRef.current.disconnect()
-    }
-
-    if (gainNodeRef.current) {
-      gainNodeRef.current.disconnect()
     }
 
     if (sourceRef.current) {
@@ -328,6 +349,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
     isRecordingRef.current = false
     setIsRecording(false)
     setIsListening(false)
+    autoGainAdjustmentRef.current = 1.0 // Reset auto-gain adjustment
+    setAutoGainAdjustment(1.0)
     if (message) {
       setRecordingStatus(message)
       setRecordingStatusType(postambleDetected ? 'success' : 'info')
@@ -504,6 +527,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
     recordedSamplesRef.current = []
     recordingResampleBufferRef.current = []
     postambleDetectorRef.current = null
+    autoGainAdjustmentRef.current = 1.0 // Reset auto-gain adjustment
 
     // Reset all state
     setPreambleDetected(false)
@@ -513,6 +537,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
     setRecordingDuration(0)
     setRecordingStatus(null)
     setDetectionStatus(null)
+    setAutoGainAdjustment(1.0)
   }
 
   return (
@@ -554,26 +579,25 @@ const PreamblePostambleRecordPage: React.FC = () => {
         </div>
 
         <div className="mt-4">
-          <label><strong>Microphone Volume</strong></label>
+          <label><strong>Target Preamble Amplitude</strong></label>
           <div className="flex items-center gap-3 mt-2">
             <input
               type="range"
-              min="0.5"
-              max="3"
+              min="0.1"
+              max="0.9"
               step="0.1"
-              value={volumeGain}
-              onChange={(e) => {
-                const newGain = parseFloat(e.target.value)
-                setVolumeGain(newGain)
-                if (gainNodeRef.current) {
-                  gainNodeRef.current.gain.value = newGain
-                }
-              }}
+              value={targetAmplitude}
+              onChange={(e) => setTargetAmplitude(parseFloat(e.target.value))}
               disabled={isListening}
             />
-            <span>{volumeGain.toFixed(1)}x</span>
+            <span>{targetAmplitude.toFixed(1)}</span>
           </div>
-          <small>Amplify microphone input (0.5x to 3x). Recommended: 1.0x</small>
+          <small>Auto-adjust gain when preamble is detected to reach this amplitude. Recommended: 0.5</small>
+          {autoGainAdjustment !== 1.0 && !isListening && (
+            <div style={{ marginTop: '0.5rem', color: '#059669' }}>
+              Last adjustment: {autoGainAdjustment.toFixed(2)}x
+            </div>
+          )}
         </div>
 
         <div className="mt-4">
