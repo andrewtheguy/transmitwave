@@ -1,4 +1,5 @@
 use crate::error::{AudioModemError, Result};
+use std::cmp::Ordering;
 use std::f32::consts::PI;
 
 // Multi-tone FSK configuration optimized for over-the-air audio transfer
@@ -71,6 +72,27 @@ const FSK_EDGE_TAPER_RATIO: f32 = 0.08; // 8% of the symbol on each side
 
 /// Ensure we always have a minimum attack/decay regardless of speed.
 const FSK_MIN_TAPER_SAMPLES: usize = 64;
+
+/// Number of bins dedicated to each nibble band.
+const FSK_BINS_PER_BAND: usize = 16;
+
+/// Analysis window taper ratio for demodulator signal conditioning.
+const FSK_ANALYSIS_TAPER_RATIO: f32 = 0.06;
+
+/// Minimum taper window used on the demodulator input.
+const FSK_ANALYSIS_MIN_TAPER_SAMPLES: usize = 32;
+
+/// Target RMS level used by the demodulator AGC.
+const FSK_TARGET_RMS: f32 = 0.5;
+
+/// Minimum RMS guard to avoid unstable gain.
+const FSK_MIN_RMS: f32 = 1e-4;
+
+/// Bias applied to the median noise floor estimate before subtraction.
+const FSK_NOISE_FLOOR_EPSILON: f32 = 1e-3;
+
+/// Hard lower bound for the estimated noise floor.
+const FSK_MIN_NOISE_FLOOR: f32 = 1e-6;
 
 /// Calculate frequency for a given bin index
 /// freq_hz = FSK_BASE_FREQ + bin_index * FSK_FREQ_DELTA
@@ -185,7 +207,7 @@ impl FskModulator {
         // Generate and superimpose all 6 tones
         for (nibble_idx, &nibble_val) in nibbles.iter().enumerate() {
             // Each nibble has a dedicated band of 16 frequencies
-            let band_offset = nibble_idx * 16;
+            let band_offset = nibble_idx * FSK_BINS_PER_BAND;
             let bin = band_offset + (nibble_val as usize);
 
             if bin >= FSK_NUM_BINS {
@@ -298,7 +320,8 @@ impl FskDemodulator {
     /// This is more efficient than full FFT since we only need 96 specific bins.
     /// For each bin, we compute the magnitude using Goertzel-like approach.
     fn compute_spectrum(&self, samples: &[f32]) -> Vec<f32> {
-        let n = samples.len();
+        let conditioned = self.preprocess_symbol(samples);
+        let n = conditioned.len();
         let mut spectrum = vec![0.0f32; FSK_NUM_BINS];
 
         for bin in 0..FSK_NUM_BINS {
@@ -307,13 +330,12 @@ impl FskDemodulator {
             let omega = 2.0 * PI * k as f32 / n as f32;
             let coeff = 2.0 * omega.cos();
 
-            let mut q0 = 0.0;
             let mut q1 = 0.0;
             let mut q2 = 0.0;
 
             // Goertzel filter
-            for &sample in samples {
-                q0 = coeff * q1 - q2 + sample;
+            for &sample in &conditioned {
+                let q0 = coeff * q1 - q2 + sample;
                 q2 = q1;
                 q1 = q0;
             }
@@ -324,6 +346,7 @@ impl FskDemodulator {
             spectrum[bin] = real * real + imag * imag;
         }
 
+        self.suppress_band_noise(&mut spectrum);
         spectrum
     }
 
@@ -345,8 +368,8 @@ impl FskDemodulator {
         let mut nibbles = [0u8; FSK_NIBBLES_PER_SYMBOL];
 
         for nibble_idx in 0..FSK_NIBBLES_PER_SYMBOL {
-            let band_start = nibble_idx * 16;
-            let band_end = band_start + 16;
+            let band_start = nibble_idx * FSK_BINS_PER_BAND;
+            let band_end = band_start + FSK_BINS_PER_BAND;
 
             // Find bin with maximum energy in this band
             let mut max_bin_in_band = 0;
@@ -388,6 +411,69 @@ impl FskDemodulator {
         }
 
         Ok(bytes)
+    }
+
+    fn preprocess_symbol(&self, samples: &[f32]) -> Vec<f32> {
+        let mut buffer = samples.to_vec();
+        if buffer.is_empty() {
+            return buffer;
+        }
+
+        // Remove DC so that leakage into low bins does not trip detection.
+        let mean = buffer.iter().sum::<f32>() / buffer.len() as f32;
+        for sample in buffer.iter_mut() {
+            *sample -= mean;
+        }
+
+        let taper_len = self.analysis_taper_length(buffer.len());
+        if taper_len > 0 {
+            let window = raised_cosine_window(buffer.len(), taper_len);
+            for (sample, weight) in buffer.iter_mut().zip(window.iter()) {
+                *sample *= *weight;
+            }
+        }
+
+        // Apply light AGC so we focus on frequency content, not amplitude.
+        let rms = (buffer.iter().map(|&s| s * s).sum::<f32>() / buffer.len() as f32).sqrt();
+        if rms > FSK_MIN_RMS {
+            let gain = FSK_TARGET_RMS / rms;
+            for sample in buffer.iter_mut() {
+                *sample *= gain;
+            }
+        }
+
+        buffer
+    }
+
+    fn analysis_taper_length(&self, len: usize) -> usize {
+        if len == 0 {
+            return 0;
+        }
+        let mut taper = ((len as f32) * FSK_ANALYSIS_TAPER_RATIO).round() as usize;
+        if taper < FSK_ANALYSIS_MIN_TAPER_SAMPLES {
+            taper = FSK_ANALYSIS_MIN_TAPER_SAMPLES;
+        }
+        let half = len / 2;
+        if taper > half {
+            taper = half;
+        }
+        taper
+    }
+
+    fn suppress_band_noise(&self, spectrum: &mut [f32]) {
+        for band_start in (0..FSK_NUM_BINS).step_by(FSK_BINS_PER_BAND) {
+            let band_end = band_start + FSK_BINS_PER_BAND;
+            let band_slice = &mut spectrum[band_start..band_end];
+
+            let mut sorted = band_slice.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+            let median = sorted[sorted.len() / 2];
+            let floor = (median + FSK_NOISE_FLOOR_EPSILON).max(FSK_MIN_NOISE_FLOOR);
+
+            for value in band_slice.iter_mut() {
+                *value = (*value - floor).max(0.0);
+            }
+        }
     }
 }
 
@@ -631,5 +717,33 @@ mod tests {
 
         let samples_odd = vec![0.0; FSK_SYMBOL_SAMPLES + 100];
         assert!(demodulator.demodulate(&samples_odd).is_err());
+    }
+
+    #[test]
+    fn test_fsk_demodulator_gain_invariance() {
+        let mut modulator = FskModulator::new();
+        let demodulator = FskDemodulator::new();
+        let bytes = [0x5A, 0xC3, 0x9F];
+        let samples = modulator.modulate_symbol(&bytes).unwrap();
+
+        for gain in [0.1, 0.5, 1.0, 2.5, 5.0] {
+            let scaled: Vec<f32> = samples.iter().map(|s| s * gain).collect();
+            let decoded = demodulator.demodulate_symbol(&scaled).unwrap();
+            assert_eq!(decoded, bytes, "Failed at gain {}", gain);
+        }
+    }
+
+    #[test]
+    fn test_fsk_demodulator_dc_rejection() {
+        let mut modulator = FskModulator::new();
+        let demodulator = FskDemodulator::new();
+        let bytes = [0x42, 0x01, 0x9C];
+        let base = modulator.modulate_symbol(&bytes).unwrap();
+
+        for offset in [-0.2, 0.3] {
+            let offset_samples: Vec<f32> = base.iter().map(|s| s + offset).collect();
+            let decoded = demodulator.demodulate_symbol(&offset_samples).unwrap();
+            assert_eq!(decoded, bytes, "Failed with offset {}", offset);
+        }
     }
 }
