@@ -5,7 +5,7 @@ import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
 
 const TARGET_SAMPLE_RATE = 16000
-const MIC_PROCESSOR_URL = new URL('../worklets/mic-processor.ts', import.meta.url)
+const MIC_PROCESSOR_URL = new URL('../worklets/mic-processor.ts?url', import.meta.url).href
 type DetectionMode = 'preamble' | 'postamble'
 
 const AmplePage: React.FC = () => {
