@@ -13,6 +13,10 @@ const PREAMBLE_SAMPLES = (TARGET_SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000 // 4
 const PRE_ROLL_MS = 100
 const PRE_ROLL_SAMPLES = (TARGET_SAMPLE_RATE * PRE_ROLL_MS) / 1000 // keep ~0.1s before preamble for safety
 const MIC_PROCESSOR_URL = new URL('../worklets/mic-processor.ts', import.meta.url)
+const AUTO_GAIN_MIN = 0.3
+const AUTO_GAIN_MAX = 12.0
+const AUTO_GAIN_SMOOTHING = 0.25
+const AUTO_GAIN_TOLERANCE = 0.08 // 8% error window before adjusting again
 
 const PreamblePostambleRecordPage: React.FC = () => {
   const navigate = useNavigate()
@@ -31,6 +35,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
     }
     return gainedSample
   }
+
+  const clampGain = (gain: number) => Math.max(AUTO_GAIN_MIN, Math.min(AUTO_GAIN_MAX, gain))
 
   // Detection phase states
   const [isListening, setIsListening] = useState(false)
@@ -230,8 +236,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
             let gainAdjustment = 1.0
             if (preambleAmplitude > 0) {
               gainAdjustment = targetAmplitude / preambleAmplitude
-              // Clamp gain adjustment to reasonable range (0.5x to 5x)
-              gainAdjustment = Math.max(0.5, Math.min(5.0, gainAdjustment))
+              // Clamp gain adjustment to reasonable range
+              gainAdjustment = clampGain(gainAdjustment)
             }
             // Store in both ref (for consistent use in callbacks) and state (for UI display)
             autoGainAdjustmentRef.current = gainAdjustment
@@ -278,8 +284,30 @@ const PreamblePostambleRecordPage: React.FC = () => {
             resampledChunk = resampleAudio(chunk, actualSampleRate, TARGET_SAMPLE_RATE)
           }
 
+          // Dynamically refine gain so we keep hugging the target amplitude even if the
+          // speaker volume shifts mid-frame.
+          const inputRms = calculateRMS(resampledChunk)
+          if (inputRms > 0 && targetAmplitude > 0) {
+            const estimatedOutput = inputRms * autoGainAdjustmentRef.current
+            const errorRatio = Math.abs(estimatedOutput - targetAmplitude) / targetAmplitude
+            if (errorRatio > AUTO_GAIN_TOLERANCE) {
+              const desiredGain = clampGain(targetAmplitude / inputRms)
+              const blendedGain =
+                autoGainAdjustmentRef.current +
+                (desiredGain - autoGainAdjustmentRef.current) * AUTO_GAIN_SMOOTHING
+              const clampedGain = clampGain(blendedGain)
+              if (Math.abs(clampedGain - autoGainAdjustmentRef.current) > 0.01) {
+                autoGainAdjustmentRef.current = clampedGain
+                setAutoGainAdjustment(clampedGain)
+              } else {
+                autoGainAdjustmentRef.current = clampedGain
+              }
+            }
+          }
+
+          const gainToApply = autoGainAdjustmentRef.current
           // Apply auto-gain adjustment and normalize samples with soft clipping
-          const normalizedSamples = resampledChunk.map((sample) => applyAutoGain(sample, autoGainAdjustmentRef.current))
+          const normalizedSamples = resampledChunk.map((sample) => applyAutoGain(sample, gainToApply))
 
           recordedSamplesRef.current.push(...normalizedSamples)
           setRecordingSamples(recordedSamplesRef.current.length)
