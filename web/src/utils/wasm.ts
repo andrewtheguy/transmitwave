@@ -5,12 +5,6 @@
 import init, {
     WasmEncoder,
     WasmDecoder,
-    WasmEncoderSpread,
-    WasmDecoderSpread,
-    WasmEncoderLegacy,
-    WasmDecoderLegacy,
-    WasmEncoderFsk,
-    WasmDecoderFsk,
     PreambleDetector,
     PostambleDetector,
 } from 'transmitwave-wasm';
@@ -74,76 +68,45 @@ export function isWasmInitialized(): boolean {
 
 /**
  * Export WASM classes for use in the application
+ * FSK-only mode: maximum reliability for over-the-air audio transmission
  */
 export {
     WasmEncoder,
     WasmDecoder,
-    WasmEncoderSpread,
-    WasmDecoderSpread,
-    WasmEncoderLegacy,
-    WasmDecoderLegacy,
-    WasmEncoderFsk,
-    WasmDecoderFsk,
     PreambleDetector,
     PostambleDetector,
 };
 
 /**
  * Utility types for WASM encoding/decoding
+ * FSK-only mode for maximum reliability
  */
 export interface EncoderOptions {
-    type?: 'fsk' | 'spread' | 'legacy' | 'chunked';
-    chipDuration?: number;
-    chunkBits?: number;
-    interleaveFactor?: number;
+    // FSK is the only supported mode for over-the-air audio transmission
 }
 
 export interface DecoderOptions {
-    type?: 'fsk' | 'spread' | 'legacy' | 'chunked';
-    chipDuration?: number;
-    chunkBits?: number;
+    // FSK is the only supported mode for over-the-air audio transmission
 }
 
 /**
- * Factory function to create an encoder based on options
- * Default is FSK (Four-Frequency Shift Keying) for maximum reliability
+ * Factory function to create an FSK encoder
+ * FSK-only mode ensures maximum reliability for over-the-air audio transmission
  */
 export async function createEncoder(
     options: EncoderOptions = {}
-): Promise<WasmEncoder | WasmEncoderLegacy | WasmEncoderSpread | WasmEncoderFsk> {
+): Promise<WasmEncoder> {
     await initWasm();
-
-    const { type = 'fsk' } = options;
-
-    if (type === 'legacy') {
-        return new WasmEncoderLegacy();
-    } else if (type === 'spread') {
-        return new WasmEncoderSpread();
-    } else if (type === 'fsk') {
-        return new WasmEncoderFsk();
-    } else {
-        return new WasmEncoder();
-    }
+    return new WasmEncoder();
 }
 
 /**
- * Factory function to create a decoder based on options
- * Default is FSK (Four-Frequency Shift Keying) for maximum reliability
+ * Factory function to create an FSK decoder
+ * FSK-only mode ensures maximum reliability for over-the-air audio transmission
  */
 export async function createDecoder(
     options: DecoderOptions = {}
-): Promise<WasmDecoder | WasmDecoderLegacy | WasmDecoderSpread | WasmDecoderFsk> {
+): Promise<WasmDecoder> {
     await initWasm();
-
-    const { type = 'fsk' } = options;
-
-    if (type === 'legacy') {
-        return new WasmDecoderLegacy();
-    } else if (type === 'spread') {
-        return new WasmDecoderSpread();
-    } else if (type === 'fsk') {
-        return new WasmDecoderFsk();
-    } else {
-        return new WasmDecoder();
-    }
+    return new WasmDecoder();
 }

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { createEncoder, EncoderOptions, WasmEncoder, WasmEncoderLegacy, WasmEncoderSpread } from '../utils/wasm'
+import { createEncoder, EncoderOptions, WasmEncoder } from '../utils/wasm'
 import { createWavBlob } from '../utils/audio'
 
 interface UseEncoderResult {
