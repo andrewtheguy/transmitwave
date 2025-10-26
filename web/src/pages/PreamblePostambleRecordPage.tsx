@@ -8,6 +8,7 @@ const MAX_RECORDING_DURATION = 30
 const TARGET_SAMPLE_RATE = 16000
 const MAX_BUFFER_SAMPLES = 80000 // Listening phase buffer cap (~5 seconds at 16kHz)
 const MAX_RECORDING_SAMPLES = 480000 // Recording phase buffer cap (~30 seconds at 16kHz)
+const MIC_PROCESSOR_URL = new URL('../worklets/mic-processor.ts', import.meta.url)
 
 const PreamblePostambleRecordPage: React.FC = () => {
   const navigate = useNavigate()
@@ -39,7 +40,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const [decodedText, setDecodedText] = useState<string | null>(null)
 
   // Audio I/O refs
-  const processorRef = useRef<ScriptProcessorNode | null>(null)
+  const processorRef = useRef<AudioWorkletNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -92,7 +93,16 @@ const PreamblePostambleRecordPage: React.FC = () => {
       analyser.fftSize = 2048
       analyserRef.current = analyser
 
-      const processor = audioContext.createScriptProcessor(4096, 1, 1)
+      if (!audioContext.audioWorklet) {
+        throw new Error('AudioWorklet API is not supported in this browser')
+      }
+
+      await audioContext.audioWorklet.addModule(MIC_PROCESSOR_URL)
+      const processor = new AudioWorkletNode(audioContext, 'mic-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      })
 
       sourceRef.current = source
       processorRef.current = processor
@@ -139,8 +149,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
       setRecordingDuration(0)
       setRecordingSamples(0)
 
-      processor.onaudioprocess = (event: AudioProcessingEvent) => {
-        const samples: number[] = Array.from(event.inputBuffer.getChannelData(0))
+      processor.port.onmessage = (event: MessageEvent<Float32Array>) => {
+        const samples: number[] = Array.from(event.data)
         const actualSampleRate = audioContextRef.current?.sampleRate || 48000
 
         // Accumulate all raw samples for potential recording
@@ -317,10 +327,20 @@ const PreamblePostambleRecordPage: React.FC = () => {
   }
 
   const stopListening = () => {
-    if (processorRef.current && sourceRef.current && streamRef.current) {
+    if (processorRef.current) {
+      processorRef.current.port.onmessage = null
       processorRef.current.disconnect()
+      processorRef.current = null
+    }
+
+    if (sourceRef.current) {
       sourceRef.current.disconnect()
+      sourceRef.current = null
+    }
+
+    if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
     }
 
     if (volumeUpdateIntervalRef.current) {
@@ -342,15 +362,19 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const stopRecording = (message?: string) => {
     // Immediately disconnect audio to stop processing
     if (processorRef.current) {
+      processorRef.current.port.onmessage = null
       processorRef.current.disconnect()
+      processorRef.current = null
     }
 
     if (sourceRef.current) {
       sourceRef.current.disconnect()
+      sourceRef.current = null
     }
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
     }
 
     if (recordingDurationIntervalRef.current) {
@@ -367,8 +391,15 @@ const PreamblePostambleRecordPage: React.FC = () => {
     autoGainAdjustmentRef.current = 1.0 // Reset auto-gain adjustment
     setAutoGainAdjustment(1.0)
     if (message) {
+      const type = postambleDetected ? 'success' : 'info'
       setRecordingStatus(message)
-      setRecordingStatusType(postambleDetected ? 'success' : 'info')
+      setRecordingStatusType(type)
+      setDetectionStatus(message)
+      setDetectionStatusType(type)
+    } else {
+      setRecordingStatus(null)
+      setDetectionStatus('Ready to listen')
+      setDetectionStatusType('info')
     }
   }
 
@@ -433,6 +464,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
       console.error('Decode error:', error)
       setRecordingStatus(message)
       setRecordingStatusType('error')
+      setDetectionStatus(`Decode error: ${message}`)
+      setDetectionStatusType('error')
     } finally {
       setIsDetecting(false)
     }

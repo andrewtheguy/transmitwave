@@ -4,11 +4,11 @@
 
 import './styles/main.css';
 import { initWasm } from './utils/wasm';
-import { DemoPage } from './pages/demo';
-import { IndexPage } from './pages/index';
-import { MicrophonePage } from './pages/microphone';
-import { PostamblePage } from './pages/postamble';
-import { RecordingDecodePage } from './pages/recording-decode';
+import DemoPage from './pages/DemoPage';
+import IndexPage from './pages/index';
+
+import AmplePage from './pages/AmplePage';
+import PreamblePostambleRecordPage from './pages/PreamblePostambleRecordPage';
 
 /**
  * Application router
@@ -31,19 +31,14 @@ const routes: Route[] = [
         component: () => DemoPage(),
     },
     {
-        path: '/microphone',
-        title: 'Microphone - transmitwave',
-        component: () => MicrophonePage(),
-    },
-    {
         path: '/postamble',
         title: 'Postamble - transmitwave',
-        component: () => PostamblePage(),
+        component: () => AmplePage(),
     },
     {
         path: '/recording-decode',
         title: 'Recording Decode - transmitwave',
-        component: () => RecordingDecodePage(),
+        component: () => PreamblePostambleRecordPage(),
     },
 ];
 

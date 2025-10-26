@@ -2,7 +2,7 @@
  * Landing page component
  */
 
-export function IndexPage(): string {
+export default function IndexPage(): string {
     return `
         <div class="text-center">
             <h1>transmitwave</h1>
