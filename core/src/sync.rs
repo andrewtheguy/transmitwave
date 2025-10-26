@@ -87,8 +87,8 @@ fn amplitude_envelope(t: f32, duration: f32) -> f32 {
         1.0
     } else {
         // Smooth decay: sine-based fade from 1 to 0
-        let decay_progress = (t - sustain_end) / decay_time;
-        (PI / 2.0 + PI * decay_progress / 2.0).cos().powi(2)
+        let decay_progress = ((t - sustain_end) / decay_time).clamp(0.0, 1.0);
+        (PI * decay_progress / 2.0).cos().powi(2)
     }
 }
 
