@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { PostambleDetector, PreambleDetector } from '../utils/wasm'
 import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
+import { getMicProcessorUrl } from '../utils/mic-processor-inline'
 
 const TARGET_SAMPLE_RATE = 16000
-const MIC_PROCESSOR_URL = new URL('../worklets/mic-processor.ts', import.meta.url)
 type DetectionMode = 'preamble' | 'postamble'
 
 const AmplePage: React.FC = () => {
@@ -60,7 +60,7 @@ const AmplePage: React.FC = () => {
         throw new Error('AudioWorklet API is not supported in this browser')
       }
 
-      await audioContext.audioWorklet.addModule(MIC_PROCESSOR_URL)
+      await audioContext.audioWorklet.addModule(getMicProcessorUrl())
       const processor = new AudioWorkletNode(audioContext, 'mic-processor', {
         numberOfInputs: 1,
         numberOfOutputs: 1,
