@@ -8,6 +8,10 @@ const MAX_RECORDING_DURATION = 30
 const TARGET_SAMPLE_RATE = 16000
 const MAX_BUFFER_SAMPLES = 80000 // Listening phase buffer cap (~5 seconds at 16kHz)
 const MAX_RECORDING_SAMPLES = 480000 // Recording phase buffer cap (~30 seconds at 16kHz)
+const PREAMBLE_DURATION_MS = 250
+const PREAMBLE_SAMPLES = (TARGET_SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000 // 4000
+const PRE_ROLL_MS = 100
+const PRE_ROLL_SAMPLES = (TARGET_SAMPLE_RATE * PRE_ROLL_MS) / 1000 // keep ~0.1s before preamble for safety
 const MIC_PROCESSOR_URL = new URL('../worklets/mic-processor.ts', import.meta.url)
 
 const PreamblePostambleRecordPage: React.FC = () => {
@@ -18,6 +22,14 @@ const PreamblePostambleRecordPage: React.FC = () => {
     if (samples.length === 0) return 0
     const sumSquares = samples.reduce((sum, sample) => sum + sample * sample, 0)
     return Math.sqrt(sumSquares / samples.length)
+  }
+
+  const applyAutoGain = (sample: number, gain: number): number => {
+    const gainedSample = sample * gain
+    if (Math.abs(gainedSample) > 1.0) {
+      return Math.sign(gainedSample) * (1.0 - Math.exp(-Math.abs(gainedSample)))
+    }
+    return gainedSample
   }
 
   // Detection phase states
@@ -200,13 +212,18 @@ const PreamblePostambleRecordPage: React.FC = () => {
             setIsRecording(true)
             recordingStartTimeRef.current = Date.now()
 
-            // Use all resampled samples collected so far (includes preamble!)
-            const allResampled = allResampledSamplesRef.current.slice()
+            // Trim buffer to include just a small pre-roll before preamble so we don't
+            // dilute the RMS calculation with long stretches of silence.
+            const preambleWindow = Math.min(PREAMBLE_SAMPLES, allResampledSamplesRef.current.length)
+            const preambleStart = Math.max(0, allResampledSamplesRef.current.length - preambleWindow)
+            const trimmedStart = Math.max(0, preambleStart - PRE_ROLL_SAMPLES)
+            const allResampled = allResampledSamplesRef.current.slice(trimmedStart)
+            const preambleSamples = allResampledSamplesRef.current.slice(preambleStart)
             allResampledSamplesRef.current = [] // Clear for next phase
             resampleBufferRef.current = [] // Clear the raw buffer too
 
-            // Calculate preamble amplitude (RMS of detected preamble)
-            const preambleAmplitude = calculateRMS(allResampled)
+            // Calculate preamble amplitude (RMS of detected preamble only)
+            const preambleAmplitude = calculateRMS(preambleSamples)
 
             // Calculate gain adjustment to reach target amplitude
             // If preamble is 0.2 and target is 0.5, we need to apply 0.5/0.2 = 2.5x gain
@@ -221,15 +238,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
             setAutoGainAdjustment(gainAdjustment)
 
             // Normalize the accumulated resampled samples with gain adjustment
-            const normalizedAccumulated = allResampled.map((sample) => {
-              // Apply gain adjustment first
-              const gainedSample = sample * gainAdjustment
-              // Then apply soft clipping if needed
-              if (Math.abs(gainedSample) > 1.0) {
-                return Math.sign(gainedSample) * (1.0 - Math.exp(-Math.abs(gainedSample)))
-              }
-              return gainedSample
-            })
+            const normalizedAccumulated = allResampled.map((sample) => applyAutoGain(sample, gainAdjustment))
 
             // Start recording with the preamble and everything before it
             recordedSamplesRef.current = normalizedAccumulated
@@ -270,15 +279,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
           }
 
           // Apply auto-gain adjustment and normalize samples with soft clipping
-          const normalizedSamples = resampledChunk.map((sample) => {
-            // Apply the auto-gain adjustment that was calculated from preamble
-            const gainedSample = sample * autoGainAdjustmentRef.current
-            // Then apply soft clipping if needed
-            if (Math.abs(gainedSample) > 1.0) {
-              return Math.sign(gainedSample) * (1.0 - Math.exp(-Math.abs(gainedSample)))
-            }
-            return gainedSample
-          })
+          const normalizedSamples = resampledChunk.map((sample) => applyAutoGain(sample, autoGainAdjustmentRef.current))
 
           recordedSamplesRef.current.push(...normalizedSamples)
           setRecordingSamples(recordedSamplesRef.current.length)
