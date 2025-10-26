@@ -36,7 +36,9 @@ impl FecMode {
             8 => Ok(FecMode::Light),
             16 => Ok(FecMode::Medium),
             32 => Ok(FecMode::Full),
-            _ => Err(AudioModemError::InvalidConfig("Invalid FEC mode".to_string())),
+            _ => Err(AudioModemError::InvalidConfig(
+                "Invalid FEC mode".to_string(),
+            )),
         }
     }
 
@@ -78,19 +80,23 @@ impl FecEncoder {
         let num_original = padded_len / shard_size;
         let num_recovery = (parity_bytes + shard_size - 1) / shard_size;
 
-        let mut encoder = ReedSolomonEncoder::new(num_original, num_recovery, shard_size)
-            .map_err(|_| AudioModemError::InvalidConfig("Failed to create RS encoder".to_string()))?;
+        let mut encoder =
+            ReedSolomonEncoder::new(num_original, num_recovery, shard_size).map_err(|_| {
+                AudioModemError::InvalidConfig("Failed to create RS encoder".to_string())
+            })?;
 
         // Add original shards (each exactly shard_size bytes)
         for i in 0..num_original {
             let start = i * shard_size;
             let end = start + shard_size;
             let shard = &padded_data[start..end];
-            encoder.add_original_shard(shard)
-                .map_err(|_| AudioModemError::FecError("Failed to add original shard".to_string()))?;
+            encoder.add_original_shard(shard).map_err(|_| {
+                AudioModemError::FecError("Failed to add original shard".to_string())
+            })?;
         }
 
-        let result = encoder.encode()
+        let result = encoder
+            .encode()
             .map_err(|_| AudioModemError::FecError("Failed to encode with RS".to_string()))?;
 
         // Build output: first RS_DATA_BYTES of padded data + parity bytes
@@ -102,7 +108,8 @@ impl FecEncoder {
         for recovery_shard in result.recovery_iter().take(num_recovery) {
             let remaining = RS_DATA_BYTES + parity_bytes - parity_offset;
             let to_copy = std::cmp::min(recovery_shard.len(), remaining);
-            encoded[parity_offset..parity_offset + to_copy].copy_from_slice(&recovery_shard[..to_copy]);
+            encoded[parity_offset..parity_offset + to_copy]
+                .copy_from_slice(&recovery_shard[..to_copy]);
             parity_offset += to_copy;
         }
 
@@ -156,10 +163,13 @@ impl FecDecoder {
 
         let mut padded_recovery = vec![0u8; num_recovery * shard_size];
         let recovery_len = std::cmp::min(RS_ECC_BYTES, padded_recovery.len());
-        padded_recovery[..recovery_len].copy_from_slice(&encoded[RS_DATA_BYTES..RS_DATA_BYTES + recovery_len]);
+        padded_recovery[..recovery_len]
+            .copy_from_slice(&encoded[RS_DATA_BYTES..RS_DATA_BYTES + recovery_len]);
 
-        let mut decoder = ReedSolomonDecoder::new(num_original, num_recovery, shard_size)
-            .map_err(|_| AudioModemError::InvalidConfig("Failed to create RS decoder".to_string()))?;
+        let mut decoder =
+            ReedSolomonDecoder::new(num_original, num_recovery, shard_size).map_err(|_| {
+                AudioModemError::InvalidConfig("Failed to create RS decoder".to_string())
+            })?;
 
         // Add available original shards (skip error positions)
         for i in 0..num_original {
@@ -169,8 +179,9 @@ impl FecDecoder {
             let has_error = (start..end).any(|pos| error_positions.contains(&pos));
             if !has_error {
                 let shard = &padded_data[start..end];
-                decoder.add_original_shard(i, shard)
-                    .map_err(|_| AudioModemError::FecError("Failed to add original shard".to_string()))?;
+                decoder.add_original_shard(i, shard).map_err(|_| {
+                    AudioModemError::FecError("Failed to add original shard".to_string())
+                })?;
             }
         }
 
@@ -179,12 +190,14 @@ impl FecDecoder {
             let start = i * shard_size;
             let end = start + shard_size;
             let shard = &padded_recovery[start..end];
-            decoder.add_recovery_shard(i, shard)
-                .map_err(|_| AudioModemError::FecError("Failed to add recovery shard".to_string()))?;
+            decoder.add_recovery_shard(i, shard).map_err(|_| {
+                AudioModemError::FecError("Failed to add recovery shard".to_string())
+            })?;
         }
 
-        let result = decoder.decode()
-            .map_err(|_| AudioModemError::FecError("Failed to reconstruct corrupted data".to_string()))?;
+        let result = decoder.decode().map_err(|_| {
+            AudioModemError::FecError("Failed to reconstruct corrupted data".to_string())
+        })?;
 
         // Extract restored original shards in order
         let mut decoded = vec![0u8; RS_DATA_BYTES];
@@ -379,10 +392,10 @@ mod tests {
 
         // Test various data patterns
         let patterns = vec![
-            vec![0u8; 100],                    // All zeros
-            vec![0xFF; 100],                   // All ones
+            vec![0u8; 100],                                         // All zeros
+            vec![0xFF; 100],                                        // All ones
             (0..100).map(|i| (i % 256) as u8).collect::<Vec<u8>>(), // Incrementing
-            (0..100).map(|_| 42u8).collect::<Vec<u8>>(), // Constant value
+            (0..100).map(|_| 42u8).collect::<Vec<u8>>(),            // Constant value
         ];
 
         for data in patterns {
@@ -423,7 +436,12 @@ mod tests {
             let data: Vec<u8> = (0..*size).map(|i| (i as u8).wrapping_mul(17)).collect();
             let encoded = encoder.encode(&data).unwrap();
             let decoded = decoder.decode(&encoded).unwrap();
-            assert_eq!(&decoded[..*size], data.as_slice(), "Failed for size {}", size);
+            assert_eq!(
+                &decoded[..*size],
+                data.as_slice(),
+                "Failed for size {}",
+                size
+            );
         }
     }
 }

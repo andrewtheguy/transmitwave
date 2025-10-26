@@ -3,24 +3,26 @@
 //! Uses Multi-tone FSK (ggwave-compatible) with Reed-Solomon FEC
 //! for maximum reliability in over-the-air audio transmission
 
+pub mod decoder_fsk;
+pub mod encoder_fsk;
 pub mod error;
 pub mod fec;
-pub mod framing;
 pub mod fft_correlation;
-pub mod sync;
-pub mod resample;
+pub mod framing;
 pub mod fsk;
-pub mod encoder_fsk;
-pub mod decoder_fsk;
+pub mod resample;
+pub mod symbol_redundancy;
+pub mod sync;
 
-pub use encoder_fsk::EncoderFsk;
 pub use decoder_fsk::DecoderFsk;
+pub use encoder_fsk::EncoderFsk;
 pub use error::{AudioModemError, Result};
-pub use fft_correlation::{Mode, fft_correlate_1d};
-pub use sync::{detect_preamble, detect_postamble};
+pub use fec::{FecDecoder, FecEncoder};
+pub use fft_correlation::{fft_correlate_1d, Mode};
+pub use fsk::{FskDemodulator, FskModulator};
 pub use resample::{resample_audio, stereo_to_mono};
-pub use fec::{FecEncoder, FecDecoder};
-pub use fsk::{FskModulator, FskDemodulator};
+pub use symbol_redundancy::SymbolRedundancyMode;
+pub use sync::{detect_postamble, detect_preamble};
 
 // Configuration constants
 pub const SAMPLE_RATE: usize = 16000;

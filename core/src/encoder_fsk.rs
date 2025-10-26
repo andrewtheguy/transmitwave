@@ -1,9 +1,10 @@
 use crate::error::Result;
 use crate::fec::{FecEncoder, FecMode};
-use crate::framing::{Frame, FrameEncoder, crc16};
+use crate::framing::{crc16, Frame, FrameEncoder};
 use crate::fsk::FskModulator;
-use crate::sync::{generate_preamble, generate_postamble_signal};
-use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
+use crate::symbol_redundancy::{self, SymbolRedundancyMode};
+use crate::sync::{generate_postamble_signal, generate_preamble};
+use crate::{MAX_PAYLOAD_SIZE, POSTAMBLE_SAMPLES, PREAMBLE_SAMPLES};
 
 /// Encoder using Multi-tone FSK with Reed-Solomon FEC
 ///
@@ -20,6 +21,7 @@ use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
 pub struct EncoderFsk {
     fsk: FskModulator,
     fec: FecEncoder,
+    symbol_redundancy: SymbolRedundancyMode,
 }
 
 impl EncoderFsk {
@@ -27,7 +29,16 @@ impl EncoderFsk {
         Ok(Self {
             fsk: FskModulator::new(),
             fec: FecEncoder::new()?,
+            symbol_redundancy: SymbolRedundancyMode::Parity,
         })
+    }
+
+    pub fn symbol_redundancy(&self) -> SymbolRedundancyMode {
+        self.symbol_redundancy
+    }
+
+    pub fn set_symbol_redundancy(&mut self, mode: SymbolRedundancyMode) {
+        self.symbol_redundancy = mode;
     }
 
     /// Get the current number of redundant copies per symbol
@@ -98,12 +109,13 @@ impl EncoderFsk {
             encoded_data.extend_from_slice(&fec_chunk[padding_needed..]);
         }
 
-        // Pad encoded data to be a multiple of FSK_BYTES_PER_SYMBOL (3 bytes)
-        // Multi-tone FSK transmits 3 bytes per symbol
-        let remainder = encoded_data.len() % crate::fsk::FSK_BYTES_PER_SYMBOL;
+        let mut symbol_bytes =
+            symbol_redundancy::encode_symbol_bytes(&encoded_data, self.symbol_redundancy);
+
+        let remainder = symbol_bytes.len() % crate::fsk::FSK_BYTES_PER_SYMBOL;
         if remainder != 0 {
             let padding = crate::fsk::FSK_BYTES_PER_SYMBOL - remainder;
-            encoded_data.resize(encoded_data.len() + padding, 0u8);
+            symbol_bytes.resize(symbol_bytes.len() + padding, 0u8);
         }
 
         // Generate preamble signal for synchronization
@@ -111,7 +123,7 @@ impl EncoderFsk {
 
         // Modulate data bytes using multi-tone FSK
         let mut samples = preamble;
-        let fsk_samples = self.fsk.modulate(&encoded_data)?;
+        let fsk_samples = self.fsk.modulate(&symbol_bytes)?;
         samples.extend_from_slice(&fsk_samples);
 
         // Generate postamble signal for frame boundary detection

@@ -190,7 +190,7 @@ mod tests {
         encoded[4] = encoded[4].wrapping_add(1);
 
         match FrameDecoder::decode(&encoded) {
-            Err(AudioModemError::HeaderCrcMismatch) => {}, // Expected
+            Err(AudioModemError::HeaderCrcMismatch) => {} // Expected
             _ => panic!("Expected HeaderCrcMismatch error"),
         }
     }
@@ -211,7 +211,7 @@ mod tests {
         encoded[FRAME_HEADER_SIZE] = b'G';
 
         match FrameDecoder::decode(&encoded) {
-            Err(AudioModemError::PayloadCrcMismatch) => {}, // Expected
+            Err(AudioModemError::PayloadCrcMismatch) => {} // Expected
             _ => panic!("Expected PayloadCrcMismatch error"),
         }
     }
@@ -244,7 +244,7 @@ mod tests {
 
         // This should fail because the payload CRC won't match
         match FrameDecoder::decode(&encoded) {
-            Err(AudioModemError::PayloadCrcMismatch) => {}, // Expected - payload was corrupted
+            Err(AudioModemError::PayloadCrcMismatch) => {} // Expected - payload was corrupted
             _ => panic!("Expected PayloadCrcMismatch error for corrupted payload"),
         }
     }

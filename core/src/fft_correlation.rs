@@ -22,9 +22,9 @@
 //! - scipy.signal.correlate: https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.correlate.html
 //! - numpy.correlate: https://numpy.org/doc/stable/reference/generated/numpy.correlate.html
 
-use std::cell::RefCell;
-use realfft::RealFftPlanner;
 use crate::error::{AudioModemError, Result};
+use realfft::RealFftPlanner;
+use std::cell::RefCell;
 
 thread_local! {
     static FFT_PLANNER: RefCell<RealFftPlanner<f32>> = RefCell::new(RealFftPlanner::new());
@@ -60,7 +60,6 @@ pub enum Mode {
     /// Only fully-overlapping region (signal.len() - template.len() + 1 samples)
     Valid,
 }
-
 
 /// Correlate two 1D signals using FFT
 ///
@@ -126,11 +125,19 @@ pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Result<
 
     // Forward FFT on both signal and template
     debug_assert_eq!(padded_signal.len(), fft_size, "Signal buffer size mismatch");
-    debug_assert_eq!(padded_template.len(), fft_size, "Template buffer size mismatch");
+    debug_assert_eq!(
+        padded_template.len(),
+        fft_size,
+        "Template buffer size mismatch"
+    );
     r2c.process(&mut padded_signal, &mut signal_spectrum)
-        .map_err(|e| AudioModemError::FftError(format!("FFT forward process failed for signal: {:?}", e)))?;
+        .map_err(|e| {
+            AudioModemError::FftError(format!("FFT forward process failed for signal: {:?}", e))
+        })?;
     r2c.process(&mut padded_template, &mut template_spectrum)
-        .map_err(|e| AudioModemError::FftError(format!("FFT forward process failed for template: {:?}", e)))?;
+        .map_err(|e| {
+            AudioModemError::FftError(format!("FFT forward process failed for template: {:?}", e))
+        })?;
 
     // Frequency domain multiplication (element-wise)
     // For correlation, we already reversed template, so just multiply in-place
@@ -140,7 +147,11 @@ pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Result<
 
     // Inverse FFT
     let mut result_time = vec![0.0; fft_size];
-    debug_assert_eq!(signal_spectrum.len(), r2c.make_output_vec().len(), "Spectrum buffer size mismatch");
+    debug_assert_eq!(
+        signal_spectrum.len(),
+        r2c.make_output_vec().len(),
+        "Spectrum buffer size mismatch"
+    );
     debug_assert_eq!(result_time.len(), fft_size, "Output buffer size mismatch");
     c2r.process(&mut signal_spectrum, &mut result_time)
         .map_err(|e| AudioModemError::FftError(format!("FFT inverse process failed: {:?}", e)))?;
@@ -264,7 +275,8 @@ mod tests {
         assert_eq!(valid_result.len(), 5);
 
         // Check that peak is in the center where template fully overlaps with signal
-        let max_idx = valid_result.iter()
+        let max_idx = valid_result
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(i, _)| i)
@@ -308,7 +320,8 @@ mod tests {
                 for i in 0..template.len() {
                     let signal_idx = lag as i32 - (template.len() as i32 - 1) + i as i32;
                     if signal_idx >= 0 && signal_idx < signal.len() as i32 {
-                        correlation += signal[signal_idx as usize] * template[template.len() - 1 - i];
+                        correlation +=
+                            signal[signal_idx as usize] * template[template.len() - 1 - i];
                     }
                 }
                 result[lag] = correlation;
@@ -323,9 +336,16 @@ mod tests {
         let sliding_result = sliding_window_correlate(&signal, &template);
 
         assert_eq!(fft_result.len(), sliding_result.len());
-        for (i, (&fft_val, &sliding_val)) in fft_result.iter().zip(sliding_result.iter()).enumerate() {
-            assert!((fft_val - sliding_val).abs() < 1e-4,
-                "Sample {} mismatch: FFT={}, sliding={}", i, fft_val, sliding_val);
+        for (i, (&fft_val, &sliding_val)) in
+            fft_result.iter().zip(sliding_result.iter()).enumerate()
+        {
+            assert!(
+                (fft_val - sliding_val).abs() < 1e-4,
+                "Sample {} mismatch: FFT={}, sliding={}",
+                i,
+                fft_val,
+                sliding_val
+            );
         }
     }
 
@@ -358,9 +378,21 @@ mod tests {
         let valid = fft_correlate_1d(&signal, &template, Mode::Valid).unwrap();
 
         // All should find peak
-        let full_peak = full.iter().map(|x| x.abs()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-        let same_peak = same.iter().map(|x| x.abs()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-        let valid_peak = valid.iter().map(|x| x.abs()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        let full_peak = full
+            .iter()
+            .map(|x| x.abs())
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        let same_peak = same
+            .iter()
+            .map(|x| x.abs())
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        let valid_peak = valid
+            .iter()
+            .map(|x| x.abs())
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
 
         assert!(full_peak > 100.0);
         assert!(same_peak > 100.0);
@@ -417,8 +449,13 @@ mod tests {
         let result_yx_rev: Vec<f32> = result_yx.iter().rev().cloned().collect();
         // Due to the way correlation is defined, they should match within tolerance
         for (i, (&val_xy, val_yx_rev)) in result_xy.iter().zip(result_yx_rev.iter()).enumerate() {
-            assert!((val_xy - val_yx_rev).abs() < 1e-4,
-                "Mismatch at index {}: {} vs {}", i, val_xy, val_yx_rev);
+            assert!(
+                (val_xy - val_yx_rev).abs() < 1e-4,
+                "Mismatch at index {}: {} vs {}",
+                i,
+                val_xy,
+                val_yx_rev
+            );
         }
     }
 
@@ -460,7 +497,8 @@ mod tests {
 
         let result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
 
-        let max_val = result.iter()
+        let max_val = result
+            .iter()
             .map(|x| x.abs())
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap();
@@ -551,8 +589,16 @@ mod tests {
         }
 
         // Verify peak value is reasonable (should be within reasonable bounds for sine wave correlation)
-        let max_abs = fft_result.iter().map(|x| x.abs()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-        assert!(max_abs < 100.0, "Peak value should be reasonable for sine wave, got {}", max_abs);
+        let max_abs = fft_result
+            .iter()
+            .map(|x| x.abs())
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        assert!(
+            max_abs < 100.0,
+            "Peak value should be reasonable for sine wave, got {}",
+            max_abs
+        );
     }
 
     #[test]
@@ -585,13 +631,16 @@ mod tests {
 
         // Test signal with one very large value (avoiding NaN/Inf which break FFT)
         let mut signal = vec![1.0; 10];
-        signal[5] = 1e10;  // Use large value instead of NaN (NaN breaks FFT validation)
+        signal[5] = 1e10; // Use large value instead of NaN (NaN breaks FFT validation)
         let template = vec![0.5; 3];
 
         let result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
 
         // Result should preserve large values
-        assert!(result.iter().any(|x| *x > 1e8), "Large values should be present in correlation");
+        assert!(
+            result.iter().any(|x| *x > 1e8),
+            "Large values should be present in correlation"
+        );
 
         // Test with negative values
         let mut signal = vec![1.0; 10];
@@ -601,7 +650,10 @@ mod tests {
         let result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
 
         // Result should contain the effect of negative values
-        assert!(result.iter().any(|x| *x < 0.0), "Negative values should propagate through correlation");
+        assert!(
+            result.iter().any(|x| *x < 0.0),
+            "Negative values should propagate through correlation"
+        );
     }
 
     #[test]
@@ -609,8 +661,8 @@ mod tests {
         // Comment 6: Test Mode::Same centering when template is even (ambiguous center)
         // Verify left-biased centering for consistent alignment
 
-        let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];  // length 6
-        let template = vec![0.5, 1.0, 1.5, 2.0];  // length 4 (even)
+        let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // length 6
+        let template = vec![0.5, 1.0, 1.5, 2.0]; // length 4 (even)
 
         let full = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
         let same = fft_correlate_1d(&signal, &template, Mode::Same).unwrap();
@@ -623,8 +675,12 @@ mod tests {
         let start = (output_len - signal.len()) / 2;
 
         for (i, &val) in same.iter().enumerate() {
-            assert!((val - full[start + i]).abs() < 1e-4,
-                "Same mode index {} should match Full mode index {}", i, start + i);
+            assert!(
+                (val - full[start + i]).abs() < 1e-4,
+                "Same mode index {} should match Full mode index {}",
+                i,
+                start + i
+            );
         }
     }
 
@@ -646,11 +702,21 @@ mod tests {
         let sum_sq: f32 = signal.iter().map(|x| x * x).sum();
         let peak = autocorr[n - 1]; // lag 0 is at index n - 1 in Full mode
 
-        assert!((peak - sum_sq).abs() < 0.1, "Autocorr peak {} should equal sum_sq {}", peak, sum_sq);
+        assert!(
+            (peak - sum_sq).abs() < 0.1,
+            "Autocorr peak {} should equal sum_sq {}",
+            peak,
+            sum_sq
+        );
 
         // Peak should be maximum
         for val in &autocorr {
-            assert!(*val <= peak + 1e-4, "Autocorr value {} exceeds peak {}", val, peak);
+            assert!(
+                *val <= peak + 1e-4,
+                "Autocorr value {} exceeds peak {}",
+                val,
+                peak
+            );
         }
 
         // Test Same mode autocorrelation
@@ -658,13 +724,17 @@ mod tests {
         assert_eq!(same_result.len(), n);
 
         // Same mode should have peak at center
-        let same_peak_idx = same_result.iter()
+        let same_peak_idx = same_result
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(i, _)| i)
             .unwrap();
 
-        assert!(same_peak_idx >= n / 2 - 2 && same_peak_idx <= n / 2 + 2,
-            "Same mode peak should be near center, got index {}", same_peak_idx);
+        assert!(
+            same_peak_idx >= n / 2 - 2 && same_peak_idx <= n / 2 + 2,
+            "Same mode peak should be near center, got index {}",
+            same_peak_idx
+        );
     }
 }

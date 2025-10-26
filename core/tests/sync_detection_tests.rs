@@ -1,10 +1,10 @@
-use transmitwave_core::sync::{
-    detect_preamble, detect_postamble, generate_chirp, generate_postamble_chirp,
-    generate_preamble, generate_postamble_signal, barker_code,
-};
-use transmitwave_core::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, fft_correlate_1d, Mode};
 use rand::SeedableRng;
 use rand_distr::Normal;
+use transmitwave_core::sync::{
+    barker_code, detect_postamble, detect_preamble, generate_chirp, generate_postamble_chirp,
+    generate_postamble_signal, generate_preamble,
+};
+use transmitwave_core::{fft_correlate_1d, Mode, POSTAMBLE_SAMPLES, PREAMBLE_SAMPLES};
 
 // ============================================================================
 // SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
@@ -218,7 +218,10 @@ fn test_full_frame_detection() {
 
     // Detect preamble
     let preamble_pos = detect_preamble(&samples, 100.0);
-    assert!(preamble_pos.is_some(), "Failed to detect preamble in full frame");
+    assert!(
+        preamble_pos.is_some(),
+        "Failed to detect preamble in full frame"
+    );
 
     let preamble_idx = preamble_pos.unwrap();
     assert_eq!(
@@ -228,7 +231,10 @@ fn test_full_frame_detection() {
 
     // Detect postamble
     let postamble_pos = detect_postamble(&samples, 100.0);
-    assert!(postamble_pos.is_some(), "Failed to detect postamble in full frame");
+    assert!(
+        postamble_pos.is_some(),
+        "Failed to detect postamble in full frame"
+    );
 
     let postamble_idx = postamble_pos.unwrap();
     let expected_postamble_pos = 2000 + PREAMBLE_SAMPLES + 8000;
@@ -255,7 +261,11 @@ fn test_barker_code_properties() {
 #[test]
 fn test_chirp_generation() {
     let chirp = generate_chirp(16000, 200.0, 4000.0, 1.0);
-    assert_eq!(chirp.len(), 16000, "Chirp length should match requested samples");
+    assert_eq!(
+        chirp.len(),
+        16000,
+        "Chirp length should match requested samples"
+    );
 
     let energy: f32 = chirp.iter().map(|s| s * s).sum();
     assert!(energy > 0.0, "Chirp should have non-zero energy");
@@ -279,7 +289,7 @@ fn test_fft_correlation_index_mapping_with_preamble() {
     // Comment 10: Integration test ensuring sync.rs uses the correct FFT index mapping (i + L-1)
     // Build a short synthetic signal where a template is inserted at known position i0
 
-    let insert_pos = 500;  // Insert template at this position in signal
+    let insert_pos = 500; // Insert template at this position in signal
 
     // Create template using agnostic helper
     let template = create_test_preamble(0.5);
@@ -294,7 +304,8 @@ fn test_fft_correlation_index_mapping_with_preamble() {
     let fft_result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
 
     // Find peak index
-    let peak_idx = fft_result.iter()
+    let peak_idx = fft_result
+        .iter()
         .enumerate()
         .filter(|(_, value)| !value.is_nan())
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
@@ -305,9 +316,11 @@ fn test_fft_correlation_index_mapping_with_preamble() {
     // So if template inserted at position insert_pos, peak should be at insert_pos + template_len - 1
     let expected_peak_idx = insert_pos + template_len - 1;
 
-    assert_eq!(peak_idx, expected_peak_idx,
+    assert_eq!(
+        peak_idx, expected_peak_idx,
         "FFT correlation peak should be at i + L - 1 = {} + {} - 1 = {}, got {}",
-        insert_pos, template_len, expected_peak_idx, peak_idx);
+        insert_pos, template_len, expected_peak_idx, peak_idx
+    );
 
     // Now verify that detect_preamble returns the correct window start position
     let detected = detect_preamble(&signal, 100.0);
@@ -316,9 +329,11 @@ fn test_fft_correlation_index_mapping_with_preamble() {
     let detected_pos = detected.unwrap();
 
     // The detection should find the start of the template
-    assert_eq!(detected_pos, insert_pos,
+    assert_eq!(
+        detected_pos, insert_pos,
         "Preamble should be detected at window start position {}, got {}",
-        insert_pos, detected_pos);
+        insert_pos, detected_pos
+    );
 }
 
 #[test]
@@ -333,7 +348,8 @@ fn test_fft_correlation_index_mapping_with_preamble_noisy() {
     let template_len = template.len();
 
     // Compute template RMS for SNR-relative noise scaling
-    let template_rms: f32 = (template.iter().map(|s| s * s).sum::<f32>() / template.len() as f32).sqrt();
+    let template_rms: f32 =
+        (template.iter().map(|s| s * s).sum::<f32>() / template.len() as f32).sqrt();
 
     // Create signal with template at known position
     let mut signal = vec![0.0; insert_pos];
@@ -353,7 +369,8 @@ fn test_fft_correlation_index_mapping_with_preamble_noisy() {
     // Verify: FFT correlation peak should still be at insert_pos + template_len - 1
     let fft_result = fft_correlate_1d(&signal, &template, Mode::Full).unwrap();
 
-    let peak_idx = fft_result.iter()
+    let peak_idx = fft_result
+        .iter()
         .enumerate()
         .filter(|(_, value)| !value.is_nan())
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
@@ -367,19 +384,26 @@ fn test_fft_correlation_index_mapping_with_preamble_noisy() {
     assert!(
         (peak_idx as i32 - expected_peak_idx as i32).abs() <= tolerance,
         "FFT correlation peak with noise should be near i + L - 1 = {} + {} - 1 = {}, got {}",
-        insert_pos, template_len, expected_peak_idx, peak_idx
+        insert_pos,
+        template_len,
+        expected_peak_idx,
+        peak_idx
     );
 
     // Verify: detect_preamble should still find the template start (±1 sample tolerance)
     let detected = detect_preamble(&signal, 100.0);
 
-    assert!(detected.is_some(), "Preamble should be detected in noisy signal");
+    assert!(
+        detected.is_some(),
+        "Preamble should be detected in noisy signal"
+    );
     let detected_pos = detected.unwrap();
 
     // Allow ±1 sample tolerance for detection in noisy conditions
     assert!(
         (detected_pos as i32 - insert_pos as i32).abs() <= tolerance,
         "Preamble in noisy signal should be detected near window start position {}, got {}",
-        insert_pos, detected_pos
+        insert_pos,
+        detected_pos
     );
 }

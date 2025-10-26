@@ -10,7 +10,7 @@
 // The slowness is inherent to preamble/postamble detection, not a bug.
 // ============================================================================
 
-use transmitwave_core::{EncoderFsk, DecoderFsk};
+use transmitwave_core::{DecoderFsk, EncoderFsk};
 
 // ============================================================================
 // Multi-tone FSK (ggwave-compatible) Integration Tests
@@ -32,8 +32,14 @@ fn test_fsk_encode_decode_round_trip() {
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
     let decoded_data = decoder.decode(&samples).expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Decoded data doesn't match original");
-    println!("FSK: Successfully decoded: {:?}", String::from_utf8_lossy(&decoded_data));
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Decoded data doesn't match original"
+    );
+    println!(
+        "FSK: Successfully decoded: {:?}",
+        String::from_utf8_lossy(&decoded_data)
+    );
 }
 
 #[test]
@@ -46,7 +52,10 @@ fn test_fsk_encode_decode_max_size() {
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
     let decoded_data = decoder.decode(&samples).expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Large payload round-trip failed");
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Large payload round-trip failed"
+    );
 }
 
 #[test]
@@ -59,7 +68,10 @@ fn test_fsk_encode_decode_binary_data() {
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
     let decoded_data = decoder.decode(&samples).expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Binary data round-trip failed");
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Binary data round-trip failed"
+    );
 }
 
 #[test]
@@ -72,7 +84,10 @@ fn test_fsk_encode_decode_empty_data() {
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
     let decoded_data = decoder.decode(&samples).expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Empty data round-trip failed");
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Empty data round-trip failed"
+    );
 }
 
 #[test]
@@ -87,9 +102,14 @@ fn test_fsk_with_leading_silence() {
     augmented_samples.extend_from_slice(&samples);
 
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
-    let decoded_data = decoder.decode(&augmented_samples).expect("Failed to decode");
+    let decoded_data = decoder
+        .decode(&augmented_samples)
+        .expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Leading silence test failed");
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Leading silence test failed"
+    );
 }
 
 #[test]
@@ -104,9 +124,14 @@ fn test_fsk_with_trailing_silence() {
     augmented_samples.extend_from_slice(&vec![0.0; 16000]);
 
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
-    let decoded_data = decoder.decode(&augmented_samples).expect("Failed to decode");
+    let decoded_data = decoder
+        .decode(&augmented_samples)
+        .expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Trailing silence test failed");
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Trailing silence test failed"
+    );
 }
 
 #[test]
@@ -127,9 +152,14 @@ fn test_fsk_with_leading_noise() {
     augmented_samples.extend_from_slice(&samples);
 
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
-    let decoded_data = decoder.decode(&augmented_samples).expect("Failed to decode");
+    let decoded_data = decoder
+        .decode(&augmented_samples)
+        .expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Leading noise test failed");
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Leading noise test failed"
+    );
 }
 
 #[test]
@@ -171,16 +201,19 @@ fn test_fsk_with_heavy_data_noise() {
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
     let decoded_data = decoder.decode(&samples).expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Heavy data noise test failed");
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Heavy data noise test failed"
+    );
 }
 
 #[test]
 fn test_fsk_binary_patterns() {
     let test_patterns = vec![
-        vec![0xFF; 20],         // All ones
-        vec![0x00; 20],         // All zeros
-        vec![0xAA; 20],         // Alternating bits (10101010)
-        vec![0x55; 20],         // Alternating bits (01010101)
+        vec![0xFF; 20],                                // All ones
+        vec![0x00; 20],                                // All zeros
+        vec![0xAA; 20],                                // Alternating bits (10101010)
+        vec![0x55; 20],                                // Alternating bits (01010101)
         (0..50).map(|i| i as u8).collect::<Vec<u8>>(), // Various values
     ];
 
@@ -191,7 +224,11 @@ fn test_fsk_binary_patterns() {
         let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
         let decoded = decoder.decode(&samples).expect("Failed to decode");
 
-        assert_eq!(decoded, pattern, "FSK: Binary pattern test failed for pattern: {:?}", pattern);
+        assert_eq!(
+            decoded, pattern,
+            "FSK: Binary pattern test failed for pattern: {:?}",
+            pattern
+        );
     }
 }
 
@@ -216,9 +253,14 @@ fn test_fsk_medium_payload_with_noise_and_silence() {
     }
 
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
-    let decoded_data = decoder.decode(&augmented_samples).expect("Failed to decode");
+    let decoded_data = decoder
+        .decode(&augmented_samples)
+        .expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Medium payload with noise/silence test failed");
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Medium payload with noise/silence test failed"
+    );
 }
 
 #[test]
@@ -243,9 +285,14 @@ fn test_fsk_max_payload_with_noise_and_silence() {
     }
 
     let mut decoder = DecoderFsk::new().expect("Failed to create FSK decoder");
-    let decoded_data = decoder.decode(&augmented_samples).expect("Failed to decode");
+    let decoded_data = decoder
+        .decode(&augmented_samples)
+        .expect("Failed to decode");
 
-    assert_eq!(decoded_data, original_data, "FSK: Max payload with noise/silence test failed");
+    assert_eq!(
+        decoded_data, original_data,
+        "FSK: Max payload with noise/silence test failed"
+    );
 }
 
 #[test]

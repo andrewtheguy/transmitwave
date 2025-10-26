@@ -1,16 +1,20 @@
+use axum::extract::State;
 use axum::{
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
-use clap::{Parser, Subcommand};
+use base64::Engine;
+use clap::{Parser, Subcommand, ValueEnum};
 use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use transmitwave_core::{DecoderFsk, EncoderFsk, resample_audio, stereo_to_mono, SAMPLE_RATE};
+use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use base64::Engine;
+use transmitwave_core::{
+    resample_audio, stereo_to_mono, DecoderFsk, EncoderFsk, SymbolRedundancyMode, SAMPLE_RATE,
+};
 
 // ============================================================================
 // ENCODER/DECODER CONFIGURATION
@@ -79,6 +83,30 @@ struct Cli {
     /// Port for web server (default: 8000)
     #[arg(long, default_value = "8000")]
     port: u16,
+
+    /// Symbol redundancy strategy (parity uses 2 data + 1 parity byte per symbol)
+    #[arg(long = "symbol-redundancy", value_enum, default_value_t = RedundancyArg::Parity)]
+    symbol_redundancy: RedundancyArg,
+}
+
+#[derive(Clone)]
+struct ServerState {
+    symbol_mode: SymbolRedundancyMode,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum RedundancyArg {
+    Parity,
+    None,
+}
+
+impl From<RedundancyArg> for SymbolRedundancyMode {
+    fn from(value: RedundancyArg) -> Self {
+        match value {
+            RedundancyArg::Parity => SymbolRedundancyMode::Parity,
+            RedundancyArg::None => SymbolRedundancyMode::None,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -123,23 +151,28 @@ enum Commands {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    let symbol_mode: SymbolRedundancyMode = cli.symbol_redundancy.into();
 
     // Check if web server should be started
     if cli.server {
-        return start_web_server(cli.port);
+        return start_web_server(cli.port, symbol_mode);
     }
 
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
-            Commands::Encode { input, output, redundancy } => {
-                encode_fsk_command(&input, &output, redundancy)?
-            }
-            Commands::Decode { input, output, redundancy } => {
-                decode_fsk_command(&input, &output, redundancy)?
-            }
+            Commands::Encode {
+                input,
+                output,
+                redundancy,
+            } => encode_fsk_command(&input, &output, redundancy, symbol_mode)?,
+            Commands::Decode {
+                input,
+                output,
+                redundancy,
+            } => decode_fsk_command(&input, &output, redundancy, symbol_mode)?,
             Commands::Server { port } => {
-                return start_web_server(port);
+                return start_web_server(port, symbol_mode);
             }
         }
         return Ok(());
@@ -160,9 +193,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if mode == "encode" || mode == "enc" {
-            encode_fsk_command(&input, &output, 2)?
+            encode_fsk_command(&input, &output, 2, symbol_mode)?
         } else if mode == "decode" || mode == "dec" {
-            decode_fsk_command(&input, &output, 2)?
+            decode_fsk_command(&input, &output, 2, symbol_mode)?
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
             std::process::exit(1);
@@ -179,6 +212,7 @@ fn encode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
     redundancy: usize,
+    symbol_mode: SymbolRedundancyMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read input binary file
     let data = std::fs::read(input_path)?;
@@ -187,6 +221,7 @@ fn encode_fsk_command(
     // Create FSK encoder and encode data
     let mut encoder = EncoderFsk::new()?;
     encoder.set_redundancy_copies(redundancy);
+    encoder.set_symbol_redundancy(symbol_mode);
     let samples = encoder.encode(&data)?;
     println!(
         "Encoded with multi-tone FSK to {} audio samples",
@@ -221,6 +256,7 @@ fn decode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
     redundancy: usize,
+    symbol_mode: SymbolRedundancyMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
     let file = File::open(input_path)?;
@@ -263,7 +299,10 @@ fn decode_fsk_command(
 
     // Resample to 16kHz if needed
     if spec.sample_rate != SAMPLE_RATE as u32 {
-        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
+        println!(
+            "Resampling from {} Hz to {} Hz...",
+            spec.sample_rate, SAMPLE_RATE
+        );
         samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
         println!("Resampled to {} samples", samples.len());
     }
@@ -271,6 +310,7 @@ fn decode_fsk_command(
     // Decode with FSK
     let mut decoder = DecoderFsk::new()?;
     decoder.set_redundancy_copies(redundancy);
+    decoder.set_symbol_redundancy(symbol_mode);
     let data = decoder.decode(&samples)?;
     println!("Decoded {} bytes with multi-tone FSK", data.len());
 
@@ -282,18 +322,24 @@ fn decode_fsk_command(
 }
 
 #[tokio::main]
-async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+async fn start_web_server(
+    port: u16,
+    symbol_mode: SymbolRedundancyMode,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting transmitwave server on http://localhost:{}", port);
     println!("Endpoints:");
     println!("  POST /encode - Encode binary data to WAV with multi-tone FSK (ggwave-compatible)");
     println!("  POST /decode - Decode WAV to binary data with FSK");
     println!("  GET / - Server status");
 
+    let state = Arc::new(ServerState { symbol_mode });
+
     let app = Router::new()
         .route("/", get(handler_status))
         .route("/encode", post(handler_encode))
         .route("/decode", post(handler_decode))
-        .layer(CorsLayer::permissive());
+        .layer(CorsLayer::permissive())
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     axum::serve(listener, app).await?;
@@ -302,10 +348,12 @@ async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handler_status() -> String {
-    "transmitwave server with multi-tone FSK (ggwave-compatible) encoding/decoding - Ready".to_string()
+    "transmitwave server with multi-tone FSK (ggwave-compatible) encoding/decoding - Ready"
+        .to_string()
 }
 
 async fn handler_encode(
+    State(state): State<Arc<ServerState>>,
     Json(req): Json<EncodeRequest>,
 ) -> Result<Json<EncodeResponse>, (StatusCode, Json<EncodeResponse>)> {
     let data = base64::engine::general_purpose::STANDARD
@@ -337,8 +385,8 @@ async fn handler_encode(
         .map_err(|e| e.to_string())
         .and_then(|mut encoder| {
             encoder.set_redundancy_copies(req.redundancy);
-            encoder.encode(&data)
-                .map_err(|e| e.to_string())
+            encoder.set_symbol_redundancy(state.symbol_mode);
+            encoder.encode(&data).map_err(|e| e.to_string())
         });
 
     match encode_result {
@@ -420,6 +468,7 @@ async fn handler_encode(
 }
 
 async fn handler_decode(
+    State(state): State<Arc<ServerState>>,
     Json(req): Json<DecodeRequest>,
 ) -> Result<Json<DecodeResponse>, (StatusCode, Json<DecodeResponse>)> {
     let wav_data = base64::engine::general_purpose::STANDARD
@@ -452,36 +501,32 @@ async fn handler_decode(
         Ok(mut reader) => {
             let spec = reader.spec();
             let samples: Vec<f32> = match spec.bits_per_sample {
-                16 => {
-                    match reader.samples::<i16>().collect::<Result<Vec<_>, _>>() {
-                        Ok(int_samples) => int_samples.iter().map(|s| *s as f32 / 32768.0).collect(),
-                        Err(e) => {
-                            return Err((
-                                StatusCode::BAD_REQUEST,
-                                Json(DecodeResponse {
-                                    success: false,
-                                    message: format!("Failed to read i16 samples: {}", e),
-                                    data: None,
-                                }),
-                            ));
-                        }
+                16 => match reader.samples::<i16>().collect::<Result<Vec<_>, _>>() {
+                    Ok(int_samples) => int_samples.iter().map(|s| *s as f32 / 32768.0).collect(),
+                    Err(e) => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(DecodeResponse {
+                                success: false,
+                                message: format!("Failed to read i16 samples: {}", e),
+                                data: None,
+                            }),
+                        ));
                     }
-                }
-                32 => {
-                    match reader.samples::<f32>().collect::<Result<Vec<_>, _>>() {
-                        Ok(samples) => samples,
-                        Err(e) => {
-                            return Err((
-                                StatusCode::BAD_REQUEST,
-                                Json(DecodeResponse {
-                                    success: false,
-                                    message: format!("Failed to read f32 samples: {}", e),
-                                    data: None,
-                                }),
-                            ));
-                        }
+                },
+                32 => match reader.samples::<f32>().collect::<Result<Vec<_>, _>>() {
+                    Ok(samples) => samples,
+                    Err(e) => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(DecodeResponse {
+                                success: false,
+                                message: format!("Failed to read f32 samples: {}", e),
+                                data: None,
+                            }),
+                        ));
                     }
-                }
+                },
                 _ => {
                     return Err((
                         StatusCode::BAD_REQUEST,
@@ -495,23 +540,22 @@ async fn handler_decode(
             };
 
             // Use FSK decoder (default for maximum reliability)
-            let decode_result = DecoderFsk::new()
-                .map_err(|e| e.to_string())
-                .and_then(|mut decoder| {
-                    decoder.set_redundancy_copies(req.redundancy);
-                    decoder.decode(&samples)
-                        .map_err(|e| e.to_string())
-                });
+            let decode_result =
+                DecoderFsk::new()
+                    .map_err(|e| e.to_string())
+                    .and_then(|mut decoder| {
+                        decoder.set_redundancy_copies(req.redundancy);
+                        decoder.set_symbol_redundancy(state.symbol_mode);
+                        decoder.decode(&samples).map_err(|e| e.to_string())
+                    });
 
             match decode_result {
                 Ok(decoded_data) => {
-                    let data_base64 = base64::engine::general_purpose::STANDARD.encode(&decoded_data);
+                    let data_base64 =
+                        base64::engine::general_purpose::STANDARD.encode(&decoded_data);
                     Ok(Json(DecodeResponse {
                         success: true,
-                        message: format!(
-                            "Decoded {} bytes",
-                            decoded_data.len()
-                        ),
+                        message: format!("Decoded {} bytes", decoded_data.len()),
                         data: Some(data_base64),
                     }))
                 }
@@ -535,4 +579,3 @@ async fn handler_decode(
         )),
     }
 }
-

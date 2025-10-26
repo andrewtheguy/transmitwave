@@ -2,9 +2,10 @@ use crate::error::{AudioModemError, Result};
 use crate::fec::{FecDecoder, FecMode};
 use crate::framing::FrameDecoder;
 use crate::fsk::FskDemodulator;
+use crate::fsk::FSK_SYMBOL_SAMPLES;
+use crate::symbol_redundancy::{self, SymbolRedundancyMode};
 use crate::sync::{detect_postamble, detect_preamble};
 use crate::PREAMBLE_SAMPLES;
-use crate::fsk::FSK_SYMBOL_SAMPLES;
 
 /// Decoder using Multi-tone FSK with Reed-Solomon FEC
 ///
@@ -14,6 +15,7 @@ use crate::fsk::FSK_SYMBOL_SAMPLES;
 pub struct DecoderFsk {
     fsk: FskDemodulator,
     fec: FecDecoder,
+    symbol_redundancy: SymbolRedundancyMode,
 }
 
 impl DecoderFsk {
@@ -21,7 +23,16 @@ impl DecoderFsk {
         Ok(Self {
             fsk: FskDemodulator::new(),
             fec: FecDecoder::new()?,
+            symbol_redundancy: SymbolRedundancyMode::Parity,
         })
+    }
+
+    pub fn symbol_redundancy(&self) -> SymbolRedundancyMode {
+        self.symbol_redundancy
+    }
+
+    pub fn set_symbol_redundancy(&mut self, mode: SymbolRedundancyMode) {
+        self.symbol_redundancy = mode;
     }
 
     /// Get the current number of redundant copies per symbol
@@ -46,8 +57,8 @@ impl DecoderFsk {
         }
 
         // Detect preamble to find start of data
-        let preamble_pos = detect_preamble(samples, 500.0)
-            .ok_or(AudioModemError::PreambleNotFound)?;
+        let preamble_pos =
+            detect_preamble(samples, 500.0).ok_or(AudioModemError::PreambleNotFound)?;
 
         // Data starts after preamble
         let data_start = preamble_pos + PREAMBLE_SAMPLES;
@@ -58,8 +69,8 @@ impl DecoderFsk {
 
         // Try to detect postamble to find end of data
         let remaining = &samples[data_start..];
-        let postamble_pos = detect_postamble(remaining, 100.0)
-            .ok_or(AudioModemError::PostambleNotFound)?;
+        let postamble_pos =
+            detect_postamble(remaining, 100.0).ok_or(AudioModemError::PostambleNotFound)?;
 
         let data_end = data_start + postamble_pos;
 
@@ -76,7 +87,8 @@ impl DecoderFsk {
         let fsk_samples = &fsk_region[..valid_samples];
 
         // Demodulate multi-tone FSK symbols to bytes
-        let bytes = self.fsk.demodulate(fsk_samples)?;
+        let channel_bytes = self.fsk.demodulate(fsk_samples)?;
+        let bytes = symbol_redundancy::decode_symbol_bytes(&channel_bytes, self.symbol_redundancy)?;
 
         if bytes.len() < 2 {
             return Err(AudioModemError::InvalidFrameSize);
@@ -110,11 +122,13 @@ impl DecoderFsk {
                     // Check if this produces a valid header
                     let decoded_data = &decoded_chunk[padding_needed_first..];
                     if decoded_data.len() >= 8 {
-                        if let Ok((_, _, fec_mode_byte)) = FrameDecoder::decode_header(decoded_data) {
+                        if let Ok((_, _, fec_mode_byte)) = FrameDecoder::decode_header(decoded_data)
+                        {
                             if let Ok(parsed_mode) = FecMode::from_u8(fec_mode_byte) {
                                 if parsed_mode == mode {
                                     // Found the correct FEC mode!
-                                    decoded_first_block = Some((decoded_data.to_vec(), encoded_len));
+                                    decoded_first_block =
+                                        Some((decoded_data.to_vec(), encoded_len));
                                     detected_fec_mode = mode;
                                     break;
                                 }
@@ -125,8 +139,8 @@ impl DecoderFsk {
             }
         }
 
-        let (first_decoded, first_encoded_len) = decoded_first_block
-            .ok_or(AudioModemError::FecDecodeFailure)?;
+        let (first_decoded, first_encoded_len) =
+            decoded_first_block.ok_or(AudioModemError::FecDecodeFailure)?;
 
         // Now decode remaining blocks using the detected FEC mode
         let mut decoded_data = first_decoded;
@@ -310,10 +324,10 @@ mod tests {
 
         // Test with repeating byte patterns
         let patterns = vec![
-            vec![0x00; 20],      // All zeros
-            vec![0xFF; 20],      // All ones
-            vec![0xAA; 20],      // Alternating bits
-            vec![0x55; 20],      // Alternating bits (inverse)
+            vec![0x00; 20], // All zeros
+            vec![0xFF; 20], // All ones
+            vec![0xAA; 20], // Alternating bits
+            vec![0x55; 20], // Alternating bits (inverse)
         ];
 
         for data in patterns {

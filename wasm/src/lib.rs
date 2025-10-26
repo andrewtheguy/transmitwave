@@ -1,5 +1,5 @@
+use transmitwave_core::{detect_postamble, detect_preamble, DecoderFsk, EncoderFsk};
 use wasm_bindgen::prelude::*;
-use transmitwave_core::{DecoderFsk, EncoderFsk, detect_preamble, detect_postamble};
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
@@ -17,9 +17,7 @@ impl WasmEncoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmEncoder, JsValue> {
         EncoderFsk::new()
-            .map(|encoder| WasmEncoder {
-                inner: encoder,
-            })
+            .map(|encoder| WasmEncoder { inner: encoder })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -56,9 +54,7 @@ impl WasmDecoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmDecoder, JsValue> {
         DecoderFsk::new()
-            .map(|decoder| WasmDecoder {
-                inner: decoder,
-            })
+            .map(|decoder| WasmDecoder { inner: decoder })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -84,7 +80,6 @@ impl WasmDecoder {
         self.inner.set_redundancy_copies(copies);
     }
 }
-
 
 // ============================================================================
 // SIGNAL DETECTION (PREAMBLE & POSTAMBLE)
@@ -161,7 +156,11 @@ impl PreambleDetector {
     #[wasm_bindgen(constructor)]
     pub fn new(threshold: f32) -> PreambleDetector {
         PreambleDetector {
-            detector: SignalDetector::new(threshold, transmitwave_core::PREAMBLE_SAMPLES, detect_preamble),
+            detector: SignalDetector::new(
+                threshold,
+                transmitwave_core::PREAMBLE_SAMPLES,
+                detect_preamble,
+            ),
         }
     }
 
@@ -217,7 +216,11 @@ impl PostambleDetector {
     #[wasm_bindgen(constructor)]
     pub fn new(threshold: f32) -> PostambleDetector {
         PostambleDetector {
-            detector: SignalDetector::new(threshold, transmitwave_core::POSTAMBLE_SAMPLES, detect_postamble),
+            detector: SignalDetector::new(
+                threshold,
+                transmitwave_core::POSTAMBLE_SAMPLES,
+                detect_postamble,
+            ),
         }
     }
 
@@ -258,7 +261,6 @@ impl PostambleDetector {
         self.detector.set_threshold(threshold);
     }
 }
-
 
 #[wasm_bindgen(start)]
 pub fn init() {
