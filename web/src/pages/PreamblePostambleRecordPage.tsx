@@ -295,10 +295,15 @@ const PreamblePostambleRecordPage: React.FC = () => {
               postambleSearchStartRef.current = recordedSamplesRef.current.length
 
               if (postamblePos >= 0) {
-                // Postamble detected - stop recording
+                // Postamble detected - stop recording and auto-decode
                 isRecordingRef.current = false
                 setPostambleDetected(true)
                 stopRecording('Recording stopped (postamble detected)')
+
+                // Trigger auto-decode after a brief delay to ensure state is updated
+                setTimeout(() => {
+                  decodeRecordedAudio()
+                }, 100)
               }
             }
           }
@@ -395,97 +400,39 @@ const PreamblePostambleRecordPage: React.FC = () => {
     }
   }
 
-  const processDetectAndDecode = async () => {
+  const decodeRecordedAudio = async () => {
     if (recordedSamplesRef.current.length === 0) {
-      setDetectionStatus('No audio recorded to detect')
-      setDetectionStatusType('error')
+      setRecordingStatus('No audio recorded to decode')
+      setRecordingStatusType('error')
       return
     }
 
     try {
       setIsDetecting(true)
-      setDetectionStatus('Processing...')
-      setDetectionStatusType('info')
+      setRecordingStatus('Decoding...')
+      setRecordingStatusType('info')
 
       // recordedSamplesRef.current is already normalized and resampled to 16kHz
-      // Do NOT resample again - use it directly
       const resampledSamples = recordedSamplesRef.current
 
-      // Detect preamble if not already detected
-      let preamblePos = -1
-      if (!preambleDetected) {
-        setDetectionStatus('Detecting preamble...')
-        const preambleDetectorInst = new PreambleDetector(threshold)
-        preamblePos = preambleDetectorInst.add_samples(new Float32Array(resampledSamples))
-
-        if (preamblePos === -1) {
-          setDetectionStatus('Preamble not detected. Try adjusting threshold.')
-          setDetectionStatusType('error')
-          setIsDetecting(false)
-          return
-        }
-      } else {
-        // If preamble was detected during recording, it's at the start of our recorded buffer
-        preamblePos = 0
-      }
-
-      // Detect postamble if not already detected
-      let postambleDetectedInDecode = postambleDetected
-      if (!postambleDetected) {
-        setDetectionStatus('Detecting postamble...')
-        const detector = new PostambleDetector(threshold)
-        const postambleSearchStart = Math.max(0, preamblePos + 8000)
-        if (postambleSearchStart >= resampledSamples.length) {
-          setDetectionStatus('Not enough audio after preamble for postamble detection')
-          setDetectionStatusType('error')
-          setIsDetecting(false)
-          return
-        }
-
-        const postambleSegment = resampledSamples.slice(postambleSearchStart)
-        const postamblePos = detector.add_samples(new Float32Array(postambleSegment))
-
-        if (postamblePos === -1) {
-          // Try with lower threshold for postamble detection
-          setDetectionStatus('Postamble not found with current threshold, trying lower threshold...')
-          const lowerThreshold = Math.max(0.1, threshold - 0.1)
-          const detector2 = new PostambleDetector(lowerThreshold)
-          const postamblePos2 = detector2.add_samples(new Float32Array(postambleSegment))
-
-          if (postamblePos2 === -1) {
-            setDetectionStatus('Postamble not detected. Try adjusting threshold or check audio quality.')
-            setDetectionStatusType('warning')
-            // Continue with decode anyway - postamble is optional
-          } else {
-            postambleDetectedInDecode = true
-            setPostambleDetected(true)
-            setDetectionStatus('Postamble detected (with lower threshold). Decoding...')
-          }
-        } else {
-          postambleDetectedInDecode = true
-          setPostambleDetected(true)
-        }
-      }
-
       // Decode
-      setDetectionStatus('Decoding...')
       const decoder = await createDecoder()
       const data = decoder.decode(new Float32Array(resampledSamples))
       const text = new TextDecoder().decode(data)
 
       setDecodedText(text)
-      setDetectionStatus(`Decoded successfully: "${text}"`)
-      setDetectionStatusType('success')
+      setRecordingStatus(`Decoded successfully: "${text}"`)
+      setRecordingStatusType('success')
     } catch (error) {
-      let message = 'Detection/decode failed'
+      let message = 'Decode failed'
       if (error instanceof Error) {
         message = error.message
       } else if (typeof error === 'string') {
         message = error
       }
-      console.error('Detection/decode error:', error)
-      setDetectionStatus(message)
-      setDetectionStatusType('error')
+      console.error('Decode error:', error)
+      setRecordingStatus(message)
+      setRecordingStatusType('error')
     } finally {
       setIsDetecting(false)
     }
@@ -689,11 +636,11 @@ const PreamblePostambleRecordPage: React.FC = () => {
               💾 Download WAV
             </button>
             <button
-              onClick={processDetectAndDecode}
+              onClick={decodeRecordedAudio}
               disabled={isDetecting}
               className="btn-primary w-full"
             >
-              {isDetecting ? 'Detecting...' : '🔍 Detect & Decode'}
+              {isDetecting ? 'Decoding...' : '🔍 Decode'}
             </button>
           </div>
 
