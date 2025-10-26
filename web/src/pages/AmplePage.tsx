@@ -5,6 +5,7 @@ import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
 
 const TARGET_SAMPLE_RATE = 16000
+const MIC_PROCESSOR_URL = new URL('../worklets/mic-processor.ts', import.meta.url)
 type DetectionMode = 'preamble' | 'postamble'
 
 const AmplePage: React.FC = () => {
@@ -18,7 +19,7 @@ const AmplePage: React.FC = () => {
   const [requiredSize, setRequiredSize] = useState(0)
   const [detections, setDetections] = useState<string[]>([])
 
-  const processorRef = useRef<ScriptProcessorNode | null>(null)
+  const processorRef = useRef<AudioWorkletNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const detectorRef = useRef<PostambleDetector | PreambleDetector | null>(null)
@@ -55,7 +56,16 @@ const AmplePage: React.FC = () => {
       analyser.fftSize = 2048
       analyserRef.current = analyser
 
-      const processor = audioContext.createScriptProcessor(4096, 1, 1)
+      if (!audioContext.audioWorklet) {
+        throw new Error('AudioWorklet API is not supported in this browser')
+      }
+
+      await audioContext.audioWorklet.addModule(MIC_PROCESSOR_URL)
+      const processor = new AudioWorkletNode(audioContext, 'mic-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      })
 
       sourceRef.current = source
       processorRef.current = processor
@@ -91,8 +101,8 @@ const AmplePage: React.FC = () => {
       setRequiredSize(requiredSizeValue)
       setDetections([])
 
-      processor.onaudioprocess = (event: AudioProcessingEvent) => {
-        const samples = Array.from((event as any).inputBuffer.getChannelData(0))
+      processor.port.onmessage = (event: MessageEvent<Float32Array>) => {
+        const samples = Array.from(event.data)
 
         // Resample audio to 16kHz for consistent detection
         const actualSampleRate = audioContextRef.current?.sampleRate || 48000
@@ -157,15 +167,37 @@ const AmplePage: React.FC = () => {
   }
 
   const stopListening = () => {
-    if (processorRef.current && sourceRef.current && streamRef.current) {
+    if (processorRef.current) {
+      processorRef.current.port.onmessage = null
       processorRef.current.disconnect()
+      processorRef.current = null
+    }
+
+    if (analyserRef.current) {
+      analyserRef.current.disconnect()
+    }
+
+    if (gainNodeRef.current) {
+      gainNodeRef.current.disconnect()
+      gainNodeRef.current = null
+    }
+
+    if (sourceRef.current) {
       sourceRef.current.disconnect()
+      sourceRef.current = null
+    }
+
+    if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
     }
 
     if (volumeUpdateIntervalRef.current) {
       clearInterval(volumeUpdateIntervalRef.current)
     }
+
+    resampleBufferRef.current = []
+    samplesProcessedRef.current = 0
 
     setIsListening(false)
     setStatus('Stopped listening')
