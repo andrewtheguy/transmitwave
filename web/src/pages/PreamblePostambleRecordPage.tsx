@@ -283,13 +283,23 @@ const PreamblePostambleRecordPage: React.FC = () => {
           // Try to detect postamble after we have enough samples
           // Skip the first 8000 samples (preamble + some data)
           if (postambleDetectorRef.current && recordedSamplesRef.current.length > 8000) {
-            const postamblePos = postambleDetectorRef.current.add_samples(new Float32Array(normalizedSamples))
+            // Initialize search start if not already done
+            if (postambleSearchStartRef.current === 0 && recordedSamplesRef.current.length >= 8000) {
+              postambleSearchStartRef.current = 8000
+            }
 
-            if (postamblePos >= 0) {
-              // Postamble detected - stop recording
-              isRecordingRef.current = false
-              setPostambleDetected(true)
-              stopRecording('Recording stopped (postamble detected)')
+            // Feed only new samples since last check to detector
+            if (postambleSearchStartRef.current < recordedSamplesRef.current.length) {
+              const newSamples = recordedSamplesRef.current.slice(postambleSearchStartRef.current)
+              const postamblePos = postambleDetectorRef.current.add_samples(new Float32Array(newSamples))
+              postambleSearchStartRef.current = recordedSamplesRef.current.length
+
+              if (postamblePos >= 0) {
+                // Postamble detected - stop recording
+                isRecordingRef.current = false
+                setPostambleDetected(true)
+                stopRecording('Recording stopped (postamble detected)')
+              }
             }
           }
         }
@@ -660,6 +670,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
           <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem' }}>
             <div>Duration: {recordingDuration}s / {MAX_RECORDING_DURATION}s</div>
             <div>Samples: {recordingSamples}</div>
+            <div>Applied Gain: {autoGainAdjustment.toFixed(2)}x</div>
           </div>
 
           {recordingStatus && <Status message={recordingStatus} type={recordingStatusType} />}
