@@ -66,6 +66,12 @@ impl FskSpeed {
 /// Default FSK symbol duration (Normal speed: 192ms at 16kHz)
 pub const FSK_SYMBOL_SAMPLES: usize = 3072;
 
+/// Apply a smooth envelope to reduce spectral splatter near symbol edges.
+const FSK_EDGE_TAPER_RATIO: f32 = 0.08; // 8% of the symbol on each side
+
+/// Ensure we always have a minimum attack/decay regardless of speed.
+const FSK_MIN_TAPER_SAMPLES: usize = 64;
+
 /// Calculate frequency for a given bin index
 /// freq_hz = FSK_BASE_FREQ + bin_index * FSK_FREQ_DELTA
 fn bin_to_freq(bin: usize) -> f32 {
@@ -84,6 +90,29 @@ fn freq_to_bin(freq: f32) -> Option<usize> {
     } else {
         None
     }
+}
+
+/// Generate a raised-cosine style window that softly ramps amplitude at both edges.
+fn raised_cosine_window(len: usize, taper_len: usize) -> Vec<f32> {
+    if taper_len == 0 || len == 0 {
+        return vec![1.0; len];
+    }
+
+    let taper = taper_len.min(len / 2);
+    if taper == 0 {
+        return vec![1.0; len];
+    }
+
+    let mut window = vec![1.0; len];
+    for i in 0..taper {
+        // Smoothly increase from 0 to 1 using a sine-squared profile
+        let progress = i as f32 / taper as f32;
+        let value = (PI * progress / 2.0).sin().powi(2);
+        window[i] = value;
+        window[len - 1 - i] = value;
+    }
+
+    window
 }
 
 /// FSK modulator - generates multi-tone audio for simultaneous transmission
@@ -172,6 +201,8 @@ impl FskModulator {
             }
         }
 
+        self.apply_edge_taper(&mut samples);
+
         // Scale by 1/6 to prevent clipping when superimposing 6 tones
         // Also apply 0.7 overall amplitude
         let scale = 0.7 / FSK_NIBBLES_PER_SYMBOL as f32;
@@ -196,6 +227,34 @@ impl FskModulator {
         }
 
         Ok(samples)
+    }
+
+    fn taper_length(&self, symbol_samples: usize) -> usize {
+        let mut taper =
+            ((symbol_samples as f32) * FSK_EDGE_TAPER_RATIO).round() as usize;
+        if taper < FSK_MIN_TAPER_SAMPLES {
+            taper = FSK_MIN_TAPER_SAMPLES;
+        }
+        let half_symbol = symbol_samples / 2;
+        if taper > half_symbol {
+            taper = half_symbol;
+        }
+        taper
+    }
+
+    fn apply_edge_taper(&self, samples: &mut [f32]) {
+        let taper_len = self.taper_length(samples.len());
+        if taper_len == 0 {
+            return;
+        }
+
+        let window = raised_cosine_window(samples.len(), taper_len);
+        let avg = window.iter().sum::<f32>() / samples.len() as f32;
+        let normalization = if avg > 0.0 { 1.0 / avg } else { 1.0 };
+
+        for (sample, &weight) in samples.iter_mut().zip(window.iter()) {
+            *sample *= weight * normalization;
+        }
     }
 }
 
@@ -369,6 +428,42 @@ mod tests {
         let bytes = [0xAB, 0xCD, 0xEF];
         let samples = modulator.modulate_symbol(&bytes).unwrap();
         assert_eq!(samples.len(), FSK_SYMBOL_SAMPLES);
+    }
+
+    #[test]
+    fn test_fsk_symbol_has_edge_taper() {
+        let mut modulator = FskModulator::new();
+        let bytes = [0x10, 0x32, 0x54];
+        let samples = modulator.modulate_symbol(&bytes).unwrap();
+        let taper_len = modulator.taper_length(samples.len());
+        assert!(taper_len > 0);
+
+        // Edge samples should be strongly suppressed
+        assert!(samples[0].abs() < 1e-4);
+        assert!(samples[samples.len() - 1].abs() < 1e-4);
+
+        // Average energy near the center should be higher than at the edges
+        let edge_energy: f32 = samples
+            .iter()
+            .take(taper_len)
+            .map(|s| s.abs())
+            .sum::<f32>()
+            / taper_len as f32;
+        let mid_start = samples.len() / 2 - taper_len / 2;
+        let mid_energy: f32 = samples
+            .iter()
+            .skip(mid_start)
+            .take(taper_len)
+            .map(|s| s.abs())
+            .sum::<f32>()
+            / taper_len as f32;
+
+        assert!(
+            mid_energy > edge_energy,
+            "mid_energy={} edge_energy={}",
+            mid_energy,
+            edge_energy
+        );
     }
 
     #[test]
