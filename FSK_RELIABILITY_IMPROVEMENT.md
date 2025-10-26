@@ -51,14 +51,18 @@ Multi-tone FSK uses longer symbol durations to improve noise immunity and freque
 - Longer symbol duration improves low-frequency (sub-bass) detection
 - Extended integration window reduces susceptibility to noise bursts
 - 400-2300 Hz band optimized for speaker/microphone acoustic response
+- Demodulator preprocessing removes DC offset, applies a raised-cosine analysis window, and normalizes RMS so Goertzel bins stay comparable even when microphone gain swings wildly
+- Per-band median noise-floor subtraction (16-bin groups) suppresses broadband energy before tone selection, which boosts recovery odds when signals fade deep into the noise floor
 
 ## Verification
 
-✅ All 23 unit tests pass
-✅ All 12 integration tests pass (0.87s in release mode)
-✅ CLI roundtrip: Perfect decoding
-✅ Data integrity: No changes to decoding algorithm
-✅ Error correction: Maintained at full capacity
+| Check | Status |
+|-------|--------|
+| `cargo test -p transmitwave-core` | ✅ 114 unit tests passing |
+| `cargo test -p transmitwave-core --test integration_test` | ✅ 12 integration tests passing (1 ignored: slow max-payload) |
+| `cargo test -p transmitwave-core --test sync_detection_tests` | ✅ 12 sync tests passing |
+| CLI roundtrip | ✅ Deterministic |
+| New robustness coverage | ✅ Gain-invariance & DC-rejection tests in `core/src/fsk.rs` |
 
 ## Implementation Details
 
@@ -93,3 +97,9 @@ Multi-tone FSK with 192ms normal symbol duration and shortened Reed-Solomon enco
 - **Speed:** Shortened RS optimization eliminates zero-padding delays
 - **Flexibility:** FskSpeed enum allows speed/robustness trade-off
 - **Reliability:** Sub-bass 400-2300 Hz band optimized for over-the-air audio transmission
+- **Signal Conditioning:** Automatic gain control + analysis windowing keep the Goertzel inputs stable, while per-band noise-floor subtraction emphasizes the desired tones
+
+### Potential Next Steps
+1. Track a rolling per-band noise estimate across consecutive symbols for even better rejection of slowly varying interference.
+2. Gather OTA captures at multiple playback volumes to retune AGC targets and taper ratios for the Fast/Fastest modes.
+3. Add stress tests that inject real-world impulse noises (claps, keyboard hits) to ensure the conditioning prevents false tone detections.
