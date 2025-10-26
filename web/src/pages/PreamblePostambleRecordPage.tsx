@@ -140,7 +140,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
       setRecordingSamples(0)
 
       processor.onaudioprocess = (event: AudioProcessingEvent) => {
-        const samples = Array.from((event as any).inputBuffer.getChannelData(0))
+        const samples: number[] = Array.from(event.inputBuffer.getChannelData(0))
         const actualSampleRate = audioContextRef.current?.sampleRate || 48000
 
         // Accumulate all raw samples for potential recording
