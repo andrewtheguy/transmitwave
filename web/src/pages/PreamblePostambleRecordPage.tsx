@@ -56,6 +56,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const [postambleDetected, setPostambleDetected] = useState(false)
   const [isDetecting, setIsDetecting] = useState(false)
   const [decodedText, setDecodedText] = useState<string | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
 
   // Audio I/O refs
   const processorRef = useRef<AudioWorkletNode | null>(null)
@@ -63,6 +64,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
+  const playbackSourceRef = useRef<AudioBufferSourceNode | null>(null)
 
   // Detection refs
   const detectorRef = useRef<PreambleDetector | null>(null)
@@ -559,6 +561,68 @@ const PreamblePostambleRecordPage: React.FC = () => {
     setAutoGainAdjustment(1.0)
   }
 
+  const playAudio = async () => {
+    if (recordedSamplesRef.current.length === 0) {
+      setRecordingStatus('No audio recorded to play')
+      setRecordingStatusType('error')
+      return
+    }
+
+    try {
+      // Stop any currently playing audio
+      if (playbackSourceRef.current) {
+        playbackSourceRef.current.stop()
+        playbackSourceRef.current = null
+      }
+
+      // Use existing audio context or create a new one
+      let audioContext = audioContextRef.current
+      if (!audioContext || audioContext.state === 'closed') {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+        audioContextRef.current = audioContext
+      }
+
+      // Create AudioBuffer
+      const audioBuffer = audioContext.createBuffer(1, recordedSamplesRef.current.length, TARGET_SAMPLE_RATE)
+      const channelData = audioBuffer.getChannelData(0)
+      channelData.set(recordedSamplesRef.current)
+
+      // Create and play source
+      const source = audioContext.createBufferSource()
+      source.buffer = audioBuffer
+      source.connect(audioContext.destination)
+      playbackSourceRef.current = source
+
+      setIsPlaying(true)
+      setRecordingStatus('Playing audio...')
+      setRecordingStatusType('info')
+
+      // Handle when playback ends
+      source.onended = () => {
+        setIsPlaying(false)
+        playbackSourceRef.current = null
+        setRecordingStatus('Playback finished')
+        setRecordingStatusType('success')
+      }
+
+      source.start(0)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to play audio'
+      setRecordingStatus(`Error: ${message}`)
+      setRecordingStatusType('error')
+    }
+  }
+
+  const stopAudio = () => {
+    if (playbackSourceRef.current) {
+      playbackSourceRef.current.stop()
+      playbackSourceRef.current = null
+      setIsPlaying(false)
+      setRecordingStatus('Playback stopped')
+      setRecordingStatusType('info')
+    }
+  }
+
   return (
     <div className="container">
       <div className="text-center mb-5">
@@ -691,6 +755,22 @@ const PreamblePostambleRecordPage: React.FC = () => {
           <h2>Post-Recording Actions</h2>
 
           <div className="mt-4 flex gap-3">
+            {!isPlaying ? (
+              <button
+                onClick={playAudio}
+                className="btn-secondary w-full"
+              >
+                ▶️ Play Audio
+              </button>
+            ) : (
+              <button
+                onClick={stopAudio}
+                className="btn-secondary w-full"
+                style={{ background: '#dc2626' }}
+              >
+                ⏹️ Stop Playback
+              </button>
+            )}
             <button
               onClick={saveWave}
               className="btn-secondary w-full"
