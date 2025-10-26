@@ -79,54 +79,6 @@ fn test_decode_spread_default_chip_duration() {
     assert!(output.exists(), "Decoded output file was not created");
 }
 
-#[test]
-fn test_positional_with_custom_chip_duration() {
-    // Test that explicit --chip-duration flag is accepted in positional mode
-    let input = create_test_file("test_chip_custom.bin", "Hi");
-    let output = PathBuf::from("tmp/test_chip_custom.wav");
-
-    // Use positional args with --chip-duration flag
-    let output_text = run_transmitwave(&[
-        input.to_str().unwrap(),
-        output.to_str().unwrap(),
-        "--chip-duration", "3",
-    ]);
-
-    // Should successfully encode (with or without spread spectrum)
-    assert!(output_text.contains("Encoded") || output_text.contains("multi-tone FSK") || output_text.contains("audio samples"),
-        "Expected successful encoding but got: {}", output_text);
-
-    // Output file should exist
-    assert!(output.exists(), "Output file was not created");
-}
-
-
-#[test]
-fn test_legacy_encode_no_spread_flag() {
-    // Test that --no-spread flag works
-    let input = create_test_file("test_legacy.bin", "Legacy test");
-    let output = PathBuf::from("tmp/test_legacy.wav");
-
-    let output_text = run_transmitwave(&[
-        "encode",
-        input.to_str().unwrap(),
-        output.to_str().unwrap(),
-        "--no-spread",
-    ]);
-
-    // Should successfully encode
-    assert!(output_text.contains("legacy") || output_text.contains("Encoded"),
-        "Expected successful legacy encoding but got: {}", output_text);
-
-    // Output file should be created
-    assert!(output.exists(), "Output file was not created");
-
-    // File should be reasonable size
-    let metadata = fs::metadata(&output).expect("Output file not created");
-    let file_size = metadata.len();
-    assert!(file_size > 5_000, "File too small: {} bytes", file_size);
-    assert!(file_size < 500_000, "File too large: {} bytes", file_size);
-}
 
 #[test]
 fn test_positional_args_encode_decode() {

@@ -1,3 +1,4 @@
+- since the project is still in early development status, don't maintain backward compatibility
 - use project's ./tmp/ directory (not /tmp) for test files
 - dont add too much doccs to save output tokens
 - I'll run my vite http server, don't try to start another server

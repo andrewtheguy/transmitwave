@@ -1,34 +1,35 @@
-# Audio Modem Library
+# Audio Modem Library - FSK Mode
 
-A Rust library for reliable low-bandwidth communication over audio channels. Encodes binary data into OFDM signals within the audible range (0-4kHz), creating a distinctive "56k modem hiss" sound.
+A Rust library for reliable low-bandwidth communication over audio channels using multi-tone FSK modulation. Encodes binary data into simultaneous audio frequencies (400-2300 Hz) for maximum robustness in speaker-to-microphone transmission scenarios.
 
 ## Features
 
-- **OFDM Modulation**: 224 overlapping subcarriers with phase randomization for white-noise-like hiss sound
+- **Multi-tone FSK Modulation**: 6 simultaneous audio frequencies for non-coherent energy detection
+- **Sub-Bass Frequency Band**: Uses low frequencies (400-2300 Hz) for excellent room acoustics compatibility
 - **Reed-Solomon FEC**: Forward error correction for reliability
 - **CRC Validation**: Integrity checks on frame headers
-- **Preamble/Postamble Detection**: Frame synchronization with chirp and tone signals
-- **Very Low Throughput**: ~16 bits/sec actual data (by design for extreme reliability)
+- **Preamble/Postamble Detection**: Frame synchronization for reliable reception
+- **Maximum Reliability**: Optimized for over-the-air audio transfer with minimal error rates
 - **Multiple Targets**: Native CLI tool, WASM library, and core library
 
 ## Components
 
 ### Core Library (`core/`)
-- `ofdm.rs`: OFDM modulation/demodulation
+- `fsk.rs`: Multi-tone FSK modulation/demodulation
 - `fec.rs`: Reed-Solomon error correction
 - `framing.rs`: Frame structure with CRC
 - `sync.rs`: Preamble/postamble generation and detection
-- `encoder.rs`: Data-to-audio encoding
-- `decoder.rs`: Audio-to-data decoding
+- `encoder_fsk.rs`: Data-to-audio FSK encoding
+- `decoder_fsk.rs`: Audio-to-data FSK decoding
 
 ### CLI Tool (`cli/`)
 Native command-line tool for WAV file processing:
 
 ```bash
-# Encode binary data to WAV audio
+# Encode binary data to WAV audio using FSK
 cargo run -p transmitwave-cli --bin transmitwave -- encode input.bin output.wav
 
-# Decode WAV audio back to binary
+# Decode WAV audio back to binary using FSK
 cargo run -p transmitwave-cli --bin transmitwave -- decode input.wav output.bin
 ```
 
@@ -47,11 +48,12 @@ const recoveredData = decoder.decode(audioSamples);
 
 **Audio Parameters:**
 - Sample Rate: 16 kHz
-- Subcarriers: 224 (400-3200 Hz) with deterministic phase randomization
-- Symbol Duration: 100 ms
-- Preamble: 300 ms chirp (200-4000 Hz)
-- Postamble: 50 ms tone (2 kHz)
-- Phase Randomization: Deterministic per-subcarrier phase offsets create white-noise-like hiss instead of tonal patterns
+- FSK Frequencies: 96 bins with 6 simultaneous tones (400-2300 Hz)
+- Frequency Spacing: 20 Hz between adjacent bins
+- Symbol Duration: 192 ms (3072 samples per symbol) for robust low-frequency detection
+- Preamble Duration: 250 ms for reliable synchronization
+- Postamble Duration: 250 ms for end-of-frame detection
+- Frequency Band: Sub-bass optimized for excellent room acoustics compatibility
 
 **FEC Configuration:**
 - Reed-Solomon: (255, 223) - 32 bytes ECC
@@ -60,22 +62,22 @@ const recoveredData = decoder.decode(audioSamples);
 
 ## Usage Examples
 
-### Encoding Data
+### Encoding Data with FSK
 
 ```rust
-use transmitwave_core::Encoder;
+use transmitwave_core::EncoderFsk;
 
-let mut encoder = Encoder::new()?;
+let mut encoder = EncoderFsk::new()?;
 let data = b"Hello, World!";
 let audio_samples = encoder.encode(data)?;
 ```
 
-### Decoding Audio
+### Decoding Audio with FSK
 
 ```rust
-use transmitwave_core::Decoder;
+use transmitwave_core::DecoderFsk;
 
-let mut decoder = Decoder::new()?;
+let mut decoder = DecoderFsk::new()?;
 let samples = load_audio_file("audio.wav")?;
 let decoded_data = decoder.decode(&samples)?;
 ```
@@ -84,35 +86,35 @@ let decoded_data = decoder.decode(&samples)?;
 
 ```bash
 # Create test data
-echo "Test message" > test.txt
+echo "Test message" > test.bin
 
 # Encode to audio
-cargo run -p transmitwave-cli --bin transmitwave -- encode test.txt test.wav
+cargo run -p transmitwave-cli --bin transmitwave -- encode test.bin test.wav
 
 # Decode back
-cargo run -p transmitwave-cli --bin transmitwave -- decode test.wav decoded.txt
+cargo run -p transmitwave-cli --bin transmitwave -- decode test.wav decoded.bin
 
 # Verify
-diff test.txt decoded.txt
+diff test.bin decoded.bin
 ```
 
 ## Performance
 
 - **Throughput**: ~16 bits/sec of actual data
-- **Overhead**: ~10x redundancy for reliability
-- **Latency**: ~1 second per message
-- **Frequency Range**: 200-4000 Hz (well within audible range)
+- **Overhead**: Optimized for maximum reliability over speed
+- **Latency**: ~2 seconds per 200-byte message
+- **Frequency Range**: 400-2300 Hz (sub-bass band with excellent acoustic properties)
 
 ## Testing
 
-Run all tests:
+Run all tests (release mode recommended for faster execution):
 ```bash
-cargo test --workspace
+cargo test --workspace --release
 ```
 
 The test suite includes:
-- Unit tests for each component (FEC, framing, OFDM, sync)
-- Integration tests for end-to-end encode/decode
+- Unit tests for FEC, framing, and FSK components
+- Integration tests for end-to-end encode/decode with various payload sizes and noise levels
 
 ## Architecture
 
@@ -125,7 +127,7 @@ Input Data
     ↓
 [Bit Converter] → Convert bytes to bits
     ↓
-[OFDM Modulator] → Modulate bits onto subcarriers
+[FSK Modulator] → Modulate bits onto 6 simultaneous tones
     ↓
 [Preamble/Postamble] → Add sync signals
     ↓
@@ -134,7 +136,7 @@ Audio Samples (1600 samples per 100ms symbol)
     ↓
 [Preamble Detector] → Find frame start
     ↓
-[OFDM Demodulator] → Extract bits from subcarriers
+[FSK Demodulator] → Extract bits from tone energies (Goertzel)
     ↓
 [Bit Converter] → Reconstruct bytes
     ↓
@@ -148,14 +150,16 @@ Output Data
 ## Design Philosophy
 
 This modem prioritizes **reliability** over throughput:
-- Multiple overlapping frequencies reduce sensitivity to channel impairments
+- 6 simultaneous FSK tones provide redundancy and robustness
+- Non-coherent energy detection (Goertzel algorithm) eliminates phase synchronization burden
 - Reed-Solomon FEC enables recovery from bit errors
 - Preamble/postamble detection provides frame synchronization
 - Very low bit rate (16 bps) allows use of simple, robust modulation
+- ggwave-compatible frequency band ensures broad compatibility
 
 ## Dependencies
 
-- **rustfft**: FFT for OFDM
+- **rustfft**: FFT for frequency analysis (Goertzel detection)
 - **reed-solomon-erasure**: Forward error correction
 - **hound**: WAV file I/O (CLI only)
 - **wasm-bindgen**: JavaScript bindings (WASM only)
@@ -166,14 +170,14 @@ This modem prioritizes **reliability** over throughput:
 To build WASM for web use:
 
 ```bash
-cargo build -p transmitwave-wasm --target wasm32-unknown-unknown
-wasm-pack build wasm --target web
+wasm-pack build wasm --release --target web
 ```
 
-## Future Improvements
+## Notes on FSK Mode
 
-- Implement full Reed-Solomon decoding with erasure correction
-- Add noise robustness testing
-- Support variable frame sizes
-- Implement adaptive frequency allocation
-- Add support for multi-frame messages
+- **Reliability**: Multi-tone FSK with error correction provides robust transmission over typical audio channels
+- **Low-Frequency Band**: Uses 400-2300 Hz (sub-bass) for excellent room acoustics and reduced reflections
+- **Non-Coherent Detection**: Goertzel-based energy detection eliminates need for complex phase tracking
+- **Over-the-Air**: Designed specifically for speaker-to-microphone audio transfer scenarios
+- **96 Frequency Bins**: Provides sufficient redundancy and flexibility for adaptive frequency allocation
+- **Legacy Modes Removed**: Legacy OFDM and spread spectrum modes have been removed to focus development on the most reliable FSK implementation

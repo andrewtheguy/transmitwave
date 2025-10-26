@@ -8,14 +8,14 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use transmitwave_core::{Decoder, Encoder, DecoderSpread, EncoderSpread, DecoderFsk, EncoderFsk, resample_audio, stereo_to_mono, SAMPLE_RATE};
+use transmitwave_core::{DecoderFsk, EncoderFsk, resample_audio, stereo_to_mono, SAMPLE_RATE};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
 // ============================================================================
-// DEFAULT ENCODER/DECODER CONFIGURATION
-// Default mode: Multi-tone FSK (ggwave-compatible) for maximum reliability
-// CLI options: --spread for spread spectrum, --no-spread for legacy mode
+// ENCODER/DECODER CONFIGURATION
+// Mode: Multi-tone FSK (ggwave-compatible) for maximum reliability
+// This is the only supported mode for over-the-air audio transfer
 // ============================================================================
 
 #[derive(Serialize, Deserialize)]
@@ -46,7 +46,7 @@ struct DecodeResponse {
 
 #[derive(Parser)]
 #[command(name = "transmitwave")]
-#[command(about = "Audio modem with spread spectrum for reliable low-bandwidth communication")]
+#[command(about = "Audio modem using multi-tone FSK for reliable over-the-air communication")]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -64,19 +64,6 @@ struct Cli {
     #[arg(short, long, value_name = "MODE")]
     mode: Option<String>,
 
-    /// Chip duration for spread spectrum (samples per Barker chip, default: 2)
-    #[arg(short, long, default_value = "2")]
-    chip_duration: usize,
-
-
-    /// Use legacy encoder/decoder without spread spectrum
-    #[arg(long)]
-    no_spread: bool,
-
-    /// Use spread spectrum mode (default is FSK, use this to explicitly enable spread spectrum)
-    #[arg(long)]
-    spread: bool,
-
     /// Start web server on port 8000
     #[arg(long)]
     server: bool,
@@ -88,7 +75,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Encode binary data to WAV audio file
+    /// Encode binary data to WAV audio file using multi-tone FSK
     Encode {
         /// Input binary file
         #[arg(value_name = "INPUT.BIN")]
@@ -97,18 +84,9 @@ enum Commands {
         /// Output WAV file
         #[arg(value_name = "OUTPUT.WAV")]
         output: PathBuf,
-
-
-        /// Use legacy encoder without chunking
-        #[arg(long)]
-        no_spread: bool,
-
-        /// Use spread spectrum mode (default is FSK)
-        #[arg(long)]
-        spread: bool,
     },
 
-    /// Decode WAV file to binary data
+    /// Decode WAV file to binary data using multi-tone FSK
     Decode {
         /// Input WAV file
         #[arg(value_name = "INPUT.WAV")]
@@ -117,18 +95,7 @@ enum Commands {
         /// Output binary file
         #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
-
-
-        /// Use legacy decoder without chunking
-        #[arg(long)]
-        no_spread: bool,
-
-        /// Use spread spectrum mode (default is FSK)
-        #[arg(long)]
-        spread: bool,
     },
-
-
 
     /// Start web server for encode/decode operations
     Server {
@@ -149,25 +116,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
-            Commands::Encode { input, output, no_spread, spread } => {
-                if no_spread {
-                    encode_legacy_command(&input, &output)?
-                } else if spread {
-                    encode_spread_command(&input, &output, cli.chip_duration)?
-                } else {
-                    // Default: FSK
-                    encode_fsk_command(&input, &output)?
-                }
+            Commands::Encode { input, output } => {
+                encode_fsk_command(&input, &output)?
             }
-            Commands::Decode { input, output, no_spread, spread } => {
-                if no_spread {
-                    decode_legacy_command(&input, &output)?
-                } else if spread {
-                    decode_spread_command(&input, &output, cli.chip_duration)?
-                } else {
-                    // Default: FSK
-                    decode_fsk_command(&input, &output)?
-                }
+            Commands::Decode { input, output } => {
+                decode_fsk_command(&input, &output)?
             }
             Commands::Server { port } => {
                 return start_web_server(port);
@@ -191,23 +144,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if mode == "encode" || mode == "enc" {
-            if cli.no_spread {
-                encode_legacy_command(&input, &output)?
-            } else if cli.spread {
-                encode_spread_command(&input, &output, cli.chip_duration)?
-            } else {
-                // Default: FSK
-                encode_fsk_command(&input, &output)?
-            }
+            encode_fsk_command(&input, &output)?
         } else if mode == "decode" || mode == "dec" {
-            if cli.no_spread {
-                decode_legacy_command(&input, &output)?
-            } else if cli.spread {
-                decode_spread_command(&input, &output, cli.chip_duration)?
-            } else {
-                // Default: FSK
-                decode_fsk_command(&input, &output)?
-            }
+            decode_fsk_command(&input, &output)?
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
             std::process::exit(1);
@@ -216,204 +155,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Error: No operation specified. Use 'transmitwave --help' for usage");
         std::process::exit(1);
     }
-
-    Ok(())
-}
-
-fn encode_legacy_command(input_path: &PathBuf, output_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    // Read input binary file
-    let data = std::fs::read(input_path)?;
-    println!("Read {} bytes from {}", data.len(), input_path.display());
-
-    // Create encoder and encode data
-    let mut encoder = Encoder::new()?;
-    let samples = encoder.encode(&data)?;
-    println!("Encoded (legacy, no spreading) to {} audio samples", samples.len());
-
-    // Write WAV file (16-bit PCM)
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: transmitwave_core::SAMPLE_RATE as u32,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-
-    let file = File::create(output_path)?;
-    let mut writer = hound::WavWriter::new(file, spec)?;
-
-    // Convert f32 samples to i16 range [-32768, 32767]
-    for sample in samples {
-        // Clamp to [-1.0, 1.0] range to avoid overflow, then scale to i16
-        let clamped = sample.max(-1.0).min(1.0);
-        let i16_sample = (clamped * 32767.0) as i16;
-        writer.write_sample(i16_sample)?;
-    }
-    writer.finalize()?;
-
-    println!("Wrote {} to {}", output_path.display(), spec.channels);
-    Ok(())
-}
-
-fn decode_legacy_command(input_path: &PathBuf, output_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    // Read WAV file
-    let file = File::open(input_path)?;
-    let mut reader = hound::WavReader::new(file)?;
-
-    let spec = reader.spec();
-    println!(
-        "Read WAV: {} Hz, {} channels, {} bits",
-        spec.sample_rate, spec.channels, spec.bits_per_sample
-    );
-
-    // Extract samples (handle both 16-bit and 32-bit float formats)
-    let mut samples = match spec.bits_per_sample {
-        16 => {
-            // Convert i16 to f32
-            let int_samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
-            int_samples?
-                .into_iter()
-                .map(|s| s as f32 / 32768.0)
-                .collect()
-        }
-        32 => {
-            // Already f32
-            let float_samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
-            float_samples?
-        }
-        _ => {
-            return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample).into());
-        }
-    };
-
-    println!("Extracted {} samples", samples.len());
-
-    // Convert to mono if stereo
-    if spec.channels == 2 {
-        println!("Converting stereo to mono...");
-        samples = stereo_to_mono(&samples);
-        println!("Converted to {} mono samples", samples.len());
-    }
-
-    // Resample to 16kHz if needed
-    if spec.sample_rate != SAMPLE_RATE as u32 {
-        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
-        samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
-        println!("Resampled to {} samples", samples.len());
-    }
-
-    // Decode
-    let mut decoder = Decoder::new()?;
-    let data = decoder.decode(&samples)?;
-    println!("Decoded {} bytes", data.len());
-
-    // Write binary file
-    std::fs::write(output_path, &data)?;
-    println!("Wrote {} to {}", data.len(), output_path.display());
-
-    Ok(())
-}
-
-fn encode_spread_command(
-    input_path: &PathBuf,
-    output_path: &PathBuf,
-    chip_duration: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Read input binary file
-    let data = std::fs::read(input_path)?;
-    println!("Read {} bytes from {}", data.len(), input_path.display());
-
-    // Create encoder and encode data
-    let mut encoder = EncoderSpread::new(chip_duration)?;
-    let samples = encoder.encode(&data)?;
-    println!(
-        "Encoded with spread spectrum (chip_duration={}) to {} audio samples",
-        chip_duration,
-        samples.len()
-    );
-
-    // Write WAV file (16-bit PCM)
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: transmitwave_core::SAMPLE_RATE as u32,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-
-    let file = File::create(output_path)?;
-    let mut writer = hound::WavWriter::new(file, spec)?;
-
-    // Convert f32 samples to i16 range [-32768, 32767]
-    for sample in samples {
-        // Clamp to [-1.0, 1.0] range to avoid overflow, then scale to i16
-        let clamped = sample.max(-1.0).min(1.0);
-        let i16_sample = (clamped * 32767.0) as i16;
-        writer.write_sample(i16_sample)?;
-    }
-    writer.finalize()?;
-
-    println!("Wrote {} to {}", output_path.display(), spec.channels);
-    Ok(())
-}
-
-fn decode_spread_command(
-    input_path: &PathBuf,
-    output_path: &PathBuf,
-    chip_duration: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Read WAV file
-    let file = File::open(input_path)?;
-    let mut reader = hound::WavReader::new(file)?;
-
-    let spec = reader.spec();
-    println!(
-        "Read WAV: {} Hz, {} channels, {} bits",
-        spec.sample_rate, spec.channels, spec.bits_per_sample
-    );
-
-    // Extract samples (handle both 16-bit and 32-bit float formats)
-    let mut samples = match spec.bits_per_sample {
-        16 => {
-            // Convert i16 to f32
-            let int_samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
-            int_samples?
-                .into_iter()
-                .map(|s| s as f32 / 32768.0)
-                .collect()
-        }
-        32 => {
-            // Already f32
-            let float_samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
-            float_samples?
-        }
-        _ => {
-            return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample).into());
-        }
-    };
-
-    println!("Extracted {} samples", samples.len());
-
-    // Convert to mono if stereo
-    if spec.channels == 2 {
-        println!("Converting stereo to mono...");
-        samples = stereo_to_mono(&samples);
-        println!("Converted to {} mono samples", samples.len());
-    }
-
-    // Resample to 16kHz if needed
-    if spec.sample_rate != SAMPLE_RATE as u32 {
-        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
-        samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
-        println!("Resampled to {} samples", samples.len());
-    }
-
-    // Decode with spread spectrum
-    let mut decoder = DecoderSpread::new(chip_duration)?;
-    let data = decoder.decode(&samples)?;
-    println!("Decoded {} bytes (chip_duration={})", data.len(), chip_duration);
-
-    // Write binary file
-    std::fs::write(output_path, &data)?;
-    println!("Wrote {} to {}", data.len(), output_path.display());
 
     Ok(())
 }

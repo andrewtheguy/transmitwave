@@ -38,7 +38,8 @@
       "Read(//Users/it3/codes/andrew/**)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__get-library-docs",
-      "Bash(RUST_BACKTRACE=1 cargo test:*)"
+      "Bash(RUST_BACKTRACE=1 cargo test:*)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []
