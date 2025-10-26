@@ -47,6 +47,27 @@ pub enum FskSpeed {
     Fastest,
 }
 
+/// Configuration for fountain mode streaming
+#[derive(Debug, Clone)]
+pub struct FountainConfig {
+    /// Timeout for sender to keep transmitting (in seconds)
+    pub timeout_secs: u32,
+    /// Size of each fountain block in bytes (before fountain encoding)
+    pub block_size: usize,
+    /// Ratio of repair blocks to source blocks (e.g., 0.5 = 50% overhead)
+    pub repair_blocks_ratio: f32,
+}
+
+impl Default for FountainConfig {
+    fn default() -> Self {
+        Self {
+            timeout_secs: 30,
+            block_size: 64,
+            repair_blocks_ratio: 0.5,
+        }
+    }
+}
+
 impl FskSpeed {
     /// Get symbol duration in samples for this speed at 16kHz sample rate
     pub fn samples_per_symbol(&self) -> usize {

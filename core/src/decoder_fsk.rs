@@ -1,10 +1,12 @@
 use crate::error::{AudioModemError, Result};
 use crate::fec::{FecDecoder, FecMode};
 use crate::framing::FrameDecoder;
-use crate::fsk::FskDemodulator;
+use crate::fsk::{FskDemodulator, FountainConfig};
 use crate::sync::{detect_postamble, detect_preamble};
 use crate::PREAMBLE_SAMPLES;
 use crate::fsk::FSK_SYMBOL_SAMPLES;
+use raptorq::{Decoder, EncodingPacket};
+use std::time::{Duration, Instant};
 
 /// Decoder using Multi-tone FSK with Reed-Solomon FEC
 ///
@@ -170,6 +172,116 @@ impl DecoderFsk {
 
         Ok(frame.payload)
     }
+
+    /// Decode audio samples using fountain mode with continuous block accumulation
+    ///
+    /// Processes audio samples to extract fountain-encoded blocks and attempts
+    /// to decode the original data. Continues until successful decode or timeout.
+    ///
+    /// Returns the decoded payload or an error if decoding fails or timeout occurs.
+    pub fn decode_fountain(&mut self, samples: &[f32], config: Option<FountainConfig>) -> Result<Vec<u8>> {
+        let config = config.unwrap_or_default();
+        let start_time = Instant::now();
+        let timeout = Duration::from_secs(config.timeout_secs as u64);
+
+        let mut decoder: Option<Decoder> = None;
+        let mut search_offset = 0;
+        let mut frame_length: Option<usize> = None;
+        let mut symbol_size: Option<u16> = None;
+
+        while search_offset < samples.len() {
+            // Check timeout
+            if start_time.elapsed() >= timeout {
+                return Err(AudioModemError::Timeout);
+            }
+
+            // Look for next preamble
+            let remaining = &samples[search_offset..];
+            let preamble_pos = match detect_preamble(remaining, 500.0) {
+                Some(pos) => pos,
+                None => break,
+            };
+
+            let data_start = search_offset + preamble_pos + PREAMBLE_SAMPLES;
+
+            if data_start + FSK_SYMBOL_SAMPLES > samples.len() {
+                break;
+            }
+
+            // Try to find postamble for this block
+            let block_samples = &samples[data_start..];
+            let postamble_pos = match detect_postamble(block_samples, 100.0) {
+                Some(pos) => pos,
+                None => {
+                    search_offset = data_start;
+                    continue;
+                }
+            };
+
+            let data_end = data_start + postamble_pos;
+
+            // Extract FSK data region
+            let fsk_region = &samples[data_start..data_end];
+            let symbol_count = fsk_region.len() / FSK_SYMBOL_SAMPLES;
+
+            if symbol_count == 0 {
+                search_offset = data_end;
+                continue;
+            }
+
+            let valid_samples = symbol_count * FSK_SYMBOL_SAMPLES;
+            let fsk_samples = &fsk_region[..valid_samples];
+
+            // Demodulate fountain block
+            match self.fsk.demodulate(fsk_samples) {
+                Ok(mut block_data) => {
+                    // Extract frame length and symbol size from first packet
+                    if frame_length.is_none() && block_data.len() >= 6 {
+                        let len_bytes = [block_data[0], block_data[1], block_data[2], block_data[3]];
+                        frame_length = Some(u32::from_be_bytes(len_bytes) as usize);
+
+                        let sym_bytes = [block_data[4], block_data[5]];
+                        symbol_size = Some(u16::from_be_bytes(sym_bytes));
+
+                        // Remove the metadata prefix
+                        block_data = block_data[6..].to_vec();
+                    }
+
+                    // Try to deserialize as EncodingPacket
+                    let packet = EncodingPacket::deserialize(&block_data);
+
+                    // Initialize decoder on first packet with matching OTI
+                    if decoder.is_none() && frame_length.is_some() && symbol_size.is_some() {
+                        let oti = raptorq::ObjectTransmissionInformation::with_defaults(
+                            frame_length.unwrap() as u64,
+                            symbol_size.unwrap()
+                        );
+                        decoder = Some(Decoder::new(oti));
+                    }
+
+                    // Add packet and try to decode
+                    if let Some(ref mut dec) = decoder {
+                        if let Some(decoded_data) = dec.decode(packet) {
+                            // Successfully decoded! Extract frame
+                            match FrameDecoder::decode(&decoded_data) {
+                                Ok(frame) => return Ok(frame.payload),
+                                Err(_) => {
+                                    // Frame decode failed, continue
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Demodulation failed
+                }
+            }
+
+            search_offset = data_end;
+        }
+
+        Err(AudioModemError::FountainDecodeFailure)
+    }
 }
 
 impl Default for DecoderFsk {
@@ -309,6 +421,99 @@ mod tests {
             let samples = encoder.encode(&data).unwrap();
             let decoded = decoder.decode(&samples).unwrap();
             assert_eq!(decoded, data, "Failed for pattern {:02X}", data[0]);
+        }
+    }
+
+    #[test]
+    fn test_fountain_roundtrip_basic() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Fountain roundtrip test";
+
+        let config = FountainConfig {
+            timeout_secs: 5,
+            block_size: 32,
+            repair_blocks_ratio: 0.5,
+        };
+
+        // Generate fountain blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+
+        // Collect multiple blocks into one continuous audio stream
+        let blocks: Vec<_> = stream.take(10).collect();
+        let mut samples = Vec::new();
+        for block in blocks {
+            samples.extend_from_slice(&block);
+        }
+
+        // Decode
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn test_fountain_with_packet_loss() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Test with some packet loss";
+
+        let config = FountainConfig {
+            timeout_secs: 5,
+            block_size: 32,
+            repair_blocks_ratio: 1.0, // More redundancy
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(20).collect();
+
+        // Simulate packet loss by dropping every 3rd block
+        let mut samples = Vec::new();
+        for (i, block) in blocks.iter().enumerate() {
+            if i % 3 != 0 {  // Drop every 3rd block
+                samples.extend_from_slice(block);
+            }
+        }
+
+        // Should still decode successfully due to fountain coding
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn test_fountain_various_data_sizes() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        let config = FountainConfig {
+            timeout_secs: 5,
+            block_size: 32,
+            repair_blocks_ratio: 0.5,
+        };
+
+        let test_cases = vec![
+            b"A".to_vec(),
+            b"Short".to_vec(),
+            b"Medium length data for testing".to_vec(),
+            vec![42u8; 100],
+        ];
+
+        for data in test_cases {
+            let stream = encoder.encode_fountain(&data, Some(config.clone())).unwrap();
+            let blocks: Vec<_> = stream.take(15).collect();
+            let mut samples = Vec::new();
+            for block in blocks {
+                samples.extend_from_slice(&block);
+            }
+
+            let decoded = decoder.decode_fountain(&samples, Some(config.clone())).unwrap();
+            assert_eq!(decoded, data, "Failed for data length {}", data.len());
         }
     }
 }

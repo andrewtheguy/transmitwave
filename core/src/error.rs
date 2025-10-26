@@ -37,6 +37,12 @@ pub enum AudioModemError {
 
     #[error("FEC error: {0}")]
     FecError(String),
+
+    #[error("Fountain decode failure")]
+    FountainDecodeFailure,
+
+    #[error("Operation timeout")]
+    Timeout,
 }
 
 pub type Result<T> = std::result::Result<T, AudioModemError>;

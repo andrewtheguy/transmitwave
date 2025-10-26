@@ -8,7 +8,7 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use transmitwave_core::{DecoderFsk, EncoderFsk, resample_audio, stereo_to_mono, SAMPLE_RATE};
+use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
@@ -103,6 +103,48 @@ enum Commands {
         #[arg(short, long, default_value = "8000")]
         port: u16,
     },
+
+    /// Encode binary data to WAV using fountain mode (continuous streaming)
+    FountainEncode {
+        /// Input binary file
+        #[arg(value_name = "INPUT.BIN")]
+        input: PathBuf,
+
+        /// Output WAV file
+        #[arg(value_name = "OUTPUT.WAV")]
+        output: PathBuf,
+
+        /// Timeout in seconds (default: 30)
+        #[arg(short, long, default_value = "30")]
+        timeout: u32,
+
+        /// Block size in bytes (default: 64)
+        #[arg(short, long, default_value = "64")]
+        block_size: usize,
+
+        /// Repair blocks ratio (default: 0.5)
+        #[arg(short, long, default_value = "0.5")]
+        repair_ratio: f32,
+    },
+
+    /// Decode WAV file using fountain mode
+    FountainDecode {
+        /// Input WAV file
+        #[arg(value_name = "INPUT.WAV")]
+        input: PathBuf,
+
+        /// Output binary file
+        #[arg(value_name = "OUTPUT.BIN")]
+        output: PathBuf,
+
+        /// Timeout in seconds (default: 30)
+        #[arg(short, long, default_value = "30")]
+        timeout: u32,
+
+        /// Block size in bytes (default: 64)
+        #[arg(short, long, default_value = "64")]
+        block_size: usize,
+    },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -124,6 +166,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Commands::Server { port } => {
                 return start_web_server(port);
+            }
+            Commands::FountainEncode { input, output, timeout, block_size, repair_ratio } => {
+                fountain_encode_command(&input, &output, timeout, block_size, repair_ratio)?
+            }
+            Commands::FountainDecode { input, output, timeout, block_size } => {
+                fountain_decode_command(&input, &output, timeout, block_size)?
             }
         }
         return Ok(());
@@ -196,6 +244,148 @@ fn encode_fsk_command(
     writer.finalize()?;
 
     println!("Wrote {} to {}", output_path.display(), spec.channels);
+    Ok(())
+}
+
+fn fountain_encode_command(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+    timeout: u32,
+    block_size: usize,
+    repair_ratio: f32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Read input binary file
+    let data = std::fs::read(input_path)?;
+    println!("Read {} bytes from {}", data.len(), input_path.display());
+
+    // Create fountain config
+    let config = FountainConfig {
+        timeout_secs: timeout,
+        block_size,
+        repair_blocks_ratio: repair_ratio,
+    };
+
+    println!(
+        "Fountain mode: timeout={}s, block_size={}, repair_ratio={}",
+        config.timeout_secs, config.block_size, config.repair_blocks_ratio
+    );
+
+    // Create FSK encoder and get fountain stream
+    let mut encoder = EncoderFsk::new()?;
+    let stream = encoder.encode_fountain(&data, Some(config))?;
+
+    // Collect all blocks generated within timeout
+    println!("Generating fountain blocks (this will take up to {} seconds)...", timeout);
+    let mut all_samples = Vec::new();
+    let mut block_count = 0;
+
+    for block_samples in stream {
+        all_samples.extend_from_slice(&block_samples);
+        block_count += 1;
+        if block_count % 10 == 0 {
+            print!(".");
+            use std::io::Write;
+            std::io::stdout().flush()?;
+        }
+    }
+    println!();
+    println!("Generated {} fountain blocks ({} total samples)", block_count, all_samples.len());
+
+    // Write WAV file (16-bit PCM)
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: transmitwave_core::SAMPLE_RATE as u32,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let file = File::create(output_path)?;
+    let mut writer = hound::WavWriter::new(file, spec)?;
+
+    // Convert f32 samples to i16 range [-32768, 32767]
+    for sample in &all_samples {
+        let clamped = sample.max(-1.0).min(1.0);
+        let i16_sample = (clamped * 32767.0) as i16;
+        writer.write_sample(i16_sample)?;
+    }
+    writer.finalize()?;
+
+    println!("Wrote fountain-encoded audio to {}", output_path.display());
+    println!("Duration: {:.2}s", all_samples.len() as f32 / SAMPLE_RATE as f32);
+    Ok(())
+}
+
+fn fountain_decode_command(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+    timeout: u32,
+    block_size: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Read WAV file
+    let file = File::open(input_path)?;
+    let mut reader = hound::WavReader::new(file)?;
+
+    let spec = reader.spec();
+    println!(
+        "Read WAV: {} Hz, {} channels, {} bits",
+        spec.sample_rate, spec.channels, spec.bits_per_sample
+    );
+
+    // Extract samples (handle both 16-bit and 32-bit float formats)
+    let mut samples = match spec.bits_per_sample {
+        16 => {
+            let int_samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
+            int_samples?
+                .into_iter()
+                .map(|s| s as f32 / 32768.0)
+                .collect()
+        }
+        32 => {
+            let float_samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
+            float_samples?
+        }
+        _ => {
+            return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample).into());
+        }
+    };
+
+    println!("Extracted {} samples", samples.len());
+
+    // Convert to mono if stereo
+    if spec.channels == 2 {
+        println!("Converting stereo to mono...");
+        samples = stereo_to_mono(&samples);
+        println!("Converted to {} mono samples", samples.len());
+    }
+
+    // Resample to 16kHz if needed
+    if spec.sample_rate != SAMPLE_RATE as u32 {
+        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
+        samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
+        println!("Resampled to {} samples", samples.len());
+    }
+
+    // Create fountain config
+    let config = FountainConfig {
+        timeout_secs: timeout,
+        block_size,
+        repair_blocks_ratio: 0.5, // Not used in decoder
+    };
+
+    println!(
+        "Decoding with fountain mode (timeout={}s, block_size={})...",
+        config.timeout_secs, config.block_size
+    );
+
+    // Decode with fountain mode
+    let mut decoder = DecoderFsk::new()?;
+    let data = decoder.decode_fountain(&samples, Some(config))?;
+    println!("Successfully decoded {} bytes using fountain mode", data.len());
+
+    // Write binary file
+    std::fs::write(output_path, &data)?;
+    println!("Wrote {} to {}", data.len(), output_path.display());
+
     Ok(())
 }
 

@@ -9,6 +9,7 @@ realfft = "3"
 reed-solomon-simd = "3"
 thiserror = "1"
 bytemuck = "1"
+raptorq = "2"
 
 [dev-dependencies]
 rand = "0.8"
