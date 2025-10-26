@@ -68,15 +68,15 @@ cmp large.bin large_recovered.bin && echo "Success!"
 
 ## Rust Library Usage
 
-### Basic Encoding
+### Basic Encoding (FSK Mode)
 
 ```rust
-use transmitwave_core::Encoder;
+use transmitwave_core::EncoderFsk;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data = b"Hello, Audio!";
 
-    let mut encoder = Encoder::new()?;
+    let mut encoder = EncoderFsk::new()?;
     let samples = encoder.encode(data)?;
 
     println!("Generated {} audio samples", samples.len());
@@ -85,15 +85,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Basic Decoding
+### Basic Decoding (FSK Mode)
 
 ```rust
-use transmitwave_core::Decoder;
+use transmitwave_core::DecoderFsk;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let samples = vec![/* audio samples */];
 
-    let mut decoder = Decoder::new()?;
+    let mut decoder = DecoderFsk::new()?;
     let data = decoder.decode(&samples)?;
 
     println!("Recovered: {:?}", String::from_utf8_lossy(&data));
@@ -105,12 +105,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Working with WAV Files
 
 ```rust
-use transmitwave_core::Encoder;
+use transmitwave_core::EncoderFsk;
 use hound::WavSpec;
 use std::fs::File;
 
 fn encode_to_wav(data: &[u8], wav_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut encoder = Encoder::new()?;
+    let mut encoder = EncoderFsk::new()?;
     let samples = encoder.encode(data)?;
 
     // Write WAV file
@@ -134,7 +134,7 @@ fn encode_to_wav(data: &[u8], wav_path: &str) -> Result<(), Box<dyn std::error::
 ```
 
 ```rust
-use transmitwave_core::Decoder;
+use transmitwave_core::DecoderFsk;
 use std::fs::File;
 
 fn decode_from_wav(wav_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -146,7 +146,7 @@ fn decode_from_wav(wav_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>
     let samples = samples?;
 
     // Decode
-    let mut decoder = Decoder::new()?;
+    let mut decoder = DecoderFsk::new()?;
     let data = decoder.decode(&samples)?;
 
     Ok(data)
@@ -156,11 +156,11 @@ fn decode_from_wav(wav_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>
 ### Error Handling
 
 ```rust
-use transmitwave_core::{Encoder, Decoder, AudioModemError};
+use transmitwave_core::{EncoderFsk, AudioModemError};
 
 fn main() {
     let data = b"Test";
-    let mut encoder = Encoder::new().expect("Failed to initialize encoder");
+    let mut encoder = EncoderFsk::new().expect("Failed to initialize encoder");
 
     match encoder.encode(data) {
         Ok(samples) => println!("Success: {} samples", samples.len()),
@@ -285,10 +285,10 @@ wasm-pack build wasm --target web
 ### Generated Audio Characteristics
 
 - **Sample Rate:** 16 kHz (compatible with 44.1 kHz and 48 kHz systems)
-- **Bit Depth:** 32-bit float
+- **Bit Depth:** 32-bit float or 16-bit PCM
 - **Channels:** Mono
-- **Frequency Range:** 200-4000 Hz (well within audible range)
-- **Sound Character:** Dense hissing tone (OFDM carrier aggregation)
+- **Frequency Range:** 400-2300 Hz (sub-bass band optimized for room acoustics)
+- **Sound Character:** Low-frequency multi-tone FSK tones
 
 ### File Sizes
 

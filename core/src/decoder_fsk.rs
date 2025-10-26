@@ -6,11 +6,11 @@ use crate::sync::{detect_postamble, detect_preamble};
 use crate::PREAMBLE_SAMPLES;
 use crate::fsk::FSK_SYMBOL_SAMPLES;
 
-/// Decoder using Multi-tone FSK (ggwave-compatible)
+/// Decoder using Multi-tone FSK with Reed-Solomon FEC
 ///
 /// Demodulates multi-tone FSK symbols (6 simultaneous frequencies) using non-coherent
 /// energy detection (Goertzel algorithm) to recover the original binary data.
-/// Highly robust to noise and distortion.
+/// Includes Reed-Solomon error correction for robustness against channel impairments.
 pub struct DecoderFsk {
     fsk: FskDemodulator,
     fec: FecDecoder,

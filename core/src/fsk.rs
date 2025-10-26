@@ -1,62 +1,58 @@
 use crate::error::{AudioModemError, Result};
 use std::f32::consts::PI;
 
-// Multi-tone FSK configuration (ggwave-compatible)
+// Multi-tone FSK configuration optimized for over-the-air audio transfer
 //
-// This implementation uses the EXACT frequency band from ggwave's audible protocols:
-// - ggwave audible protocols: freqStart = 40, using 96 bins (40-135)
-// - With ggwave's hzPerSample = 46.875 Hz: 40 * 46.875 = 1875 Hz base
-// - Frequency range: 1875 Hz to 6328.125 Hz (identical to ggwave)
+// Frequency band design:
+// - Uses 96 frequency bins with 20 Hz spacing
+// - Base frequency: 400 Hz (sub-bass range)
+// - Maximum frequency: 2300 Hz (400 + 95*20)
+// - Optimized for excellent room acoustics and speaker compatibility
 //
-// ggwave protocol parameters (at 48kHz, 1024 samples/frame):
-// - Normal:  9 frames/tx = 192ms per symbol
-// - Fast:    6 frames/tx = 128ms per symbol
-// - Fastest: 3 frames/tx = 64ms per symbol
+// Symbol parameters (at 16kHz sample rate):
+// - Normal:  3072 samples = 192ms per symbol (robust low-frequency detection)
+// - Fast:    1536 samples = 96ms per symbol
+// - Fastest: 768 samples = 48ms per symbol
 //
-// Our implementation (at 16kHz):
-// - Uses reduced frequency spacing (20 Hz) for lower range
-// - Uses very low frequency range (400-2320 Hz) for sub-bass band
-// - Transmits 3 bytes (6 nibbles) per symbol like ggwave
-// - Symbol duration increased 2.3x to compensate for lower delta (reduces data rate)
+// Data encoding:
+// - Transmits 3 bytes (6 nibbles) per symbol
+// - Each nibble (4 bits) selects one of 16 frequencies from a band
+// - Uses Reed-Solomon FEC for error correction
+// - Includes preamble/postamble for frame synchronization
 
-/// Base frequency in Hz (very low for sub-bass range)
-/// Original: 1875 Hz, reduced to 400 Hz for low-frequency band
+/// Base frequency in Hz (sub-bass range for optimal room acoustics)
 const FSK_BASE_FREQ: f32 = 400.0;
 
-/// Frequency spacing in Hz between adjacent bins (reduced for lower range)
-/// Original: 46.875 Hz, reduced to 20.0 Hz to lower frequency span
-/// This reduces data rate by ~2.3x but keeps frequencies well below 2kHz
+/// Frequency spacing in Hz between adjacent bins
 const FSK_FREQ_DELTA: f32 = 20.0;
 
-/// Total number of frequency bins (ggwave uses bins 40-135 for audible)
-/// 6 nibbles * 16 tones per nibble = 96 bins
+/// Total number of frequency bins (96 provides redundancy and flexibility)
 const FSK_NUM_BINS: usize = 96;
 
-/// Number of nibbles transmitted per symbol (ggwave bytesPerTx = 3)
+/// Number of nibbles transmitted per symbol (6 nibbles = 3 bytes)
 pub const FSK_NIBBLES_PER_SYMBOL: usize = 6;
 
-/// Number of bytes transmitted per symbol (ggwave standard)
+/// Number of bytes transmitted per symbol
 pub const FSK_BYTES_PER_SYMBOL: usize = 3;
 
-/// Speed mode variants (matching ggwave protocol speeds)
+/// Speed mode variants for FSK transmission
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FskSpeed {
-    /// Normal: ~128ms per symbol at 16kHz (similar to ggwave Fast)
+    /// Normal: 192ms per symbol (robust for low-frequency detection)
     Normal,
-    /// Fast: ~64ms per symbol at 16kHz (similar to ggwave Fastest)
+    /// Fast: 96ms per symbol (balanced speed and reliability)
     Fast,
-    /// Fastest: ~32ms per symbol at 16kHz (faster than ggwave for robustness testing)
+    /// Fastest: 48ms per symbol (maximum speed, less robust)
     Fastest,
 }
 
 impl FskSpeed {
     /// Get symbol duration in samples for this speed at 16kHz sample rate
-    /// Increased 1.5x from original to compensate for tighter frequency spacing (20Hz vs 46.875Hz)
     pub fn samples_per_symbol(&self) -> usize {
         match self {
-            FskSpeed::Normal => 3072,    // ~192ms at 16kHz (was 128ms, now 1.5x slower)
-            FskSpeed::Fast => 1536,      // ~96ms at 16kHz (was 64ms, now 1.5x slower)
-            FskSpeed::Fastest => 768,    // ~48ms at 16kHz (was 32ms, now 1.5x slower)
+            FskSpeed::Normal => 3072,    // 192ms at 16kHz
+            FskSpeed::Fast => 1536,      // 96ms at 16kHz
+            FskSpeed::Fastest => 768,    // 48ms at 16kHz
         }
     }
 
@@ -67,10 +63,7 @@ impl FskSpeed {
     }
 }
 
-/// Default FSK symbol duration (Normal speed: ~192ms at 16kHz)
-/// Increased 1.5x from original to compensate for tighter frequency spacing
-/// - Original: 2048 samples = 128ms
-/// - Now: 3072 samples = 192ms (1.5x slower for lower frequency delta)
+/// Default FSK symbol duration (Normal speed: 192ms at 16kHz)
 pub const FSK_SYMBOL_SAMPLES: usize = 3072;
 
 /// Calculate frequency for a given bin index
@@ -95,10 +88,9 @@ fn freq_to_bin(freq: f32) -> Option<usize> {
 
 /// FSK modulator - generates multi-tone audio for simultaneous transmission
 ///
-/// Transmits 3 bytes (6 nibbles) per symbol by using 6 simultaneous frequencies.
+/// Transmits 3 bytes (6 nibbles) per symbol using 6 simultaneous frequencies.
 /// Each nibble (4 bits, value 0-15) selects one frequency from a band of 16 frequencies.
-///
-/// Supports multiple speed modes matching ggwave's protocol speeds (adjusted for 16kHz).
+/// The 6 frequencies are transmitted simultaneously in the same time slot.
 pub struct FskModulator {
     sample_rate: f32,
     speed: FskSpeed,

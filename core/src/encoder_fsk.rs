@@ -5,7 +5,7 @@ use crate::fsk::FskModulator;
 use crate::sync::{generate_preamble, generate_postamble_signal};
 use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
 
-/// Encoder using Multi-tone FSK (ggwave-compatible)
+/// Encoder using Multi-tone FSK with Reed-Solomon FEC
 ///
 /// Uses 6 simultaneous audio frequencies to encode 3 bytes (24 bits) per symbol
 /// with non-coherent energy detection (Goertzel algorithm) for maximum reliability
@@ -15,8 +15,8 @@ use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
 /// - Highly robust to noise and distortion
 /// - No phase synchronization required (non-coherent detection)
 /// - Well-suited for speaker-to-microphone transmission
-/// - Audible frequency band (1875-6328 Hz) compatible with ggwave
-/// - Simultaneous multi-tone transmission for reliability
+/// - Sub-bass frequency band (400-2300 Hz) for excellent room acoustics
+/// - Simultaneous multi-tone transmission for redundancy
 pub struct EncoderFsk {
     fsk: FskModulator,
     fec: FecEncoder,

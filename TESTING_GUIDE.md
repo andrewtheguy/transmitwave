@@ -33,9 +33,9 @@ This guide provides step-by-step instructions to test all features of the audio 
 - ✅ Download button becomes enabled
 
 ### Verification
-- Listen to the audio - it should sound like chirps and OFDM tones
+- Listen to the audio - it should sound like low-frequency tones and preamble chirps
 - Duration should be around 2-3 seconds
-- Audio should be clear and audible
+- Audio should be clear and audible (400-2300 Hz frequency band)
 
 ---
 
@@ -296,9 +296,9 @@ Expected: Exact match including spaces
 2. Click play button
 3. Listen to entire audio
 4. Expected:
-   - ✅ Sound starts with ascending tone (preamble)
-   - ✅ Middle section has OFDM-like sounds
-   - ✅ Ends with descending tone (postamble)
+   - ✅ Sound starts with preamble (chirp signal)
+   - ✅ Middle section has multi-tone FSK signals (400-2300 Hz)
+   - ✅ Ends with postamble tone
    - ✅ Total duration ~2-3 seconds
    - ✅ Clear and audible on system speakers
 
