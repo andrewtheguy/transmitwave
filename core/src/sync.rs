@@ -5,18 +5,20 @@ use std::f32::consts::PI;
 // SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
 // ============================================================================
 // Toggle this constant to switch between different synchronization signal types:
-//   - SignalType::Chirp    (frequency sweep from low to high, better detection in noisy environments)
-//   - SignalType::PrnNoise (blends in better with the sound of the payload)
+//   - SignalType::Chirp         (frequency sweep from low to high, better detection in noisy environments)
+//   - SignalType::PrnNoise      (blends in better with the sound of the payload)
+//   - SignalType::ThreeNoteWhistle (musical three-note whistle pattern)
 //
 // This controls what `generate_preamble()` and `generate_postamble_signal()`
 // actually generate, allowing easy comparison between signal types.
-const SIGNAL_TYPE: SignalType = SignalType::Chirp;
+const SIGNAL_TYPE: SignalType = SignalType::ThreeNoteWhistle;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
 enum SignalType {
-    PrnNoise,  // Pseudo-random bipolar noise (different seeds for pre/post)
-    Chirp,     // Linear frequency sweep
+    PrnNoise,        // Pseudo-random bipolar noise (different seeds for pre/post)
+    Chirp,           // Linear frequency sweep
+    ThreeNoteWhistle, // Three-note whistle pattern (different melodies for pre/post)
 }
 
 /// Generates a Barker code (11-bit) for synchronization
@@ -132,8 +134,95 @@ pub fn generate_postamble_chirp(duration_samples: usize, amplitude: f32) -> Vec<
     samples
 }
 
+/// Generates a single pure tone with smooth attack/decay envelope
+/// freq: frequency in Hz
+/// duration_samples: total number of samples
+/// amplitude: peak amplitude (0.0 to 1.0)
+fn generate_tone(freq: f32, duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    let sample_rate = SAMPLE_RATE as f32;
+    let duration = duration_samples as f32 / sample_rate;
+
+    let mut samples = vec![0.0; duration_samples];
+    for n in 0..duration_samples {
+        let t = n as f32 / sample_rate;
+        let phase = 2.0 * PI * freq * t;
+        let envelope = amplitude_envelope(t, duration);
+        samples[n] = amplitude * envelope * phase.sin();
+    }
+    samples
+}
+
+/// Generates a three-note whistle pattern for preamble
+/// Pattern: ascending melody (800 Hz -> 1200 Hz -> 1600 Hz)
+/// Each note is ~83ms with smooth transitions
+pub fn generate_preamble_three_note(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    let note_duration = duration_samples / 3;
+    let note1_freq = 800.0;  // Low note
+    let note2_freq = 1200.0; // Mid note
+    let note3_freq = 1600.0; // High note
+
+    let mut samples = vec![0.0; duration_samples];
+
+    // Generate three notes
+    let note1 = generate_tone(note1_freq, note_duration, amplitude);
+    let note2 = generate_tone(note2_freq, note_duration, amplitude);
+    let note3 = generate_tone(note3_freq, note_duration, amplitude);
+
+    // Concatenate the notes
+    for i in 0..note_duration.min(note1.len()) {
+        samples[i] = note1[i];
+    }
+    for i in 0..note_duration.min(note2.len()) {
+        if i + note_duration < samples.len() {
+            samples[i + note_duration] = note2[i];
+        }
+    }
+    for i in 0..note_duration.min(note3.len()) {
+        if i + 2 * note_duration < samples.len() {
+            samples[i + 2 * note_duration] = note3[i];
+        }
+    }
+
+    samples
+}
+
+/// Generates a three-note whistle pattern for postamble
+/// Pattern: descending melody (1600 Hz -> 1200 Hz -> 700 Hz)
+/// Each note is ~83ms with smooth transitions
+/// Uses slightly lower frequencies for better speaker response
+pub fn generate_postamble_three_note(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    let note_duration = duration_samples / 3;
+    let note1_freq = 1600.0; // High note
+    let note2_freq = 1200.0; // Mid note
+    let note3_freq = 700.0;  // Low note (higher than chirp postamble for better volume)
+
+    let mut samples = vec![0.0; duration_samples];
+
+    // Generate three notes
+    let note1 = generate_tone(note1_freq, note_duration, amplitude);
+    let note2 = generate_tone(note2_freq, note_duration, amplitude);
+    let note3 = generate_tone(note3_freq, note_duration, amplitude);
+
+    // Concatenate the notes
+    for i in 0..note_duration.min(note1.len()) {
+        samples[i] = note1[i];
+    }
+    for i in 0..note_duration.min(note2.len()) {
+        if i + note_duration < samples.len() {
+            samples[i + note_duration] = note2[i];
+        }
+    }
+    for i in 0..note_duration.min(note3.len()) {
+        if i + 2 * note_duration < samples.len() {
+            samples[i + 2 * note_duration] = note3[i];
+        }
+    }
+
+    samples
+}
+
 /// Generate preamble signal
-/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise or Chirp)
+/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, or ThreeNoteWhistle)
 pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match SIGNAL_TYPE {
         SignalType::PrnNoise => {
@@ -145,11 +234,15 @@ pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
             // Chirp: Linear frequency sweep from 200 Hz to 4000 Hz
             generate_preamble_chirp(duration_samples, amplitude)
         }
+        SignalType::ThreeNoteWhistle => {
+            // Three-note whistle: ascending melody (800 -> 1200 -> 1600 Hz)
+            generate_preamble_three_note(duration_samples, amplitude)
+        }
     }
 }
 
 /// Generate postamble signal
-/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise or Chirp)
+/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, or ThreeNoteWhistle)
 pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match SIGNAL_TYPE {
         SignalType::PrnNoise => {
@@ -160,6 +253,10 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
         SignalType::Chirp => {
             // Chirp: Reverse sweep from 4000 Hz to 200 Hz (mirror of preamble)
             generate_postamble_chirp(duration_samples, amplitude)
+        }
+        SignalType::ThreeNoteWhistle => {
+            // Three-note whistle: descending melody (1600 -> 1200 -> 700 Hz)
+            generate_postamble_three_note(duration_samples, amplitude)
         }
     }
 }
@@ -523,6 +620,7 @@ mod tests {
         match SIGNAL_TYPE {
             SignalType::PrnNoise => generate_preamble(crate::PREAMBLE_SAMPLES, amplitude),
             SignalType::Chirp => generate_preamble_chirp(crate::PREAMBLE_SAMPLES, amplitude),
+            SignalType::ThreeNoteWhistle => generate_preamble_three_note(crate::PREAMBLE_SAMPLES, amplitude),
         }
     }
 
@@ -530,6 +628,7 @@ mod tests {
         match SIGNAL_TYPE {
             SignalType::PrnNoise => generate_postamble_signal(crate::POSTAMBLE_SAMPLES, amplitude),
             SignalType::Chirp => generate_postamble_chirp(crate::POSTAMBLE_SAMPLES, amplitude),
+            SignalType::ThreeNoteWhistle => generate_postamble_three_note(crate::POSTAMBLE_SAMPLES, amplitude),
         }
     }
 
