@@ -27,20 +27,10 @@ const IndexPage: React.FC = () => {
         <div
           className="card transition-all"
           style={{ cursor: 'pointer', height: '100%' }}
-          onClick={() => navigate('/microphone')}
+          onClick={() => navigate('/ample')}
         >
-          <h3>🎤 Microphone Detection</h3>
-          <p>Real-time detection of the preamble signal from your microphone input.</p>
-          <button className="btn-primary w-full">Open Demo</button>
-        </div>
-
-        <div
-          className="card transition-all"
-          style={{ cursor: 'pointer', height: '100%' }}
-          onClick={() => navigate('/postamble')}
-        >
-          <h3>🎯 Postamble Detection</h3>
-          <p>Real-time detection of the postamble signal from your microphone input.</p>
+          <h3>🎤 Signal Detection</h3>
+          <p>Real-time detection of preamble and postamble synchronization signals from your microphone input.</p>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
 
