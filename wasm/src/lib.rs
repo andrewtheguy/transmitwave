@@ -31,6 +31,18 @@ impl WasmEncoder {
             .encode(data)
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
+
+    /// Get the current number of redundant copies per symbol
+    #[wasm_bindgen]
+    pub fn redundancy_copies(&self) -> usize {
+        self.inner.redundancy_copies()
+    }
+
+    /// Set the number of redundant copies per symbol (default: 2)
+    #[wasm_bindgen]
+    pub fn set_redundancy_copies(&mut self, copies: usize) {
+        self.inner.set_redundancy_copies(copies);
+    }
 }
 
 /// Default WASM Decoder (uses FSK for maximum reliability)
@@ -57,6 +69,19 @@ impl WasmDecoder {
         self.inner
             .decode(samples)
             .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Get the current number of redundant copies per symbol
+    #[wasm_bindgen]
+    pub fn redundancy_copies(&self) -> usize {
+        self.inner.redundancy_copies()
+    }
+
+    /// Set the number of redundant copies per symbol (default: 2)
+    /// Must match the encoder setting for proper decoding
+    #[wasm_bindgen]
+    pub fn set_redundancy_copies(&mut self, copies: usize) {
+        self.inner.set_redundancy_copies(copies);
     }
 }
 

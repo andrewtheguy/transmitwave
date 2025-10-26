@@ -30,6 +30,16 @@ impl EncoderFsk {
         })
     }
 
+    /// Get the current number of redundant copies per symbol
+    pub fn redundancy_copies(&self) -> usize {
+        self.fsk.redundancy_copies()
+    }
+
+    /// Set the number of redundant copies per symbol (default: 2)
+    pub fn set_redundancy_copies(&mut self, copies: usize) {
+        self.fsk.set_redundancy_copies(copies);
+    }
+
     /// Encode binary data into audio samples using multi-tone FSK modulation
     /// Returns: preamble + (FSK symbols) + postamble
     ///

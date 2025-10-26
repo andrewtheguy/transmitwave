@@ -21,6 +21,12 @@ use base64::Engine;
 #[derive(Serialize, Deserialize)]
 struct EncodeRequest {
     data: String, // base64-encoded input data
+    #[serde(default = "default_redundancy")]
+    redundancy: usize,
+}
+
+fn default_redundancy() -> usize {
+    2
 }
 
 #[derive(Serialize, Deserialize)]
@@ -34,6 +40,8 @@ struct EncodeResponse {
 #[derive(Serialize, Deserialize)]
 struct DecodeRequest {
     wav_base64: String, // base64-encoded WAV file
+    #[serde(default = "default_redundancy")]
+    redundancy: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -84,6 +92,10 @@ enum Commands {
         /// Output WAV file
         #[arg(value_name = "OUTPUT.WAV")]
         output: PathBuf,
+
+        /// Number of redundant copies per symbol (default: 2)
+        #[arg(short, long, default_value = "2")]
+        redundancy: usize,
     },
 
     /// Decode WAV file to binary data using multi-tone FSK
@@ -95,6 +107,10 @@ enum Commands {
         /// Output binary file
         #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
+
+        /// Number of redundant copies per symbol (default: 2)
+        #[arg(short, long, default_value = "2")]
+        redundancy: usize,
     },
 
     /// Start web server for encode/decode operations
@@ -116,11 +132,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
-            Commands::Encode { input, output } => {
-                encode_fsk_command(&input, &output)?
+            Commands::Encode { input, output, redundancy } => {
+                encode_fsk_command(&input, &output, redundancy)?
             }
-            Commands::Decode { input, output } => {
-                decode_fsk_command(&input, &output)?
+            Commands::Decode { input, output, redundancy } => {
+                decode_fsk_command(&input, &output, redundancy)?
             }
             Commands::Server { port } => {
                 return start_web_server(port);
@@ -144,9 +160,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if mode == "encode" || mode == "enc" {
-            encode_fsk_command(&input, &output)?
+            encode_fsk_command(&input, &output, 2)?
         } else if mode == "decode" || mode == "dec" {
-            decode_fsk_command(&input, &output)?
+            decode_fsk_command(&input, &output, 2)?
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
             std::process::exit(1);
@@ -162,6 +178,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn encode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
+    redundancy: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read input binary file
     let data = std::fs::read(input_path)?;
@@ -169,6 +186,7 @@ fn encode_fsk_command(
 
     // Create FSK encoder and encode data
     let mut encoder = EncoderFsk::new()?;
+    encoder.set_redundancy_copies(redundancy);
     let samples = encoder.encode(&data)?;
     println!(
         "Encoded with multi-tone FSK to {} audio samples",
@@ -202,6 +220,7 @@ fn encode_fsk_command(
 fn decode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
+    redundancy: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
     let file = File::open(input_path)?;
@@ -251,6 +270,7 @@ fn decode_fsk_command(
 
     // Decode with FSK
     let mut decoder = DecoderFsk::new()?;
+    decoder.set_redundancy_copies(redundancy);
     let data = decoder.decode(&samples)?;
     println!("Decoded {} bytes with multi-tone FSK", data.len());
 
@@ -316,6 +336,7 @@ async fn handler_encode(
     let encode_result = EncoderFsk::new()
         .map_err(|e| e.to_string())
         .and_then(|mut encoder| {
+            encoder.set_redundancy_copies(req.redundancy);
             encoder.encode(&data)
                 .map_err(|e| e.to_string())
         });
@@ -477,6 +498,7 @@ async fn handler_decode(
             let decode_result = DecoderFsk::new()
                 .map_err(|e| e.to_string())
                 .and_then(|mut decoder| {
+                    decoder.set_redundancy_copies(req.redundancy);
                     decoder.decode(&samples)
                         .map_err(|e| e.to_string())
                 });

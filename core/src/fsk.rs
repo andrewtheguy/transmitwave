@@ -145,6 +145,7 @@ fn raised_cosine_window(len: usize, taper_len: usize) -> Vec<f32> {
 pub struct FskModulator {
     sample_rate: f32,
     speed: FskSpeed,
+    redundancy_copies: usize,
 }
 
 impl FskModulator {
@@ -152,6 +153,7 @@ impl FskModulator {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
             speed: FskSpeed::Normal,
+            redundancy_copies: 2,
         }
     }
 
@@ -160,6 +162,7 @@ impl FskModulator {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
             speed,
+            redundancy_copies: 2,
         }
     }
 
@@ -171,6 +174,16 @@ impl FskModulator {
     /// Set speed mode
     pub fn set_speed(&mut self, speed: FskSpeed) {
         self.speed = speed;
+    }
+
+    /// Number of redundant copies per symbol (>= 1)
+    pub fn redundancy_copies(&self) -> usize {
+        self.redundancy_copies
+    }
+
+    /// Configure redundant symbol copies to improve robustness
+    pub fn set_redundancy_copies(&mut self, copies: usize) {
+        self.redundancy_copies = copies.max(1);
     }
 
     /// Modulate 3 bytes into a multi-tone FSK symbol
@@ -243,9 +256,12 @@ impl FskModulator {
         }
 
         let mut samples = Vec::new();
+        let redundancy = self.redundancy_copies.max(1);
         for chunk in bytes.chunks(FSK_BYTES_PER_SYMBOL) {
             let symbol_samples = self.modulate_symbol(chunk)?;
-            samples.extend_from_slice(&symbol_samples);
+            for _ in 0..redundancy {
+                samples.extend_from_slice(&symbol_samples);
+            }
         }
 
         Ok(samples)
@@ -287,6 +303,7 @@ impl FskModulator {
 pub struct FskDemodulator {
     sample_rate: f32,
     speed: FskSpeed,
+    redundancy_copies: usize,
 }
 
 impl FskDemodulator {
@@ -294,6 +311,7 @@ impl FskDemodulator {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
             speed: FskSpeed::Normal,
+            redundancy_copies: 2,
         }
     }
 
@@ -302,6 +320,7 @@ impl FskDemodulator {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
             speed,
+            redundancy_copies: 2,
         }
     }
 
@@ -313,6 +332,71 @@ impl FskDemodulator {
     /// Set speed mode
     pub fn set_speed(&mut self, speed: FskSpeed) {
         self.speed = speed;
+    }
+
+    /// Number of redundant symbol copies expected by the demodulator
+    pub fn redundancy_copies(&self) -> usize {
+        self.redundancy_copies
+    }
+
+    /// Configure redundant symbol copies (must match the encoder setting)
+    pub fn set_redundancy_copies(&mut self, copies: usize) {
+        self.redundancy_copies = copies.max(1);
+    }
+
+    fn demodulate_symbol_with_confidence(
+        &self,
+        samples: &[f32],
+    ) -> Result<SymbolDecision> {
+        let expected_samples = self.speed.samples_per_symbol();
+        if samples.len() != expected_samples {
+            return Err(AudioModemError::InvalidInputSize);
+        }
+
+        let spectrum = self.compute_spectrum(samples);
+        let mut nibbles = [0u8; FSK_NIBBLES_PER_SYMBOL];
+        let mut confidence_sum = 0.0f32;
+
+        for nibble_idx in 0..FSK_NIBBLES_PER_SYMBOL {
+            let band_start = nibble_idx * FSK_BINS_PER_BAND;
+            let band_end = band_start + FSK_BINS_PER_BAND;
+
+            let mut max_bin_in_band = 0;
+            let mut max_energy = f32::MIN;
+            let mut second_energy = f32::MIN;
+
+            for (offset, &energy) in spectrum[band_start..band_end].iter().enumerate() {
+                if energy > max_energy {
+                    second_energy = max_energy;
+                    max_energy = energy;
+                    max_bin_in_band = offset;
+                } else if energy > second_energy {
+                    second_energy = energy;
+                }
+            }
+
+            nibbles[nibble_idx] = max_bin_in_band as u8;
+
+            if max_energy.is_finite() && max_energy > 0.0 {
+                let runner_up = if second_energy.is_finite() {
+                    second_energy.max(0.0)
+                } else {
+                    0.0
+                };
+                let separation = ((max_energy - runner_up) / max_energy).clamp(0.0, 1.0);
+                confidence_sum += separation;
+            }
+        }
+
+        let bytes = [
+            (nibbles[0] << 4) | nibbles[1],  // Byte 0
+            (nibbles[2] << 4) | nibbles[3],  // Byte 1
+            (nibbles[4] << 4) | nibbles[5],  // Byte 2
+        ];
+
+        let confidence = confidence_sum / FSK_NIBBLES_PER_SYMBOL as f32;
+
+        Ok(SymbolDecision { bytes, confidence })
     }
 
     /// Compute power spectrum using simple DFT for our specific frequency bins
@@ -355,45 +439,11 @@ impl FskDemodulator {
     /// Detects 6 simultaneous tones, one from each band of 16 frequencies.
     /// Returns the 3 bytes encoded in the symbol.
     /// Symbol duration depends on the configured speed mode.
-    pub fn demodulate_symbol(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
-        let expected_samples = self.speed.samples_per_symbol();
-        if samples.len() != expected_samples {
-            return Err(AudioModemError::InvalidInputSize);
-        }
-
-        // Compute power spectrum
-        let spectrum = self.compute_spectrum(samples);
-
-        // Detect the strongest frequency in each of the 6 bands
-        let mut nibbles = [0u8; FSK_NIBBLES_PER_SYMBOL];
-
-        for nibble_idx in 0..FSK_NIBBLES_PER_SYMBOL {
-            let band_start = nibble_idx * FSK_BINS_PER_BAND;
-            let band_end = band_start + FSK_BINS_PER_BAND;
-
-            // Find bin with maximum energy in this band
-            let mut max_bin_in_band = 0;
-            let mut max_energy = spectrum[band_start];
-
-            for (offset, &energy) in spectrum[band_start..band_end].iter().enumerate() {
-                if energy > max_energy {
-                    max_energy = energy;
-                    max_bin_in_band = offset;
-                }
-            }
-
-            // The nibble value is the offset within the band
-            nibbles[nibble_idx] = max_bin_in_band as u8;
-        }
-
-        // Reconstruct 3 bytes from 6 nibbles
-        let bytes = [
-            (nibbles[0] << 4) | nibbles[1],  // Byte 0
-            (nibbles[2] << 4) | nibbles[3],  // Byte 1
-            (nibbles[4] << 4) | nibbles[5],  // Byte 2
-        ];
-
-        Ok(bytes)
+    pub fn demodulate_symbol(
+        &self,
+        samples: &[f32],
+    ) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
+        Ok(self.demodulate_symbol_with_confidence(samples)?.bytes)
     }
 
     /// Demodulate a sequence of multi-tone FSK symbols
@@ -404,10 +454,31 @@ impl FskDemodulator {
             return Err(AudioModemError::InvalidInputSize);
         }
 
+        let redundancy = self.redundancy_copies.max(1);
+        let symbol_count = samples.len() / symbol_samples;
+        if symbol_count % redundancy != 0 {
+            return Err(AudioModemError::InvalidInputSize);
+        }
+
         let mut bytes = Vec::new();
-        for chunk in samples.chunks(symbol_samples) {
-            let symbol_bytes = self.demodulate_symbol(chunk)?;
-            bytes.extend_from_slice(&symbol_bytes);
+        let group_size = symbol_samples * redundancy;
+        for group in samples.chunks(group_size) {
+            let mut best_decision: Option<SymbolDecision> = None;
+            for chunk in group.chunks(symbol_samples) {
+                let decision = self.demodulate_symbol_with_confidence(chunk)?;
+                let replace = best_decision
+                    .as_ref()
+                    .map_or(true, |best| decision.confidence > best.confidence);
+                if replace {
+                    best_decision = Some(decision);
+                }
+            }
+
+            if let Some(decision) = best_decision {
+                bytes.extend_from_slice(&decision.bytes);
+            } else {
+                return Err(AudioModemError::InvalidInputSize);
+            }
         }
 
         Ok(bytes)
@@ -475,6 +546,12 @@ impl FskDemodulator {
             }
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SymbolDecision {
+    bytes: [u8; FSK_BYTES_PER_SYMBOL],
+    confidence: f32,
 }
 
 impl Default for FskModulator {
@@ -604,7 +681,8 @@ mod tests {
         ];
 
         let samples = modulator.modulate(&bytes).unwrap();
-        assert_eq!(samples.len(), FSK_SYMBOL_SAMPLES * 2);
+        // With default redundancy=2, each symbol is repeated twice
+        assert_eq!(samples.len(), FSK_SYMBOL_SAMPLES * 2 * 2);
 
         let decoded = demodulator.demodulate(&samples).unwrap();
         assert_eq!(decoded.len(), bytes.len());
@@ -707,8 +785,8 @@ mod tests {
     fn test_demodulate_length_validation() {
         let demodulator = FskDemodulator::new();
 
-        // Valid length
-        let samples_valid = vec![0.0; FSK_SYMBOL_SAMPLES];
+        // Valid length: must be multiple of symbol_samples * redundancy (3072 * 2)
+        let samples_valid = vec![0.0; FSK_SYMBOL_SAMPLES * 2];
         assert!(demodulator.demodulate(&samples_valid).is_ok());
 
         // Invalid lengths
@@ -745,5 +823,41 @@ mod tests {
             let decoded = demodulator.demodulate_symbol(&offset_samples).unwrap();
             assert_eq!(decoded, bytes, "Failed with offset {}", offset);
         }
+    }
+
+    #[test]
+    fn test_fsk_modulator_redundancy_length_increase() {
+        let mut modulator = FskModulator::new();
+        modulator.set_redundancy_copies(3);
+        let data = vec![0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC];
+        let samples = modulator.modulate(&data).unwrap();
+
+        let symbol_samples = modulator.speed().samples_per_symbol();
+        let symbol_count = data.len() / FSK_BYTES_PER_SYMBOL;
+        let expected = symbol_count * symbol_samples * 3;
+        assert_eq!(samples.len(), expected);
+    }
+
+    #[test]
+    fn test_fsk_redundancy_recovers_best_copy() {
+        let mut modulator = FskModulator::new();
+        modulator.set_redundancy_copies(3);
+        let mut demodulator = FskDemodulator::new();
+        demodulator.set_redundancy_copies(3);
+
+        let data = vec![0x12, 0x34, 0x56, 0xAB, 0xCD, 0xEF];
+        let mut samples = modulator.modulate(&data).unwrap();
+        let symbol_samples = modulator.speed().samples_per_symbol();
+
+        for (idx, chunk) in samples.chunks_mut(symbol_samples).enumerate() {
+            if idx % 3 != 2 {
+                for sample in chunk.iter_mut() {
+                    *sample = 0.0;
+                }
+            }
+        }
+
+        let decoded = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(decoded, data);
     }
 }

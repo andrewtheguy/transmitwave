@@ -24,6 +24,17 @@ impl DecoderFsk {
         })
     }
 
+    /// Get the current number of redundant copies per symbol
+    pub fn redundancy_copies(&self) -> usize {
+        self.fsk.redundancy_copies()
+    }
+
+    /// Set the number of redundant copies per symbol (default: 2)
+    /// Must match the encoder setting for proper decoding
+    pub fn set_redundancy_copies(&mut self, copies: usize) {
+        self.fsk.set_redundancy_copies(copies);
+    }
+
     /// Decode audio samples back to binary data
     /// Expects: preamble + (FSK symbols) + postamble
     ///
