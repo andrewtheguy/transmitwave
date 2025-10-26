@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { PreambleDetector, PostambleDetector, createDecoder } from '../utils/wasm'
 import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
+import { getMicProcessorUrl } from '../utils/mic-processor-inline'
 
 const MAX_RECORDING_DURATION = 30
 const TARGET_SAMPLE_RATE = 16000
@@ -12,7 +13,6 @@ const PREAMBLE_DURATION_MS = 250
 const PREAMBLE_SAMPLES = (TARGET_SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000 // 4000
 const PRE_ROLL_MS = 100
 const PRE_ROLL_SAMPLES = (TARGET_SAMPLE_RATE * PRE_ROLL_MS) / 1000 // keep ~0.1s before preamble for safety
-const MIC_PROCESSOR_URL = new URL('../worklets/mic-processor.ts?url', import.meta.url).href
 const AUTO_GAIN_MIN = 0.3
 const AUTO_GAIN_MAX = 12.0
 const AUTO_GAIN_SMOOTHING = 0.25
@@ -117,7 +117,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
         throw new Error('AudioWorklet API is not supported in this browser')
       }
 
-      await audioContext.audioWorklet.addModule(MIC_PROCESSOR_URL)
+      await audioContext.audioWorklet.addModule(getMicProcessorUrl())
       const processor = new AudioWorkletNode(audioContext, 'mic-processor', {
         numberOfInputs: 1,
         numberOfOutputs: 1,
