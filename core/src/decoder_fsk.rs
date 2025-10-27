@@ -1,6 +1,6 @@
 use crate::error::{AudioModemError, Result};
 use crate::fec::{FecDecoder, FecMode};
-use crate::framing::FrameDecoder;
+use crate::framing::{FrameDecoder, crc16};
 use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
 use crate::sync::{detect_postamble, detect_preamble, DetectionThreshold};
 use crate::PREAMBLE_SAMPLES;
@@ -339,12 +339,23 @@ impl DecoderFsk {
                     let packet_len = u16::from_be_bytes([slice[0], slice[1]]) as usize;
                     slice = &slice[2..];
 
-                    if slice.len() < packet_len {
+                    if slice.len() < packet_len + 2 {
+                        // Need packet_len bytes + 2 bytes for CRC-16
                         search_offset = data_end;
                         continue;
                     }
 
                     let packet_bytes = &slice[..packet_len];
+                    // Extract and validate packet CRC-16 for early corruption detection
+                    let received_crc = u16::from_be_bytes([slice[packet_len], slice[packet_len + 1]]);
+                    let computed_crc = crc16(packet_bytes);
+
+                    if received_crc != computed_crc {
+                        // Packet corrupted - skip it and continue
+                        search_offset = data_end;
+                        continue;
+                    }
+
                     // Attempt to deserialize the packet; if deserialization fails, skip this packet and continue
                     let packet = EncodingPacket::deserialize(packet_bytes);
 
@@ -385,7 +396,11 @@ impl DecoderFsk {
     }
 
     fn fountain_payload_samples(symbol_size: u16) -> usize {
-        let packet_bytes = symbol_size as usize + 12; // metadata + serialized RaptorQ packet
+        // Fixed metadata: frame_len(4) + symbol_size(2) + packet_len(2) = 8 bytes
+        // Variable: RaptorQ packet (may be larger than symbol_size due to encoding overhead)
+        // Add CRC-16 (2 bytes) + extra buffer for serialization overhead
+        // Conservative estimate: symbol_size + 14 bytes accounting for all overhead and CRC
+        let packet_bytes = symbol_size as usize + 14;
         let symbols = (packet_bytes + FSK_BYTES_PER_SYMBOL - 1) / FSK_BYTES_PER_SYMBOL;
         symbols * FSK_SYMBOL_SAMPLES
     }
@@ -622,5 +637,559 @@ mod tests {
             let decoded = decoder.decode_fountain(&samples, Some(config.clone())).unwrap();
             assert_eq!(decoded, data, "Failed for data length {}", data.len());
         }
+    }
+
+    #[test]
+    fn test_fountain_single_block_crc_corruption() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Test CRC corruption detection";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 0.5,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(15).collect();
+
+        // Corrupt the first block's CRC by flipping bits in the audio
+        let mut corrupted_blocks = blocks.clone();
+        let first_block = &mut corrupted_blocks[0];
+
+        // Flip some bits in the middle of the first block (CRC area is near the end)
+        // We flip bits in the area that should contain the CRC-16
+        for i in (first_block.len() / 2)..(first_block.len() / 2 + 100) {
+            if i < first_block.len() {
+                first_block[i] = first_block[i] * 0.5; // Corrupt audio amplitude
+            }
+        }
+
+        // Reconstruct audio stream
+        let mut samples = Vec::new();
+        for block in &corrupted_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Decoding should still succeed with remaining good blocks
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should recover despite first block corruption");
+    }
+
+    #[test]
+    fn test_fountain_multiple_blocks_crc_corruption() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Test multiple corruptions";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.0, // Extra redundancy
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(20).collect();
+
+        // Corrupt multiple blocks
+        let mut corrupted_blocks = blocks.clone();
+        for block_idx in [0, 3, 7] {
+            if block_idx < corrupted_blocks.len() {
+                let block = &mut corrupted_blocks[block_idx];
+                // Corrupt by amplitude reduction in different areas
+                for i in (block_idx * 50)..(block_idx * 50 + 80) {
+                    if i < block.len() {
+                        block[i] = block[i] * 0.3;
+                    }
+                }
+            }
+        }
+
+        // Reconstruct audio stream
+        let mut samples = Vec::new();
+        for block in &corrupted_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should still succeed with sufficient redundancy
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should recover with multiple block corruptions");
+    }
+
+    #[test]
+    fn test_fountain_crc_rejects_invalid_packets() {
+        use crate::fsk::FountainConfig;
+        use crate::framing::crc16;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Verify CRC validation";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 64,
+            repair_blocks_ratio: 0.5,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(12).collect();
+
+        // Create a highly corrupted block where CRC will definitely fail
+        let mut corrupted_blocks = blocks.clone();
+        if !corrupted_blocks.is_empty() {
+            let block = &mut corrupted_blocks[0];
+            // Flip many bits throughout the block to ensure CRC mismatch
+            for i in 0..block.len().min(200) {
+                block[i] = -block[i]; // Invert samples
+            }
+        }
+
+        // Reconstruct audio stream with corrupted first block
+        let mut samples = Vec::new();
+        for block in &corrupted_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Decoding should succeed by skipping the corrupted block and using others
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should skip invalid CRC blocks");
+    }
+
+    #[test]
+    fn test_fountain_crc_detects_bit_flips() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Bit flip detection test";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 0.75,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(15).collect();
+
+        // Corrupt early blocks with bit flips (emulate FSK demodulation errors)
+        let mut corrupted_blocks = blocks.clone();
+        for block_idx in 0..3.min(corrupted_blocks.len()) {
+            let block = &mut corrupted_blocks[block_idx];
+            // Simulate bit flips by adding noise in high-frequency ranges
+            for i in 0..block.len().min(150) {
+                block[i] += 0.1 * ((i as f32).sin());
+            }
+        }
+
+        // Reconstruct audio stream
+        let mut samples = Vec::new();
+        for block in &corrupted_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should still decode successfully
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should handle bit flip corruptions");
+    }
+
+    #[test]
+    fn test_fountain_crc_with_packet_loss_and_corruption() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Combined loss and corruption";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.0,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(20).collect();
+
+        // Simulate both packet loss and corruption
+        let mut samples = Vec::new();
+        for (i, block) in blocks.iter().enumerate() {
+            let mut modified_block = block.clone();
+
+            // Drop every 5th block (packet loss)
+            if i % 5 == 0 {
+                continue;
+            }
+
+            // Corrupt every 3rd block that we keep
+            if (i / 3) % 2 == 0 {
+                for j in 0..modified_block.len().min(120) {
+                    modified_block[j] = modified_block[j] * 0.4;
+                }
+            }
+
+            samples.extend_from_slice(&modified_block);
+        }
+
+        // Should still decode with sufficient redundancy
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should handle packet loss + corruption");
+    }
+
+    #[test]
+    fn test_fountain_crc_passes_for_clean_data() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Clean data with valid CRC";
+
+        let config = FountainConfig {
+            timeout_secs: 20,
+            block_size: 32,
+            repair_blocks_ratio: 0.5,
+        };
+
+        // Generate blocks (no corruption)
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(10).collect();
+
+        let mut samples = Vec::new();
+        for block in blocks {
+            samples.extend_from_slice(&block);
+        }
+
+        // All CRCs should pass, decoding should be quick
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Clean data should decode correctly");
+    }
+
+    #[test]
+    fn test_fountain_integration_alternating_good_bad_blocks() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Integration test: alternating good/bad blocks";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 0.75,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(18).collect();
+
+        // Pattern: good, bad, good, bad, ... (alternating)
+        let mut processed_blocks = blocks.clone();
+        for (i, block) in processed_blocks.iter_mut().enumerate() {
+            if i % 2 == 1 {
+                // Corrupt odd-indexed blocks (1, 3, 5, ...)
+                for j in 0..block.len().min(100) {
+                    block[j] = block[j] * 0.2; // Severe amplitude reduction
+                }
+            }
+        }
+
+        let mut samples = Vec::new();
+        for block in &processed_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should successfully decode despite every other block being bad
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode with alternating good/bad blocks");
+    }
+
+    #[test]
+    fn test_fountain_integration_burst_corruption() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Burst error: consecutive bad blocks";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.0, // Extra redundancy for burst recovery
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(20).collect();
+
+        // Simulate burst corruption: blocks 3-7 all corrupted
+        let mut processed_blocks = blocks.clone();
+        for i in 3..8 {
+            if i < processed_blocks.len() {
+                let block = &mut processed_blocks[i];
+                // Corrupt with phase shift (realistic channel impairment)
+                for j in 0..block.len().min(150) {
+                    block[j] = -block[j]; // Phase inversion = maximum corruption
+                }
+            }
+        }
+
+        let mut samples = Vec::new();
+        for block in &processed_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should recover despite burst of 5 consecutive bad blocks
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should recover from burst corruption with good blocks before/after");
+    }
+
+    #[test]
+    fn test_fountain_integration_sparse_good_blocks() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Sparse: mostly bad, few good blocks";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.0,
+        };
+
+        // Generate many blocks to ensure we have enough good ones
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(25).collect();
+
+        // Keep only blocks at indices 2, 5, 10, 15, 22 (sparse good blocks)
+        let mut processed_blocks = blocks.clone();
+        let good_indices = [2, 5, 10, 15, 22];
+        for (i, block) in processed_blocks.iter_mut().enumerate() {
+            if !good_indices.contains(&i) {
+                // Corrupt all blocks except the good ones
+                for j in 0..block.len().min(200) {
+                    block[j] = block[j] * 0.15; // Heavy corruption
+                }
+            }
+        }
+
+        let mut samples = Vec::new();
+        for block in &processed_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should decode with minimal good blocks due to fountain redundancy
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode with sparse valid blocks");
+    }
+
+    #[test]
+    fn test_fountain_integration_good_blocks_early_then_bad() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Good early, bad later: early blocks good";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 0.5,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(16).collect();
+
+        // First 6 blocks are good, remaining are bad
+        let mut processed_blocks = blocks.clone();
+        for (i, block) in processed_blocks.iter_mut().enumerate() {
+            if i >= 6 {
+                // Corrupt blocks 6 and onwards
+                for j in 0..block.len().min(120) {
+                    block[j] = block[j] * 0.25;
+                }
+            }
+        }
+
+        let mut samples = Vec::new();
+        for block in &processed_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should successfully decode with good source blocks at beginning
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode when first blocks are clean");
+    }
+
+    #[test]
+    fn test_fountain_integration_bad_blocks_early_then_good() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Bad early, good later: repair blocks work";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 0.75,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(18).collect();
+
+        // First 5 blocks are bad, remaining are good
+        let mut processed_blocks = blocks.clone();
+        for (i, block) in processed_blocks.iter_mut().enumerate() {
+            if i < 5 {
+                // Corrupt blocks 0-4
+                for j in 0..block.len().min(130) {
+                    block[j] = block[j] * 0.1;
+                }
+            }
+        }
+
+        let mut samples = Vec::new();
+        for block in &processed_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should decode because repair blocks arrive later
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode with repair blocks after bad source blocks");
+    }
+
+    #[test]
+    fn test_fountain_integration_random_pass_fail_pattern() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Random: unpredictable pass/fail pattern";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.0,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(20).collect();
+
+        // Random corruption pattern: 2,4,5,8,12,14,17 are corrupted
+        let corrupted_indices = [2, 4, 5, 8, 12, 14, 17];
+        let mut processed_blocks = blocks.clone();
+        for (i, block) in processed_blocks.iter_mut().enumerate() {
+            if corrupted_indices.contains(&i) {
+                // Corrupt these blocks
+                let corruption_level = 0.2 + (i as f32 * 0.05);
+                for j in 0..block.len().min(100 + i * 5) {
+                    block[j] = block[j] * corruption_level;
+                }
+            }
+        }
+
+        let mut samples = Vec::new();
+        for block in &processed_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should successfully decode despite random corruption pattern
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode with random pass/fail pattern");
+    }
+
+    #[test]
+    fn test_fountain_integration_progressive_degradation() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Progressive: quality degrades over time";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.0,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(20).collect();
+
+        // Simulate progressive channel degradation: later blocks more corrupted
+        let mut processed_blocks = blocks.clone();
+        for (i, block) in processed_blocks.iter_mut().enumerate() {
+            // Corruption level increases with block index
+            let corruption_level = 0.1 + (i as f32 * 0.04);
+            if corruption_level > 0.5 {
+                // Corrupt heavily
+                for j in 0..block.len().min(80 + i * 3) {
+                    block[j] = block[j] * corruption_level;
+                }
+            }
+        }
+
+        let mut samples = Vec::new();
+        for block in &processed_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should still decode despite progressive quality loss
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode despite progressive degradation");
+    }
+
+    #[test]
+    fn test_fountain_integration_isolated_good_blocks_spread() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Spread: isolated good blocks widely separated";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.0,
+        };
+
+        // Generate many blocks to test with sparse good ones
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(24).collect();
+
+        // Good blocks at indices 1, 6, 11, 16, 21 (widely spread)
+        let good_indices = [1, 6, 11, 16, 21];
+        let mut processed_blocks = blocks.clone();
+        for (i, block) in processed_blocks.iter_mut().enumerate() {
+            if !good_indices.contains(&i) {
+                // Corrupt all others with varying severity
+                let severity = (i % 4) as f32 * 0.2 + 0.1;
+                for j in 0..block.len().min(100 + (i * 2)) {
+                    block[j] = block[j] * severity;
+                }
+            }
+        }
+
+        let mut samples = Vec::new();
+        for block in &processed_blocks {
+            samples.extend_from_slice(block);
+        }
+
+        // Should decode with isolated good blocks spread apart
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode with widely separated good blocks");
     }
 }

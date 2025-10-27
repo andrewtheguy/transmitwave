@@ -240,6 +240,11 @@ impl Iterator for FountainStream {
         let packet_len = packet_data.len() as u16;
         encoded_data.extend_from_slice(&packet_len.to_be_bytes());
         encoded_data.extend_from_slice(&packet_data);
+
+        // Add CRC-16 checksum of the RaptorQ packet for early corruption detection
+        let packet_crc = crc16(&packet_data);
+        encoded_data.extend_from_slice(&packet_crc.to_be_bytes());
+
         let remainder = encoded_data.len() % crate::fsk::FSK_BYTES_PER_SYMBOL;
         if remainder != 0 {
             let padding = crate::fsk::FSK_BYTES_PER_SYMBOL - remainder;
