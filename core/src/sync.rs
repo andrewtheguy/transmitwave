@@ -306,8 +306,8 @@ fn compute_threshold_value(samples: &[f32], threshold: DetectionThreshold) -> f3
 pub fn detect_preamble(samples: &[f32], threshold: DetectionThreshold) -> Option<usize> {
     // Validate threshold
     if let DetectionThreshold::Fixed(value) = threshold {
-        if value <= 0.001 || value > 1.0 {
-            panic!("Invalid fixed detection threshold: {}. Must be in range (0.001, 1.0]. Minimum is 0.001 (0.1%)", value);
+        if value < 0.001 || value > 1.0 {
+            panic!("Invalid fixed detection threshold: {}. Must be in range [0.001, 1.0]. Minimum is 0.001 (0.1%)", value);
         }
     }
 
@@ -386,8 +386,8 @@ pub fn detect_preamble(samples: &[f32], threshold: DetectionThreshold) -> Option
 pub fn detect_postamble(samples: &[f32], threshold: DetectionThreshold) -> Option<usize> {
     // Validate threshold
     if let DetectionThreshold::Fixed(value) = threshold {
-        if value <= 0.001 || value > 1.0 {
-            panic!("Invalid fixed detection threshold: {}. Must be in range (0.001, 1.0]. Minimum is 0.001 (0.1%)", value);
+        if value < 0.001 || value > 1.0 {
+            panic!("Invalid fixed detection threshold: {}. Must be in range [0.001, 1.0]. Minimum is 0.001 (0.1%)", value);
         }
     }
 
@@ -462,6 +462,7 @@ pub fn detect_postamble(samples: &[f32], threshold: DetectionThreshold) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DecoderFsk;
 
     #[test]
     fn test_barker_code() {
@@ -1083,6 +1084,241 @@ mod tests {
         assert!(pos >= expected_start - 100 && pos < expected_end,
                 "Position {} should be within preamble region [{}, {})",
                 pos, expected_start - 100, expected_end);
+    }
+
+    // ========================================================================
+    // FIXED THRESHOLD VALIDATION TESTS
+    // ========================================================================
+
+    #[test]
+    fn test_fixed_threshold_minimum_boundary() {
+        // Test that minimum threshold of 0.001 (0.1%) is accepted
+        let preamble = create_preamble(0.5);
+        let mut signal = preamble.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        // Should not panic with minimum threshold
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.001));
+        assert!(result.is_some(), "Minimum threshold (0.001) should work");
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid fixed detection threshold")]
+    fn test_fixed_threshold_below_minimum_panics() {
+        // Test that threshold below 0.001 causes panic
+        let preamble = create_preamble(0.5);
+        let signal = preamble.clone();
+        detect_preamble(&signal, DetectionThreshold::Fixed(0.0005));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid fixed detection threshold")]
+    fn test_fixed_threshold_zero_panics() {
+        // Test that threshold of exactly 0.0 causes panic
+        let preamble = create_preamble(0.5);
+        let signal = preamble.clone();
+        detect_preamble(&signal, DetectionThreshold::Fixed(0.0));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid fixed detection threshold")]
+    fn test_fixed_threshold_negative_panics() {
+        // Test that negative threshold causes panic
+        let preamble = create_preamble(0.5);
+        let signal = preamble.clone();
+        detect_preamble(&signal, DetectionThreshold::Fixed(-0.1));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid fixed detection threshold")]
+    fn test_fixed_threshold_above_maximum_panics() {
+        // Test that threshold > 1.0 causes panic
+        let preamble = create_preamble(0.5);
+        let signal = preamble.clone();
+        detect_preamble(&signal, DetectionThreshold::Fixed(1.1));
+    }
+
+    #[test]
+    fn test_fixed_threshold_maximum_boundary() {
+        // Test that maximum threshold of 1.0 is accepted
+        let preamble = create_preamble(0.5);
+        let mut signal = preamble.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        // Should not panic with maximum threshold
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(1.0));
+        assert!(result.is_none(), "Maximum threshold (1.0) is very strict, may not detect");
+    }
+
+    #[test]
+    fn test_fixed_threshold_mid_range() {
+        // Test standard fixed threshold values work correctly
+        let preamble = create_preamble(0.5);
+        let mut signal = preamble.clone();
+        signal.extend_from_slice(&vec![0.0; 1000]);
+
+        // Test common threshold values
+        let thresholds = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+        for threshold in thresholds {
+            let result = detect_preamble(&signal, DetectionThreshold::Fixed(threshold));
+            // Should work without panicking - exact detection depends on signal quality
+            let _ = result;
+        }
+    }
+
+    #[test]
+    fn test_postamble_fixed_threshold_minimum() {
+        // Test postamble detection with minimum fixed threshold
+        let postamble = create_postamble(0.5);
+        let mut signal = vec![0.0; 1000];
+        signal.extend_from_slice(&postamble);
+
+        let result = detect_postamble(&signal, DetectionThreshold::Fixed(0.001));
+        assert!(result.is_some(), "Postamble should detect with minimum threshold");
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid fixed detection threshold")]
+    fn test_postamble_fixed_threshold_below_minimum_panics() {
+        // Test that postamble also validates minimum threshold
+        let postamble = create_postamble(0.5);
+        let signal = postamble.clone();
+        detect_postamble(&signal, DetectionThreshold::Fixed(0.0005));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid fixed detection threshold")]
+    fn test_postamble_fixed_threshold_above_maximum_panics() {
+        // Test that postamble validates maximum threshold
+        let postamble = create_postamble(0.5);
+        let signal = postamble.clone();
+        detect_postamble(&signal, DetectionThreshold::Fixed(1.5));
+    }
+
+    // ========================================================================
+    // DECODER THRESHOLD CLAMPING TESTS
+    // ========================================================================
+
+    #[test]
+    fn test_decoder_clamps_preamble_threshold_below_minimum() {
+        // Test that DecoderFsk clamps threshold values below minimum to 0.001
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Set threshold below minimum
+        decoder.set_preamble_threshold(0.0005);
+
+        // Should be clamped to 0.001
+        let threshold = decoder.get_preamble_threshold();
+        assert_eq!(threshold, 0.001, "Threshold below minimum should be clamped to 0.001");
+    }
+
+    #[test]
+    fn test_decoder_clamps_preamble_threshold_above_maximum() {
+        // Test that DecoderFsk clamps threshold values above maximum to 1.0
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Set threshold above maximum
+        decoder.set_preamble_threshold(1.5);
+
+        // Should be clamped to 1.0
+        let threshold = decoder.get_preamble_threshold();
+        assert_eq!(threshold, 1.0, "Threshold above maximum should be clamped to 1.0");
+    }
+
+    #[test]
+    fn test_decoder_clamps_postamble_threshold_below_minimum() {
+        // Test that DecoderFsk clamps postamble threshold below minimum
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Set threshold below minimum (but not 0.0 which triggers adaptive mode)
+        decoder.set_postamble_threshold(0.0005);
+
+        // Should be clamped to 0.001
+        let threshold = decoder.get_postamble_threshold();
+        assert_eq!(threshold, 0.001, "Threshold below minimum should be clamped to 0.001");
+    }
+
+    #[test]
+    fn test_decoder_preserves_valid_fixed_threshold() {
+        // Test that valid fixed thresholds are preserved
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        let test_thresholds = vec![0.001, 0.1, 0.25, 0.4, 0.5, 0.75, 1.0];
+
+        for original in test_thresholds {
+            decoder.set_preamble_threshold(original);
+            let retrieved = decoder.get_preamble_threshold();
+            assert_eq!(retrieved, original, "Valid threshold {} should be preserved", original);
+        }
+    }
+
+    #[test]
+    fn test_decoder_adaptive_threshold_via_zero() {
+        // Test that setting threshold to 0.0 enables adaptive mode
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        decoder.set_preamble_threshold(0.0);
+
+        // Getting threshold should return 0.0 for adaptive
+        let threshold = decoder.get_preamble_threshold();
+        assert_eq!(threshold, 0.0, "Adaptive threshold should return 0.0");
+    }
+
+    #[test]
+    fn test_decoder_adaptive_threshold_persists() {
+        // Test that adaptive threshold persists across multiple calls
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Set to adaptive
+        decoder.set_preamble_threshold(0.0);
+        assert_eq!(decoder.get_preamble_threshold(), 0.0);
+
+        // Change to fixed
+        decoder.set_preamble_threshold(0.4);
+        assert_eq!(decoder.get_preamble_threshold(), 0.4);
+
+        // Change back to adaptive
+        decoder.set_preamble_threshold(0.0);
+        assert_eq!(decoder.get_preamble_threshold(), 0.0);
+    }
+
+    #[test]
+    fn test_decoder_unified_threshold_setter() {
+        // Test that set_detection_threshold sets both preamble and postamble
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        decoder.set_detection_threshold(0.35);
+
+        let preamble_thresh = decoder.get_preamble_threshold();
+        let postamble_thresh = decoder.get_postamble_threshold();
+
+        assert_eq!(preamble_thresh, 0.35, "Preamble threshold should be set");
+        assert_eq!(postamble_thresh, 0.35, "Postamble threshold should be set");
+    }
+
+    #[test]
+    fn test_decoder_threshold_edge_cases() {
+        // Test edge case threshold values
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Test various edge cases (0.0 means adaptive, returned as 0.0)
+        let edge_cases = vec![
+            (0.0, 0.0),        // Exactly zero → adaptive mode → returns 0.0
+            (0.0009, 0.001),   // Just below minimum → clamped to 0.001
+            (0.001, 0.001),    // Exactly minimum → kept
+            (0.0011, 0.0011),  // Just above minimum → kept
+            (0.9999, 0.9999),  // Just below maximum → kept
+            (1.0, 1.0),        // Exactly maximum → kept
+            (1.0001, 1.0),     // Just above maximum → clamped
+            (2.0, 1.0),        // Well above maximum → clamped
+        ];
+
+        for (input, expected) in edge_cases {
+            decoder.set_preamble_threshold(input);
+            let result = decoder.get_preamble_threshold();
+            assert!((result - expected).abs() < 1e-6,
+                    "Input {} should result in {} but got {}", input, expected, result);
+        }
     }
 
 }
