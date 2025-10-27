@@ -2,7 +2,8 @@ import { PreambleDetector, initWasm } from '../utils/wasm'
 
 interface InitMessage {
   type: 'init'
-  threshold: number
+  isAdaptive: boolean
+  fixedValue: number
 }
 
 interface AddSamplesMessage {
@@ -30,7 +31,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
     switch (type) {
       case 'init': {
-        const { threshold } = event.data as InitMessage
+        const { isAdaptive, fixedValue } = event.data as InitMessage
 
         // Initialize WASM first (only if not already initialized)
         if (!wasmInitialized) {
@@ -71,9 +72,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
           detector = null
         }
 
-        detector = new PreambleDetector(threshold)
+        detector = new PreambleDetector(isAdaptive, fixedValue)
         isInitialized = true
-        console.log(`Preamble detector initialized with threshold ${threshold}`)
+        console.log(`Preamble detector initialized with isAdaptive=${isAdaptive}, fixedValue=${fixedValue}`)
         self.postMessage({ type: 'init_done' })
 
         // Process any buffered samples

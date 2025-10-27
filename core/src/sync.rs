@@ -1205,11 +1205,11 @@ mod tests {
         let mut decoder = DecoderFsk::new().unwrap();
 
         // Set threshold below minimum
-        decoder.set_preamble_threshold(0.0005);
+        decoder.set_preamble_threshold(DetectionThreshold::Fixed(0.0005));
 
         // Should be clamped to 0.001
         let threshold = decoder.get_preamble_threshold();
-        assert_eq!(threshold, 0.001, "Threshold below minimum should be clamped to 0.001");
+        assert_eq!(threshold, DetectionThreshold::Fixed(0.001), "Threshold below minimum should be clamped to 0.001");
     }
 
     #[test]
@@ -1218,11 +1218,11 @@ mod tests {
         let mut decoder = DecoderFsk::new().unwrap();
 
         // Set threshold above maximum
-        decoder.set_preamble_threshold(1.5);
+        decoder.set_preamble_threshold(DetectionThreshold::Fixed(1.5));
 
         // Should be clamped to 1.0
         let threshold = decoder.get_preamble_threshold();
-        assert_eq!(threshold, 1.0, "Threshold above maximum should be clamped to 1.0");
+        assert_eq!(threshold, DetectionThreshold::Fixed(1.0), "Threshold above maximum should be clamped to 1.0");
     }
 
     #[test]
@@ -1230,12 +1230,12 @@ mod tests {
         // Test that DecoderFsk clamps postamble threshold below minimum
         let mut decoder = DecoderFsk::new().unwrap();
 
-        // Set threshold below minimum (but not 0.0 which triggers adaptive mode)
-        decoder.set_postamble_threshold(0.0005);
+        // Set threshold below minimum
+        decoder.set_postamble_threshold(DetectionThreshold::Fixed(0.0005));
 
         // Should be clamped to 0.001
         let threshold = decoder.get_postamble_threshold();
-        assert_eq!(threshold, 0.001, "Threshold below minimum should be clamped to 0.001");
+        assert_eq!(threshold, DetectionThreshold::Fixed(0.001), "Threshold below minimum should be clamped to 0.001");
     }
 
     #[test]
@@ -1246,22 +1246,22 @@ mod tests {
         let test_thresholds = vec![0.001, 0.1, 0.25, 0.4, 0.5, 0.75, 1.0];
 
         for original in test_thresholds {
-            decoder.set_preamble_threshold(original);
+            decoder.set_preamble_threshold(DetectionThreshold::Fixed(original));
             let retrieved = decoder.get_preamble_threshold();
-            assert_eq!(retrieved, original, "Valid threshold {} should be preserved", original);
+            assert_eq!(retrieved, DetectionThreshold::Fixed(original), "Valid threshold {} should be preserved", original);
         }
     }
 
     #[test]
-    fn test_decoder_adaptive_threshold_via_zero() {
-        // Test that setting threshold to 0.0 enables adaptive mode
+    fn test_decoder_adaptive_threshold_via_enum() {
+        // Test that setting threshold to Adaptive enum enables adaptive mode
         let mut decoder = DecoderFsk::new().unwrap();
 
-        decoder.set_preamble_threshold(0.0);
+        decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
 
-        // Getting threshold should return 0.0 for adaptive
+        // Getting threshold should return Adaptive
         let threshold = decoder.get_preamble_threshold();
-        assert_eq!(threshold, 0.0, "Adaptive threshold should return 0.0");
+        assert_eq!(threshold, DetectionThreshold::Adaptive, "Adaptive threshold should return Adaptive");
     }
 
     #[test]
@@ -1270,16 +1270,16 @@ mod tests {
         let mut decoder = DecoderFsk::new().unwrap();
 
         // Set to adaptive
-        decoder.set_preamble_threshold(0.0);
-        assert_eq!(decoder.get_preamble_threshold(), 0.0);
+        decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+        assert_eq!(decoder.get_preamble_threshold(), DetectionThreshold::Adaptive);
 
         // Change to fixed
-        decoder.set_preamble_threshold(0.4);
-        assert_eq!(decoder.get_preamble_threshold(), 0.4);
+        decoder.set_preamble_threshold(DetectionThreshold::Fixed(0.4));
+        assert_eq!(decoder.get_preamble_threshold(), DetectionThreshold::Fixed(0.4));
 
         // Change back to adaptive
-        decoder.set_preamble_threshold(0.0);
-        assert_eq!(decoder.get_preamble_threshold(), 0.0);
+        decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+        assert_eq!(decoder.get_preamble_threshold(), DetectionThreshold::Adaptive);
     }
 
     #[test]
@@ -1287,13 +1287,13 @@ mod tests {
         // Test that set_detection_threshold sets both preamble and postamble
         let mut decoder = DecoderFsk::new().unwrap();
 
-        decoder.set_detection_threshold(0.35);
+        decoder.set_detection_threshold(DetectionThreshold::Fixed(0.35));
 
         let preamble_thresh = decoder.get_preamble_threshold();
         let postamble_thresh = decoder.get_postamble_threshold();
 
-        assert_eq!(preamble_thresh, 0.35, "Preamble threshold should be set");
-        assert_eq!(postamble_thresh, 0.35, "Postamble threshold should be set");
+        assert_eq!(preamble_thresh, DetectionThreshold::Fixed(0.35), "Preamble threshold should be set");
+        assert_eq!(postamble_thresh, DetectionThreshold::Fixed(0.35), "Postamble threshold should be set");
     }
 
     #[test]
@@ -1301,23 +1301,23 @@ mod tests {
         // Test edge case threshold values
         let mut decoder = DecoderFsk::new().unwrap();
 
-        // Test various edge cases (0.0 means adaptive, returned as 0.0)
+        // Test various edge cases
         let edge_cases = vec![
-            (0.0, 0.0),        // Exactly zero → adaptive mode → returns 0.0
-            (0.0009, 0.001),   // Just below minimum → clamped to 0.001
-            (0.001, 0.001),    // Exactly minimum → kept
-            (0.0011, 0.0011),  // Just above minimum → kept
-            (0.9999, 0.9999),  // Just below maximum → kept
-            (1.0, 1.0),        // Exactly maximum → kept
-            (1.0001, 1.0),     // Just above maximum → clamped
-            (2.0, 1.0),        // Well above maximum → clamped
+            (DetectionThreshold::Adaptive, DetectionThreshold::Adaptive),
+            (DetectionThreshold::Fixed(0.0009), DetectionThreshold::Fixed(0.001)),   // Just below minimum → clamped to 0.001
+            (DetectionThreshold::Fixed(0.001), DetectionThreshold::Fixed(0.001)),    // Exactly minimum → kept
+            (DetectionThreshold::Fixed(0.0011), DetectionThreshold::Fixed(0.0011)),  // Just above minimum → kept
+            (DetectionThreshold::Fixed(0.9999), DetectionThreshold::Fixed(0.9999)),  // Just below maximum → kept
+            (DetectionThreshold::Fixed(1.0), DetectionThreshold::Fixed(1.0)),        // Exactly maximum → kept
+            (DetectionThreshold::Fixed(1.0001), DetectionThreshold::Fixed(1.0)),     // Just above maximum → clamped
+            (DetectionThreshold::Fixed(2.0), DetectionThreshold::Fixed(1.0)),        // Well above maximum → clamped
         ];
 
         for (input, expected) in edge_cases {
             decoder.set_preamble_threshold(input);
             let result = decoder.get_preamble_threshold();
-            assert!((result - expected).abs() < 1e-6,
-                    "Input {} should result in {} but got {}", input, expected, result);
+            assert_eq!(result, expected,
+                    "Input {:?} should result in {:?} but got {:?}", input, expected, result);
         }
     }
 

@@ -91,7 +91,11 @@ export interface EncoderOptions {
 
 export interface DecoderOptions {
     // FSK is the only supported mode for over-the-air audio transmission
-    detectionThreshold?: number | null; // Optional: null = adaptive (auto-adjust), 0.1-1.0 = fixed threshold
+    // Detection threshold configuration
+    preambleAdaptive?: boolean; // true = adaptive (auto-adjust), false = use preambleThreshold
+    preambleThreshold?: number;
+    postambleAdaptive?: boolean; // true = adaptive (auto-adjust), false = use postambleThreshold
+    postambleThreshold?: number;
 }
 
 /**
@@ -115,11 +119,18 @@ export async function createDecoder(
     await initWasm();
     const decoder = new WasmDecoder();
 
-    // Set detection threshold if provided
-    // null = adaptive (pass 0.0 to Rust), number = fixed threshold
-    if (options.detectionThreshold !== undefined) {
-        const threshold = options.detectionThreshold === null ? 0.0 : options.detectionThreshold;
-        decoder.set_detection_threshold(threshold);
+    // Set preamble threshold if provided
+    if (options.preambleAdaptive !== undefined || options.preambleThreshold !== undefined) {
+        const isAdaptive = options.preambleAdaptive ?? true; // Default to adaptive
+        const threshold = options.preambleThreshold ?? 0.1; // Default fixed value if not specified
+        decoder.set_preamble_threshold(isAdaptive, threshold);
+    }
+
+    // Set postamble threshold if provided
+    if (options.postambleAdaptive !== undefined || options.postambleThreshold !== undefined) {
+        const isAdaptive = options.postambleAdaptive ?? true; // Default to adaptive
+        const threshold = options.postambleThreshold ?? 0.1; // Default fixed value if not specified
+        decoder.set_postamble_threshold(isAdaptive, threshold);
     }
 
     return decoder;
@@ -142,11 +153,18 @@ export async function createFountainDecoder(
     await initWasm();
     const decoder = new WasmFountainDecoder();
 
-    // Set detection threshold if provided
-    // null = adaptive (pass 0.0 to Rust), number = fixed threshold
-    if (options.detectionThreshold !== undefined) {
-        const threshold = options.detectionThreshold === null ? 0.0 : options.detectionThreshold;
-        decoder.set_detection_threshold(threshold);
+    // Set preamble threshold if provided
+    if (options.preambleAdaptive !== undefined || options.preambleThreshold !== undefined) {
+        const isAdaptive = options.preambleAdaptive ?? true; // Default to adaptive
+        const threshold = options.preambleThreshold ?? 0.1; // Default fixed value if not specified
+        decoder.set_preamble_threshold(isAdaptive, threshold);
+    }
+
+    // Set postamble threshold if provided
+    if (options.postambleAdaptive !== undefined || options.postambleThreshold !== undefined) {
+        const isAdaptive = options.postambleAdaptive ?? true; // Default to adaptive
+        const threshold = options.postambleThreshold ?? 0.1; // Default fixed value if not specified
+        decoder.set_postamble_threshold(isAdaptive, threshold);
     }
 
     return decoder;

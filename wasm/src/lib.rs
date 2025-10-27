@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
 use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, detect_preamble, detect_postamble};
+use transmitwave_core::sync::DetectionThreshold;
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
@@ -51,36 +52,62 @@ impl WasmDecoder {
     }
 
     /// Set the detection threshold for both preamble and postamble
-    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    /// is_adaptive: true = adaptive threshold, false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_detection_threshold(&mut self, threshold: f32) {
+    pub fn set_detection_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
+        let threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
         self.inner.set_detection_threshold(threshold);
     }
 
     /// Set the detection threshold for preamble only
-    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    /// is_adaptive: true = adaptive threshold, false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_preamble_threshold(&mut self, threshold: f32) {
+    pub fn set_preamble_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
+        let threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
         self.inner.set_preamble_threshold(threshold);
     }
 
     /// Get the current preamble detection threshold
+    /// Returns is_adaptive flag as first element of array, fixed_value as second
     #[wasm_bindgen]
-    pub fn get_preamble_threshold(&self) -> f32 {
-        self.inner.get_preamble_threshold()
+    pub fn get_preamble_threshold(&self) -> Vec<f32> {
+        match self.inner.get_preamble_threshold() {
+            DetectionThreshold::Adaptive => vec![1.0],
+            DetectionThreshold::Fixed(value) => vec![0.0, value],
+        }
     }
 
     /// Set the detection threshold for postamble only
-    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    /// is_adaptive: true = adaptive threshold, false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_postamble_threshold(&mut self, threshold: f32) {
+    pub fn set_postamble_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
+        let threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
         self.inner.set_postamble_threshold(threshold);
     }
 
     /// Get the current postamble detection threshold
+    /// Returns is_adaptive flag as first element of array, fixed_value as second
     #[wasm_bindgen]
-    pub fn get_postamble_threshold(&self) -> f32 {
-        self.inner.get_postamble_threshold()
+    pub fn get_postamble_threshold(&self) -> Vec<f32> {
+        match self.inner.get_postamble_threshold() {
+            DetectionThreshold::Adaptive => vec![1.0],
+            DetectionThreshold::Fixed(value) => vec![0.0, value],
+        }
     }
 
     /// Decode audio samples back to binary data with FSK
@@ -101,19 +128,19 @@ impl WasmDecoder {
 /// Generic signal detector for preamble/postamble detection
 struct SignalDetector<F> {
     audio_buffer: Vec<f32>,
-    threshold: f32,
+    threshold: DetectionThreshold,
     required_samples: usize,
     detect_fn: F,
 }
 
 impl<F> SignalDetector<F>
 where
-    F: Fn(&[f32], f32) -> Option<usize>,
+    F: Fn(&[f32], DetectionThreshold) -> Option<usize>,
 {
-    fn new(threshold: f32, required_samples: usize, detect_fn: F) -> Self {
+    fn new(threshold: DetectionThreshold, required_samples: usize, detect_fn: F) -> Self {
         SignalDetector {
             audio_buffer: Vec::new(),
-            threshold: threshold.max(0.0).min(1.0),
+            threshold,
             required_samples,
             detect_fn,
         }
@@ -147,29 +174,37 @@ where
     }
 
     fn threshold(&self) -> f32 {
-        self.threshold
+        match self.threshold {
+            DetectionThreshold::Adaptive => 0.0,
+            DetectionThreshold::Fixed(v) => v,
+        }
     }
 
-    fn set_threshold(&mut self, threshold: f32) {
-        self.threshold = threshold.max(0.0).min(1.0);
+    fn set_threshold(&mut self, threshold_enum: DetectionThreshold) {
+        self.threshold = threshold_enum;
     }
 }
 
 /// Preamble detector for detecting start-of-frame marker in real-time audio stream
 #[wasm_bindgen]
 pub struct PreambleDetector {
-    detector: SignalDetector<fn(&[f32], f32) -> Option<usize>>,
+    detector: SignalDetector<fn(&[f32], DetectionThreshold) -> Option<usize>>,
 }
 
 #[wasm_bindgen]
 impl PreambleDetector {
     /// Create a new preamble detector with specified threshold
-    /// threshold: 0.0 = adaptive (auto-adjust based on signal strength), 0.1-1.0 = fixed threshold
-    /// Recommended: Use 0.0 for adaptive threshold, or 0.4 for reliable fixed detection
+    /// is_adaptive: true = adaptive (auto-adjust based on signal strength), false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen(constructor)]
-    pub fn new(threshold: f32) -> PreambleDetector {
+    pub fn new(is_adaptive: bool, fixed_value: f32) -> PreambleDetector {
+        let detection_threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
         PreambleDetector {
-            detector: SignalDetector::new(threshold, transmitwave_core::PREAMBLE_SAMPLES, detect_preamble),
+            detector: SignalDetector::new(detection_threshold, transmitwave_core::PREAMBLE_SAMPLES, detect_preamble),
         }
     }
 
@@ -205,27 +240,39 @@ impl PreambleDetector {
     }
 
     /// Set a new threshold value
+    /// is_adaptive: true = adaptive (auto-adjust based on signal strength), false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_threshold(&mut self, threshold: f32) {
-        self.detector.set_threshold(threshold);
+    pub fn set_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
+        let detection_threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
+        self.detector.set_threshold(detection_threshold);
     }
 }
 
 /// Postamble detector for detecting end-of-frame marker in audio stream
 #[wasm_bindgen]
 pub struct PostambleDetector {
-    detector: SignalDetector<fn(&[f32], f32) -> Option<usize>>,
+    detector: SignalDetector<fn(&[f32], DetectionThreshold) -> Option<usize>>,
 }
 
 #[wasm_bindgen]
 impl PostambleDetector {
     /// Create a new postamble detector with specified threshold
-    /// threshold: 0.0 = adaptive (auto-adjust based on signal strength), 0.1-1.0 = fixed threshold
-    /// Recommended: Use 0.0 for adaptive threshold, or 0.4 for reliable fixed detection
+    /// is_adaptive: true = adaptive (auto-adjust based on signal strength), false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen(constructor)]
-    pub fn new(threshold: f32) -> PostambleDetector {
+    pub fn new(is_adaptive: bool, fixed_value: f32) -> PostambleDetector {
+        let detection_threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
         PostambleDetector {
-            detector: SignalDetector::new(threshold, transmitwave_core::POSTAMBLE_SAMPLES, detect_postamble),
+            detector: SignalDetector::new(detection_threshold, transmitwave_core::POSTAMBLE_SAMPLES, detect_postamble),
         }
     }
 
@@ -261,9 +308,16 @@ impl PostambleDetector {
     }
 
     /// Set a new threshold value
+    /// is_adaptive: true = adaptive (auto-adjust based on signal strength), false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_threshold(&mut self, threshold: f32) {
-        self.detector.set_threshold(threshold);
+    pub fn set_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
+        let detection_threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
+        self.detector.set_threshold(detection_threshold);
     }
 }
 
@@ -355,36 +409,62 @@ impl WasmFountainDecoder {
     }
 
     /// Set the detection threshold for both preamble and postamble
-    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    /// is_adaptive: true = adaptive threshold, false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_detection_threshold(&mut self, threshold: f32) {
+    pub fn set_detection_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
+        let threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
         self.inner.set_detection_threshold(threshold);
     }
 
     /// Set the detection threshold for preamble only
-    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    /// is_adaptive: true = adaptive threshold, false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_preamble_threshold(&mut self, threshold: f32) {
+    pub fn set_preamble_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
+        let threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
         self.inner.set_preamble_threshold(threshold);
     }
 
     /// Get the current preamble detection threshold
+    /// Returns is_adaptive flag as first element of array, fixed_value as second
     #[wasm_bindgen]
-    pub fn get_preamble_threshold(&self) -> f32 {
-        self.inner.get_preamble_threshold()
+    pub fn get_preamble_threshold(&self) -> Vec<f32> {
+        match self.inner.get_preamble_threshold() {
+            DetectionThreshold::Adaptive => vec![1.0],
+            DetectionThreshold::Fixed(value) => vec![0.0, value],
+        }
     }
 
     /// Set the detection threshold for postamble only
-    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    /// is_adaptive: true = adaptive threshold, false = use fixed_value
+    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_postamble_threshold(&mut self, threshold: f32) {
+    pub fn set_postamble_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
+        let threshold = if is_adaptive {
+            DetectionThreshold::Adaptive
+        } else {
+            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
+        };
         self.inner.set_postamble_threshold(threshold);
     }
 
     /// Get the current postamble detection threshold
+    /// Returns is_adaptive flag as first element of array, fixed_value as second
     #[wasm_bindgen]
-    pub fn get_postamble_threshold(&self) -> f32 {
-        self.inner.get_postamble_threshold()
+    pub fn get_postamble_threshold(&self) -> Vec<f32> {
+        match self.inner.get_postamble_threshold() {
+            DetectionThreshold::Adaptive => vec![1.0],
+            DetectionThreshold::Fixed(value) => vec![0.0, value],
+        }
     }
 
     /// Feed audio chunk to the decoder buffer

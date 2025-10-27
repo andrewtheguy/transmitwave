@@ -17,7 +17,7 @@ pub use encoder_fsk::{EncoderFsk, FountainStream};
 pub use decoder_fsk::DecoderFsk;
 pub use error::{AudioModemError, Result};
 pub use fft_correlation::{Mode, fft_correlate_1d};
-pub use sync::{detect_preamble, detect_postamble};
+pub use sync::{detect_preamble, detect_postamble, DetectionThreshold};
 pub use resample::{resample_audio, stereo_to_mono};
 pub use fec::{FecEncoder, FecDecoder};
 pub use fsk::{FskModulator, FskDemodulator, FountainConfig};

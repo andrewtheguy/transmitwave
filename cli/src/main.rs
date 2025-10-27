@@ -8,7 +8,7 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE};
+use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE, DetectionThreshold};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
@@ -96,15 +96,27 @@ enum Commands {
         #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
 
-        /// Detection threshold for both preamble and postamble (0.0=adaptive, 0.1-1.0=fixed)
+        /// Use adaptive threshold for both preamble and postamble
+        #[arg(long)]
+        adaptive: bool,
+
+        /// Fixed detection threshold for both preamble and postamble (0.001-1.0)
         #[arg(short, long)]
         threshold: Option<f32>,
 
-        /// Detection threshold for preamble only (overrides --threshold for preamble)
+        /// Use adaptive threshold for preamble only
+        #[arg(long)]
+        preamble_adaptive: bool,
+
+        /// Fixed detection threshold for preamble only (overrides --threshold for preamble)
         #[arg(long)]
         preamble_threshold: Option<f32>,
 
-        /// Detection threshold for postamble only (overrides --threshold for postamble)
+        /// Use adaptive threshold for postamble only
+        #[arg(long)]
+        postamble_adaptive: bool,
+
+        /// Fixed detection threshold for postamble only (overrides --threshold for postamble)
         #[arg(long)]
         postamble_threshold: Option<f32>,
     },
@@ -157,15 +169,27 @@ enum Commands {
         #[arg(short, long, default_value = "64")]
         block_size: usize,
 
-        /// Detection threshold for both preamble and postamble (0.0=adaptive, 0.1-1.0=fixed)
+        /// Use adaptive threshold for both preamble and postamble
+        #[arg(long)]
+        adaptive: bool,
+
+        /// Fixed detection threshold for both preamble and postamble (0.001-1.0)
         #[arg(long)]
         threshold: Option<f32>,
 
-        /// Detection threshold for preamble only (overrides --threshold for preamble)
+        /// Use adaptive threshold for preamble only
+        #[arg(long)]
+        preamble_adaptive: bool,
+
+        /// Fixed detection threshold for preamble only (overrides --threshold for preamble)
         #[arg(long)]
         preamble_threshold: Option<f32>,
 
-        /// Detection threshold for postamble only (overrides --threshold for postamble)
+        /// Use adaptive threshold for postamble only
+        #[arg(long)]
+        postamble_adaptive: bool,
+
+        /// Fixed detection threshold for postamble only (overrides --threshold for postamble)
         #[arg(long)]
         postamble_threshold: Option<f32>,
     },
@@ -185,8 +209,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Encode { input, output } => {
                 encode_fsk_command(&input, &output)?
             }
-            Commands::Decode { input, output, threshold, preamble_threshold, postamble_threshold } => {
-                decode_fsk_command(&input, &output, threshold, preamble_threshold, postamble_threshold)?
+            Commands::Decode { input, output, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
+                decode_fsk_command(&input, &output, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
             }
             Commands::Server { port } => {
                 return start_web_server(port);
@@ -194,8 +218,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::FountainEncode { input, output, timeout, block_size, repair_ratio } => {
                 fountain_encode_command(&input, &output, timeout, block_size, repair_ratio)?
             }
-            Commands::FountainDecode { input, output, timeout, block_size, threshold, preamble_threshold, postamble_threshold } => {
-                fountain_decode_command(&input, &output, timeout, block_size, threshold, preamble_threshold, postamble_threshold)?
+            Commands::FountainDecode { input, output, timeout, block_size, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
+                fountain_decode_command(&input, &output, timeout, block_size, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
             }
         }
         return Ok(());
@@ -218,7 +242,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if mode == "encode" || mode == "enc" {
             encode_fsk_command(&input, &output)?
         } else if mode == "decode" || mode == "dec" {
-            decode_fsk_command(&input, &output, None, None, None)?
+            decode_fsk_command(&input, &output, false, None, false, None, false, None)?
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
             std::process::exit(1);
@@ -344,8 +368,11 @@ fn fountain_decode_command(
     output_path: &PathBuf,
     timeout: u32,
     block_size: usize,
+    adaptive: bool,
     threshold: Option<f32>,
+    preamble_adaptive: bool,
     preamble_threshold: Option<f32>,
+    postamble_adaptive: bool,
     postamble_threshold: Option<f32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
@@ -407,32 +434,38 @@ fn fountain_decode_command(
     // Decode with fountain mode
     let mut decoder = DecoderFsk::new()?;
 
-    // Set detection thresholds with fallback logic:
-    // - If specific threshold is provided, use it
-    // - Otherwise, use the general --threshold if provided
-    // - If nothing provided, use adaptive threshold (default)
-    let actual_preamble = preamble_threshold.or(threshold);
-    let actual_postamble = postamble_threshold.or(threshold);
-
-    if let Some(thresh) = actual_preamble {
-        decoder.set_preamble_threshold(thresh);
-        if thresh < 1e-9 {
-            println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
-        } else {
-            println!("Using fixed preamble detection threshold: {:.2}", thresh);
-        }
-    } else {
+    // Set preamble threshold
+    if preamble_adaptive {
         println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
-    }
-    if let Some(thresh) = actual_postamble {
-        decoder.set_postamble_threshold(thresh);
-        if thresh < 1e-9 {
-            println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
-        } else {
-            println!("Using fixed postamble detection threshold: {:.2}", thresh);
-        }
+        decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+    } else if let Some(thresh) = preamble_threshold {
+        println!("Using fixed preamble detection threshold: {:.3}", thresh);
+        decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
+    } else if adaptive {
+        println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
+        decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+    } else if let Some(thresh) = threshold {
+        println!("Using fixed preamble detection threshold: {:.3}", thresh);
+        decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
     } else {
+        println!("Using default adaptive preamble detection threshold");
+    }
+
+    // Set postamble threshold
+    if postamble_adaptive {
         println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+        decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
+    } else if let Some(thresh) = postamble_threshold {
+        println!("Using fixed postamble detection threshold: {:.3}", thresh);
+        decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
+    } else if adaptive {
+        println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+        decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
+    } else if let Some(thresh) = threshold {
+        println!("Using fixed postamble detection threshold: {:.3}", thresh);
+        decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
+    } else {
+        println!("Using default adaptive postamble detection threshold");
     }
 
     let data = decoder.decode_fountain(&samples, Some(config))?;
@@ -448,8 +481,11 @@ fn fountain_decode_command(
 fn decode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
+    adaptive: bool,
     threshold: Option<f32>,
+    preamble_adaptive: bool,
     preamble_threshold: Option<f32>,
+    postamble_adaptive: bool,
     postamble_threshold: Option<f32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
@@ -501,32 +537,38 @@ fn decode_fsk_command(
     // Decode with FSK
     let mut decoder = DecoderFsk::new()?;
 
-    // Set detection thresholds with fallback logic:
-    // - If specific threshold is provided, use it
-    // - Otherwise, use the general --threshold if provided
-    // - If nothing provided, use adaptive threshold (default)
-    let actual_preamble = preamble_threshold.or(threshold);
-    let actual_postamble = postamble_threshold.or(threshold);
-
-    if let Some(thresh) = actual_preamble {
-        decoder.set_preamble_threshold(thresh);
-        if thresh < 1e-9 {
-            println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
-        } else {
-            println!("Using fixed preamble detection threshold: {:.2}", thresh);
-        }
-    } else {
+    // Set preamble threshold
+    if preamble_adaptive {
         println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
-    }
-    if let Some(thresh) = actual_postamble {
-        decoder.set_postamble_threshold(thresh);
-        if thresh < 1e-9 {
-            println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
-        } else {
-            println!("Using fixed postamble detection threshold: {:.2}", thresh);
-        }
+        decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+    } else if let Some(thresh) = preamble_threshold {
+        println!("Using fixed preamble detection threshold: {:.3}", thresh);
+        decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
+    } else if adaptive {
+        println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
+        decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+    } else if let Some(thresh) = threshold {
+        println!("Using fixed preamble detection threshold: {:.3}", thresh);
+        decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
     } else {
+        println!("Using default adaptive preamble detection threshold");
+    }
+
+    // Set postamble threshold
+    if postamble_adaptive {
         println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+        decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
+    } else if let Some(thresh) = postamble_threshold {
+        println!("Using fixed postamble detection threshold: {:.3}", thresh);
+        decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
+    } else if adaptive {
+        println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+        decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
+    } else if let Some(thresh) = threshold {
+        println!("Using fixed postamble detection threshold: {:.3}", thresh);
+        decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
+    } else {
+        println!("Using default adaptive postamble detection threshold");
     }
 
     let data = decoder.decode(&samples)?;

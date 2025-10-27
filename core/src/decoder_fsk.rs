@@ -32,56 +32,39 @@ impl DecoderFsk {
     }
 
     /// Set the detection threshold for preamble detection
-    /// Pass 0.0 for adaptive threshold (legacy), or a positive value for fixed threshold (0.001 minimum)
-    pub fn set_preamble_threshold(&mut self, threshold: f32) {
-        self.preamble_threshold = if threshold < 1e-9 {
-            DetectionThreshold::Adaptive
-        } else {
-            // Clamp to valid range: 0.001 (0.1%) to 1.0
-            let value = threshold.max(0.001).min(1.0);
-            DetectionThreshold::Fixed(value)
+    pub fn set_preamble_threshold(&mut self, threshold: DetectionThreshold) {
+        self.preamble_threshold = match threshold {
+            DetectionThreshold::Adaptive => DetectionThreshold::Adaptive,
+            DetectionThreshold::Fixed(value) => DetectionThreshold::Fixed(value.max(0.001).min(1.0)),
         };
     }
 
-    /// Get the current preamble detection threshold as f32 (for backward compatibility)
-    /// Returns 0.0 for adaptive, or the fixed value
-    pub fn get_preamble_threshold(&self) -> f32 {
-        match self.preamble_threshold {
-            DetectionThreshold::Adaptive => 0.0,
-            DetectionThreshold::Fixed(value) => value,
-        }
+    /// Get the current preamble detection threshold
+    pub fn get_preamble_threshold(&self) -> DetectionThreshold {
+        self.preamble_threshold
     }
 
     /// Set the detection threshold for postamble detection
-    /// Pass 0.0 for adaptive threshold (legacy), or a positive value for fixed threshold (0.001 minimum)
-    pub fn set_postamble_threshold(&mut self, threshold: f32) {
-        self.postamble_threshold = if threshold < 1e-9 {
-            DetectionThreshold::Adaptive
-        } else {
-            // Clamp to valid range: 0.001 (0.1%) to 1.0
-            let value = threshold.max(0.001).min(1.0);
-            DetectionThreshold::Fixed(value)
+    pub fn set_postamble_threshold(&mut self, threshold: DetectionThreshold) {
+        self.postamble_threshold = match threshold {
+            DetectionThreshold::Adaptive => DetectionThreshold::Adaptive,
+            DetectionThreshold::Fixed(value) => DetectionThreshold::Fixed(value.max(0.001).min(1.0)),
         };
     }
 
-    /// Get the current postamble detection threshold as f32 (for backward compatibility)
-    /// Returns 0.0 for adaptive, or the fixed value
-    pub fn get_postamble_threshold(&self) -> f32 {
-        match self.postamble_threshold {
-            DetectionThreshold::Adaptive => 0.0,
-            DetectionThreshold::Fixed(value) => value,
-        }
+    /// Get the current postamble detection threshold
+    pub fn get_postamble_threshold(&self) -> DetectionThreshold {
+        self.postamble_threshold
     }
 
     /// Set both preamble and postamble detection thresholds to the same value
-    /// Provided for backward compatibility
-    pub fn set_detection_threshold(&mut self, threshold: f32) {
+    pub fn set_detection_threshold(&mut self, threshold: DetectionThreshold) {
         self.set_preamble_threshold(threshold);
         self.set_postamble_threshold(threshold);
     }
 
-    /// Get the preamble detection threshold (provided for backward compatibility)
-    pub fn get_detection_threshold(&self) -> f32 {
+    /// Get the preamble detection threshold
+    pub fn get_detection_threshold(&self) -> DetectionThreshold {
         self.get_preamble_threshold()
     }
 
