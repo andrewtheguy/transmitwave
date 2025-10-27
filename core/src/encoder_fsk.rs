@@ -97,7 +97,6 @@ impl EncoderFsk {
             let padding = crate::fsk::FSK_BYTES_PER_SYMBOL - remainder;
             encoded_data.resize(encoded_data.len() + padding, 0u8);
         }
-
         // Generate preamble signal for synchronization
         let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);
 
@@ -147,16 +146,42 @@ impl EncoderFsk {
         );
 
         let encoder = Encoder::new(&frame_data, oti);
+        let source_packets = encoder.get_encoded_packets(0);
+        if source_packets.is_empty() {
+            return Err(crate::error::AudioModemError::InvalidConfig(
+                "RaptorQ encoder did not produce any source packets".to_string(),
+            ));
+        }
+
+        let block_count = encoder.get_block_encoders().len();
+        if block_count == 0 {
+            return Err(crate::error::AudioModemError::InvalidConfig(
+                "RaptorQ encoder has no source blocks".to_string(),
+            ));
+        }
+
+        let repair_counters = vec![0u32; block_count];
+        let repairs_per_cycle = if config.repair_blocks_ratio <= 0.0 {
+            0
+        } else {
+            let desired = (source_packets.len() as f32 * config.repair_blocks_ratio).ceil() as usize;
+            desired.max(1)
+        };
 
         Ok(FountainStream {
             encoder,
-            oti,
             frame_length: frame_data.len(),
             symbol_size,
             fsk: FskModulator::new(),
             config,
             start_time: Instant::now(),
             block_id: 0,
+            source_packets,
+            next_source_idx: 0,
+            repair_counters,
+            repair_block_cursor: 0,
+            repairs_per_cycle,
+            repairs_sent_this_cycle: 0,
         })
     }
 }
@@ -164,13 +189,18 @@ impl EncoderFsk {
 /// Iterator that generates continuous fountain-encoded audio blocks
 pub struct FountainStream {
     encoder: Encoder,
-    oti: raptorq::ObjectTransmissionInformation,
     frame_length: usize,
     symbol_size: u16,
     fsk: FskModulator,
     config: FountainConfig,
     start_time: Instant,
     block_id: u32,
+    source_packets: Vec<EncodingPacket>,
+    next_source_idx: usize,
+    repair_counters: Vec<u32>,
+    repair_block_cursor: usize,
+    repairs_per_cycle: usize,
+    repairs_sent_this_cycle: usize,
 }
 
 impl Iterator for FountainStream {
@@ -183,31 +213,29 @@ impl Iterator for FountainStream {
             return None;
         }
 
-        // Generate next fountain block
-        // repair_blocks_ratio determines extra redundancy
-        let repair_blocks = (self.config.repair_blocks_ratio * 10.0) as u32;
-        let packets: Vec<EncodingPacket> = self.encoder.get_encoded_packets(repair_blocks.max(1));
-
-        // Get the next packet (cycle through available packets)
-        let packet_idx = (self.block_id as usize) % packets.len();
-        let packet = &packets[packet_idx];
+        // Select next fountain packet (cycles through source packets and then repair packets)
+        let packet = match self.select_next_packet() {
+            Some(packet) => packet,
+            None => return None,
+        };
         let packet_data = packet.serialize();
 
-        // Prepend frame length and symbol size for first block so decoder knows data size
-        let mut encoded_data = if self.block_id == 0 {
-            let mut data = Vec::new();
-            data.extend_from_slice(&(self.frame_length as u32).to_be_bytes());
-            data.extend_from_slice(&self.symbol_size.to_be_bytes());
-            data.extend_from_slice(&packet_data);
-            data
-        } else {
-            packet_data.to_vec()
-        };
+        let mut encoded_data = Vec::new();
+
+        // Include frame metadata in every block so the decoder can resynchronize mid-stream
+        encoded_data.extend_from_slice(&(self.frame_length as u32).to_be_bytes());
+        encoded_data.extend_from_slice(&self.symbol_size.to_be_bytes());
+
+        // Prefix each block with the serialized packet length so padding can be removed
+        let packet_len = packet_data.len() as u16;
+        encoded_data.extend_from_slice(&packet_len.to_be_bytes());
+        encoded_data.extend_from_slice(&packet_data);
         let remainder = encoded_data.len() % crate::fsk::FSK_BYTES_PER_SYMBOL;
         if remainder != 0 {
             let padding = crate::fsk::FSK_BYTES_PER_SYMBOL - remainder;
             encoded_data.resize(encoded_data.len() + padding, 0u8);
         }
+        debug_assert_eq!(encoded_data.len() % crate::fsk::FSK_BYTES_PER_SYMBOL, 0);
 
         // Generate audio: preamble + FSK data + postamble
         let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);
@@ -224,6 +252,64 @@ impl Iterator for FountainStream {
             }
             Err(_) => None,
         }
+    }
+}
+
+impl FountainStream {
+    fn select_next_packet(&mut self) -> Option<EncodingPacket> {
+        loop {
+            if self.next_source_idx < self.source_packets.len() {
+                let packet = self.source_packets[self.next_source_idx].clone();
+                self.next_source_idx += 1;
+                return Some(packet);
+            }
+
+            if self.repairs_per_cycle > 0 && self.repairs_sent_this_cycle < self.repairs_per_cycle {
+                if let Some(packet) = self.next_repair_packet() {
+                    self.repairs_sent_this_cycle += 1;
+                    return Some(packet);
+                } else {
+                    return None;
+                }
+            }
+
+            if self.source_packets.is_empty() {
+                return None;
+            }
+
+            // Restart cycle: emit all source packets again, then new repair packets
+            self.next_source_idx = 0;
+            self.repairs_sent_this_cycle = 0;
+        }
+    }
+
+    fn next_repair_packet(&mut self) -> Option<EncodingPacket> {
+        let block_encoders = self.encoder.get_block_encoders();
+        if block_encoders.is_empty() {
+            return None;
+        }
+
+        if self.repair_counters.len() < block_encoders.len() {
+            self.repair_counters.resize(block_encoders.len(), 0);
+        }
+
+        if self.repair_block_cursor >= block_encoders.len() {
+            self.repair_block_cursor = 0;
+        }
+
+        let block_idx = self.repair_block_cursor;
+        self.repair_block_cursor = (self.repair_block_cursor + 1) % block_encoders.len();
+
+        if let Some(counter) = self.repair_counters.get_mut(block_idx) {
+            let packets = block_encoders[block_idx].repair_packets(*counter, 1);
+            if packets.is_empty() {
+                return None;
+            }
+            *counter += 1;
+            return packets.into_iter().next();
+        }
+
+        None
     }
 }
 

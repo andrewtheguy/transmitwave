@@ -1,10 +1,9 @@
 use crate::error::{AudioModemError, Result};
 use crate::fec::{FecDecoder, FecMode};
 use crate::framing::FrameDecoder;
-use crate::fsk::{FskDemodulator, FountainConfig};
+use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
 use crate::sync::{detect_postamble, detect_preamble};
-use crate::PREAMBLE_SAMPLES;
-use crate::fsk::FSK_SYMBOL_SAMPLES;
+use crate::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
 use raptorq::{Decoder, EncodingPacket};
 use std::time::{Duration, Instant};
 
@@ -188,6 +187,8 @@ impl DecoderFsk {
         let mut search_offset = 0;
         let mut frame_length: Option<usize> = None;
         let mut symbol_size: Option<u16> = None;
+        let mut payload_samples_per_block =
+            Self::fountain_payload_samples(config.block_size as u16);
 
         while search_offset < samples.len() {
             // Check timeout
@@ -197,7 +198,13 @@ impl DecoderFsk {
 
             // Look for next preamble
             let remaining = &samples[search_offset..];
-            let preamble_pos = match detect_preamble(remaining, 500.0) {
+            let preamble_search_window = PREAMBLE_SAMPLES + payload_samples_per_block;
+            let search_len = remaining.len().min(preamble_search_window);
+            if search_len < PREAMBLE_SAMPLES {
+                break;
+            }
+            let preamble_slice = &remaining[..search_len];
+            let preamble_pos = match detect_preamble(preamble_slice, 500.0) {
                 Some(pos) => pos,
                 None => break,
             };
@@ -208,47 +215,73 @@ impl DecoderFsk {
                 break;
             }
 
-            // Try to find postamble for this block
-            let block_samples = &samples[data_start..];
-            let postamble_pos = match detect_postamble(block_samples, 100.0) {
-                Some(pos) => pos,
-                None => {
-                    search_offset = data_start;
-                    continue;
-                }
-            };
-
-            let data_end = data_start + postamble_pos;
-
-            // Extract FSK data region
-            let fsk_region = &samples[data_start..data_end];
-            let symbol_count = fsk_region.len() / FSK_SYMBOL_SAMPLES;
-
-            if symbol_count == 0 {
-                search_offset = data_end;
-                continue;
+            // Extract the expected FSK payload based on configured block size
+            let data_end = data_start.saturating_add(payload_samples_per_block);
+            if data_end > samples.len() {
+                break;
             }
-
-            let valid_samples = symbol_count * FSK_SYMBOL_SAMPLES;
-            let fsk_samples = &fsk_region[..valid_samples];
+            let fsk_samples = &samples[data_start..data_end];
 
             // Demodulate fountain block
             match self.fsk.demodulate(fsk_samples) {
-                Ok(mut block_data) => {
-                    // Extract frame length and symbol size from first packet
-                    if frame_length.is_none() && block_data.len() >= 6 {
-                        let len_bytes = [block_data[0], block_data[1], block_data[2], block_data[3]];
-                        frame_length = Some(u32::from_be_bytes(len_bytes) as usize);
+                Ok(block_data) => {
+                    let mut slice = block_data.as_slice();
 
-                        let sym_bytes = [block_data[4], block_data[5]];
-                        symbol_size = Some(u16::from_be_bytes(sym_bytes));
-
-                        // Remove the metadata prefix
-                        block_data = block_data[6..].to_vec();
+                    if slice.len() < 6 {
+                        search_offset = data_end;
+                        continue;
                     }
 
-                    // Try to deserialize as EncodingPacket
-                    let packet = EncodingPacket::deserialize(&block_data);
+                    let len_bytes = [slice[0], slice[1], slice[2], slice[3]];
+                    let parsed_frame_len = u32::from_be_bytes(len_bytes) as usize;
+
+                    let sym_bytes = [slice[4], slice[5]];
+                    let parsed_symbol_size = u16::from_be_bytes(sym_bytes);
+
+                    match frame_length {
+                        Some(existing) if existing != parsed_frame_len => {
+                            search_offset = data_end;
+                            continue;
+                        }
+                        Some(_) => {}
+                        None => frame_length = Some(parsed_frame_len),
+                    }
+
+                    let mut symbol_updated = false;
+                    match symbol_size {
+                        Some(existing) if existing != parsed_symbol_size => {
+                            search_offset = data_end;
+                            continue;
+                        }
+                        Some(_) => {}
+                        None => {
+                            symbol_size = Some(parsed_symbol_size);
+                            symbol_updated = true;
+                        }
+                    }
+
+                    if symbol_updated {
+                        payload_samples_per_block =
+                            Self::fountain_payload_samples(parsed_symbol_size);
+                    }
+
+                    slice = &slice[6..];
+
+                    if slice.len() < 2 {
+                        search_offset = data_end;
+                        continue;
+                    }
+
+                    let packet_len = u16::from_be_bytes([slice[0], slice[1]]) as usize;
+                    slice = &slice[2..];
+
+                    if slice.len() < packet_len {
+                        search_offset = data_end;
+                        continue;
+                    }
+
+                    let packet_bytes = &slice[..packet_len];
+                    let packet = EncodingPacket::deserialize(packet_bytes);
 
                     // Initialize decoder on first packet with matching OTI
                     if decoder.is_none() && frame_length.is_some() && symbol_size.is_some() {
@@ -277,10 +310,17 @@ impl DecoderFsk {
                 }
             }
 
-            search_offset = data_end;
+            let next_offset = data_end + POSTAMBLE_SAMPLES;
+            search_offset = next_offset.min(samples.len());
         }
 
         Err(AudioModemError::FountainDecodeFailure)
+    }
+
+    fn fountain_payload_samples(symbol_size: u16) -> usize {
+        let packet_bytes = symbol_size as usize + 12; // metadata + serialized RaptorQ packet
+        let symbols = (packet_bytes + FSK_BYTES_PER_SYMBOL - 1) / FSK_BYTES_PER_SYMBOL;
+        symbols * FSK_SYMBOL_SAMPLES
     }
 }
 
