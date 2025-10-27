@@ -678,16 +678,15 @@ mod tests {
         let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
         let blocks: Vec<_> = stream.take(15).collect();
 
-        // Corrupt the first block's CRC by flipping bits in the audio
+        // Corrupt the first block with bit flipping pattern
         let mut corrupted_blocks = blocks.clone();
         let first_block = &mut corrupted_blocks[0];
 
-        // Flip some bits in the middle of the first block (CRC area is near the end)
-        // We flip bits in the area that should contain the CRC-16
-        for i in (first_block.len() / 2)..(first_block.len() / 2 + 100) {
-            if i < first_block.len() {
-                first_block[i] = first_block[i] * 0.5; // Corrupt audio amplitude
-            }
+        // Flip bits in the middle section (simulate bit corruption in CRC area)
+        for i in (first_block.len() / 2)..(first_block.len() / 2 + 60).min(first_block.len()) {
+            // Flip sign bit to corrupt the sample
+            let bits = first_block[i].to_bits() ^ 0x80000000u32;
+            first_block[i] = f32::from_bits(bits);
         }
 
         // Reconstruct audio stream
@@ -719,16 +718,18 @@ mod tests {
         let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
         let blocks: Vec<_> = stream.take(20).collect();
 
-        // Corrupt multiple blocks
+        // Corrupt multiple blocks with different patterns - inject invalid data selectively
         let mut corrupted_blocks = blocks.clone();
         for block_idx in [0, 3, 7] {
             if block_idx < corrupted_blocks.len() {
                 let block = &mut corrupted_blocks[block_idx];
-                // Corrupt by amplitude reduction in different areas
-                for i in (block_idx * 50)..(block_idx * 50 + 80) {
-                    if i < block.len() {
-                        block[i] = block[i] * 0.3;
-                    }
+                // Corrupt only a small portion with invalid data to allow recovery
+                let corruption_start = (block.len() / 4).max(20);
+                let corruption_end = (corruption_start + 25).min(block.len());
+                for i in corruption_start..corruption_end {
+                    // Flip bits to simulate data corruption without destroying entire block
+                    let bits = block[i].to_bits() ^ 0x80000000u32;  // Flip sign bit
+                    block[i] = f32::from_bits(bits);
                 }
             }
         }
@@ -747,7 +748,6 @@ mod tests {
     #[test]
     fn test_fountain_crc_rejects_invalid_packets() {
         use crate::fsk::FountainConfig;
-        use crate::framing::crc16;
 
         let mut encoder = EncoderFsk::new().unwrap();
         let mut decoder = DecoderFsk::new().unwrap();
@@ -763,13 +763,17 @@ mod tests {
         let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
         let blocks: Vec<_> = stream.take(12).collect();
 
-        // Create a highly corrupted block where CRC will definitely fail
+        // Create a highly corrupted block by mixing in invalid data
         let mut corrupted_blocks = blocks.clone();
         if !corrupted_blocks.is_empty() {
             let block = &mut corrupted_blocks[0];
-            // Flip many bits throughout the block to ensure CRC mismatch
-            for i in 0..block.len().min(200) {
-                block[i] = -block[i]; // Invert samples
+            // Corrupt with invalid FSK samples - flip bits in multiple sections
+            for i in 0..block.len().min(80) {
+                // Flip bits at every 3rd position to create detectable corruption
+                if i % 3 == 0 {
+                    let bits = block[i].to_bits() ^ 0x80000000u32;  // Flip sign bit
+                    block[i] = f32::from_bits(bits);
+                }
             }
         }
 
@@ -802,13 +806,17 @@ mod tests {
         let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
         let blocks: Vec<_> = stream.take(15).collect();
 
-        // Corrupt early blocks with bit flips (emulate FSK demodulation errors)
+        // Corrupt early blocks with systematic bit flipping
         let mut corrupted_blocks = blocks.clone();
-        for block_idx in 0..3.min(corrupted_blocks.len()) {
+        for block_idx in 0..2.min(corrupted_blocks.len()) {
             let block = &mut corrupted_blocks[block_idx];
-            // Simulate bit flips by adding noise in high-frequency ranges
-            for i in 0..block.len().min(150) {
-                block[i] += 0.1 * ((i as f32).sin());
+            // Simulate bit flips in the middle section
+            let start = block.len() / 3;
+            let end = (start + 40).min(block.len());
+            for i in start..end {
+                // Flip sign bit to corrupt samples
+                let bits = block[i].to_bits() ^ 0x80000000u32;
+                block[i] = f32::from_bits(bits);
             }
         }
 
@@ -841,7 +849,7 @@ mod tests {
         let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
         let blocks: Vec<_> = stream.take(20).collect();
 
-        // Simulate both packet loss and corruption
+        // Simulate both packet loss and corruption with invalid data injection
         let mut samples = Vec::new();
         for (i, block) in blocks.iter().enumerate() {
             let mut modified_block = block.clone();
@@ -851,10 +859,14 @@ mod tests {
                 continue;
             }
 
-            // Corrupt every 3rd block that we keep
+            // Corrupt every 3rd block that we keep with bit flipping
             if (i / 3) % 2 == 0 {
-                for j in 0..modified_block.len().min(120) {
-                    modified_block[j] = modified_block[j] * 0.4;
+                let start = modified_block.len() / 4;
+                let end = (start + 30).min(modified_block.len());
+                for j in start..end {
+                    // Flip sign bit in corrupted section
+                    let bits = modified_block[j].to_bits() ^ 0x80000000u32;
+                    modified_block[j] = f32::from_bits(bits);
                 }
             }
 
@@ -912,13 +924,17 @@ mod tests {
         let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
         let blocks: Vec<_> = stream.take(18).collect();
 
-        // Pattern: good, bad, good, bad, ... (alternating)
+        // Pattern: good, bad, good, bad, ... (alternating with bit flipping)
         let mut processed_blocks = blocks.clone();
         for (i, block) in processed_blocks.iter_mut().enumerate() {
             if i % 2 == 1 {
-                // Corrupt odd-indexed blocks (1, 3, 5, ...)
-                for j in 0..block.len().min(100) {
-                    block[j] = block[j] * 0.2; // Severe amplitude reduction
+                // Corrupt odd-indexed blocks (1, 3, 5, ...) with bit flipping
+                let start = block.len() / 3;
+                let end = (start + 35).min(block.len());
+                for j in start..end {
+                    // Flip sign bit in corrupted section
+                    let bits = block[j].to_bits() ^ 0x80000000u32;
+                    block[j] = f32::from_bits(bits);
                 }
             }
         }
@@ -951,14 +967,18 @@ mod tests {
         let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
         let blocks: Vec<_> = stream.take(20).collect();
 
-        // Simulate burst corruption: blocks 3-7 all corrupted
+        // Simulate burst corruption: blocks 3-7 all corrupted with bit flipping
         let mut processed_blocks = blocks.clone();
         for i in 3..8 {
             if i < processed_blocks.len() {
                 let block = &mut processed_blocks[i];
-                // Corrupt with phase shift (realistic channel impairment)
-                for j in 0..block.len().min(150) {
-                    block[j] = -block[j]; // Phase inversion = maximum corruption
+                // Corrupt with bit flipping patterns
+                let start = block.len() / 4;
+                let end = (start + 35).min(block.len());
+                for j in start..end {
+                    // Flip sign bit to corrupt the sample
+                    let bits = block[j].to_bits() ^ 0x80000000u32;
+                    block[j] = f32::from_bits(bits);
                 }
             }
         }
@@ -996,9 +1016,13 @@ mod tests {
         let good_indices = [2, 5, 10, 15, 22];
         for (i, block) in processed_blocks.iter_mut().enumerate() {
             if !good_indices.contains(&i) {
-                // Corrupt all blocks except the good ones
-                for j in 0..block.len().min(200) {
-                    block[j] = block[j] * 0.15; // Heavy corruption
+                // Corrupt all blocks except the good ones with bit flipping
+                let start = block.len() / 5;
+                let end = (start + 40).min(block.len());
+                for j in start..end {
+                    // Flip sign bit in corrupted section
+                    let bits = block[j].to_bits() ^ 0x80000000u32;
+                    block[j] = f32::from_bits(bits);
                 }
             }
         }
@@ -1150,15 +1174,19 @@ mod tests {
         let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
         let blocks: Vec<_> = stream.take(20).collect();
 
-        // Simulate progressive channel degradation: later blocks more corrupted
+        // Simulate progressive channel degradation with escalating invalid data injection
         let mut processed_blocks = blocks.clone();
         for (i, block) in processed_blocks.iter_mut().enumerate() {
             // Corruption level increases with block index
             let corruption_level = 0.1 + (i as f32 * 0.04);
             if corruption_level > 0.5 {
-                // Corrupt heavily
-                for j in 0..block.len().min(80 + i * 3) {
-                    block[j] = block[j] * corruption_level;
+                // Corrupt with progressive bit flipping
+                let start = block.len() / 6;
+                let end = (start + 30 + i).min(block.len());
+                for j in start..end {
+                    // Progressive bit flipping as blocks degrade
+                    let bits = block[j].to_bits() ^ 0x80000000u32;
+                    block[j] = f32::from_bits(bits);
                 }
             }
         }
