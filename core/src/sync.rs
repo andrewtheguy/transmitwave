@@ -30,6 +30,14 @@ pub enum DetectionThreshold {
 // actually generate, allowing easy comparison between signal types.
 const SIGNAL_TYPE: SignalType = SignalType::Chirp;
 
+/// Window length (in samples) for computing RMS in adaptive threshold mode.
+/// This controls the size of sliding windows used to find the maximum RMS,
+/// which helps detect strong signal bursts and ignores long silences or unrelated noise.
+/// Tuning this parameter affects threshold sensitivity:
+/// - Smaller windows: More responsive to brief bursts but noisier
+/// - Larger windows: More robust to noise but may miss brief signals
+const ADAPTIVE_RMS_WINDOW_LENGTH: usize = 2048;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
 enum SignalType {
@@ -278,8 +286,36 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
     }
 }
 
+/// Compute maximum RMS across sliding windows of the signal.
+///
+/// Uses sliding windows to find the strongest signal region, which helps identify
+/// signal bursts and avoids being skewed by long silences or unrelated background noise.
+///
+/// # Tradeoffs:
+/// - **Benefit**: More robust detection by focusing on the strongest signal region
+/// - **Benefit**: Ignores long silence periods or unrelated noise that spans the entire buffer
+/// - **Tradeoff**: May miss weak distributed signals spread evenly across the buffer
+/// - **Tradeoff**: Slightly slower than computing RMS over the entire buffer
+fn compute_max_rms_from_windows(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+
+    let window_len = ADAPTIVE_RMS_WINDOW_LENGTH.min(samples.len());
+    let mut max_rms = 0.0;
+
+    for i in 0..=samples.len().saturating_sub(window_len) {
+        let window = &samples[i..i + window_len];
+        let rms = (window.iter().map(|x| x * x).sum::<f32>() / window.len() as f32).sqrt();
+        max_rms = max_rms.max(rms);
+    }
+
+    max_rms
+}
+
 /// Compute the detection threshold value based on the threshold specification
-/// - Adaptive: Adjusts threshold based on signal RMS:
+/// - Adaptive: Adjusts threshold based on maximum signal RMS from sliding windows:
+///   - Uses sliding windows of ADAPTIVE_RMS_WINDOW_LENGTH samples to find the strongest region
 ///   - RMS > 0.1: 0.4 (strong signal, strict detection)
 ///   - 0.02 < RMS ≤ 0.1: 0.35 (medium signal)
 ///   - RMS ≤ 0.02: 0.3 (weak signal, relaxed threshold)
@@ -287,7 +323,7 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
 fn compute_threshold_value(samples: &[f32], threshold: DetectionThreshold) -> f32 {
     match threshold {
         DetectionThreshold::Adaptive => {
-            let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
+            let signal_rms: f32 = compute_max_rms_from_windows(samples);
             if signal_rms > 0.1 {
                 0.4
             } else if signal_rms > 0.02 {
@@ -303,7 +339,7 @@ fn compute_threshold_value(samples: &[f32], threshold: DetectionThreshold) -> f3
 /// Detect preamble using efficient FFT-based cross-correlation
 /// Returns the position where the preamble (PRN noise burst) is most likely to start
 /// threshold: Specifies how to determine the detection threshold (Adaptive or Fixed)
-/// Panics if Fixed threshold is invalid (not in range (0.001, 1.0])
+/// Panics if Fixed threshold is invalid (not in range [0.001, 1.0], i.e., must be inclusive of 0.001 and 1.0)
 pub fn detect_preamble(samples: &[f32], threshold: DetectionThreshold) -> Option<usize> {
     // Validate threshold
     if let DetectionThreshold::Fixed(value) = threshold {
@@ -383,7 +419,7 @@ pub fn detect_preamble(samples: &[f32], threshold: DetectionThreshold) -> Option
 /// Detect postamble using efficient cross-correlation
 /// Returns the position where the postamble (PRN noise burst) is most likely to start
 /// threshold: Specifies how to determine the detection threshold (Adaptive or Fixed)
-/// Panics if Fixed threshold is invalid (not in range (0.001, 1.0])
+/// Panics if Fixed threshold is invalid (not in range [0.001, 1.0])
 pub fn detect_postamble(samples: &[f32], threshold: DetectionThreshold) -> Option<usize> {
     // Validate threshold
     if let DetectionThreshold::Fixed(value) = threshold {
