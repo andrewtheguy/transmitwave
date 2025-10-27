@@ -222,7 +222,6 @@ fn test_fsk_medium_payload_with_noise_and_silence() {
 }
 
 #[test]
-#[ignore = "it is too slow"]
 fn test_fsk_max_payload_with_noise_and_silence() {
     let original_data = vec![42u8; 200]; // Max payload size
 
