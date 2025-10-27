@@ -42,10 +42,6 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const [isListening, setIsListening] = useState(false)
   const [detectionStatus, setDetectionStatus] = useState<string | null>(null)
   const [detectionStatusType, setDetectionStatusType] = useState<'success' | 'error' | 'info' | 'warning'>('info')
-  const [preambleAdaptive, setPreambleAdaptive] = useState(true) // true = adaptive, false = use preambleThreshold
-  const [preambleThreshold, setPreambleThreshold] = useState(0.1)
-  const [postambleAdaptive, setPostambleAdaptive] = useState(true) // true = adaptive, false = use postambleThreshold
-  const [postambleThreshold, setPostambleThreshold] = useState(0.1)
   const [preambleDetected, setPreambleDetected] = useState(false)
 
   // Recording phase states
@@ -93,10 +89,14 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const [targetAmplitude, setTargetAmplitude] = useState(0.5)
   const [autoGainAdjustment, setAutoGainAdjustment] = useState(1.0)
 
+  // Threshold settings
+  const [preambleThreshold, setPreambleThreshold] = useState(0.4)
+  const [postambleThreshold, setPostambleThreshold] = useState(0.4)
+
   const startListening = async () => {
     try {
-      // Create preamble detector
-      const detector = new PreambleDetector(preambleAdaptive, preambleThreshold)
+      // Create preamble detector with configurable threshold
+      const detector = new PreambleDetector(preambleThreshold)
       detectorRef.current = detector
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -141,7 +141,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
       preambleDetectedRef.current = false
       preamblePosInRecordingRef.current = 0
       postambleDetectorRef.current = null
-      detectorRef.current = new PreambleDetector(preambleAdaptive, preambleThreshold)
+      detectorRef.current = new PreambleDetector(preambleThreshold)
 
       // Connect audio graph
       source.connect(analyser)
@@ -257,8 +257,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
             setRecordingDuration(0)
             setRecordingSamples(recordedSamplesRef.current.length)
 
-            // Initialize postamble detector for later
-            postambleDetectorRef.current = new PostambleDetector(postambleAdaptive, postambleThreshold)
+            // Initialize postamble detector for later with configurable threshold
+            postambleDetectorRef.current = new PostambleDetector(postambleThreshold)
             postambleSearchStartRef.current = 0
 
             // Start recording duration timer
@@ -480,11 +480,9 @@ const PreamblePostambleRecordPage: React.FC = () => {
       // recordedSamplesRef.current is already normalized and resampled to 16kHz
       const resampledSamples = recordedSamplesRef.current
 
-      // Decode with user-configured thresholds
+      // Decode with configured thresholds
       const decoder = await createDecoder({
-        preambleAdaptive,
         preambleThreshold,
-        postambleAdaptive,
         postambleThreshold,
       })
       const data = decoder.decode(new Float32Array(resampledSamples))
@@ -642,60 +640,6 @@ const PreamblePostambleRecordPage: React.FC = () => {
         <h2>Listening & Recording Settings</h2>
 
         <div className="mt-4">
-          <label><strong>Preamble Detection Threshold</strong></label>
-          <div className="flex items-center gap-3 mt-2">
-            <select
-              value={preambleAdaptive ? 'adaptive' : 'fixed'}
-              onChange={(e) => setPreambleAdaptive(e.target.value === 'adaptive')}
-              disabled={isListening}
-              style={{ flex: 1 }}
-            >
-              <option value="adaptive">Adaptive (auto-adjust based on signal)</option>
-              <option value="fixed">Fixed threshold</option>
-            </select>
-            {!preambleAdaptive && (
-              <select
-                value={preambleThreshold.toString()}
-                onChange={(e) => setPreambleThreshold(parseFloat(e.target.value))}
-                disabled={isListening}
-              >
-                {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].map(v => (
-                  <option key={v} value={v}>{v.toFixed(1)}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          <small>Adaptive: automatically adjusts based on signal strength | Fixed: use specific threshold value</small>
-        </div>
-
-        <div className="mt-4">
-          <label><strong>Postamble Detection Threshold</strong></label>
-          <div className="flex items-center gap-3 mt-2">
-            <select
-              value={postambleAdaptive ? 'adaptive' : 'fixed'}
-              onChange={(e) => setPostambleAdaptive(e.target.value === 'adaptive')}
-              disabled={isListening}
-              style={{ flex: 1 }}
-            >
-              <option value="adaptive">Adaptive (auto-adjust based on signal)</option>
-              <option value="fixed">Fixed threshold</option>
-            </select>
-            {!postambleAdaptive && (
-              <select
-                value={postambleThreshold.toString()}
-                onChange={(e) => setPostambleThreshold(parseFloat(e.target.value))}
-                disabled={isListening}
-              >
-                {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].map(v => (
-                  <option key={v} value={v}>{v.toFixed(1)}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          <small>Adaptive: automatically adjusts based on signal strength | Fixed: use specific threshold value</small>
-        </div>
-
-        <div className="mt-4">
           <label><strong>Target Preamble Amplitude</strong></label>
           <div className="flex items-center gap-3 mt-2">
             <input
@@ -715,6 +659,40 @@ const PreamblePostambleRecordPage: React.FC = () => {
               Last adjustment: {autoGainAdjustment.toFixed(2)}x
             </div>
           )}
+        </div>
+
+        <div className="mt-4">
+          <label><strong>Preamble Detection Threshold</strong></label>
+          <div className="flex items-center gap-3 mt-2">
+            <input
+              type="range"
+              min="0.1"
+              max="0.9"
+              step="0.05"
+              value={preambleThreshold}
+              onChange={(e) => setPreambleThreshold(parseFloat(e.target.value))}
+              disabled={isListening}
+            />
+            <span>{preambleThreshold.toFixed(2)}</span>
+          </div>
+          <small>Lower values = more sensitive. Default: 0.4</small>
+        </div>
+
+        <div className="mt-4">
+          <label><strong>Postamble Detection Threshold</strong></label>
+          <div className="flex items-center gap-3 mt-2">
+            <input
+              type="range"
+              min="0.1"
+              max="0.9"
+              step="0.05"
+              value={postambleThreshold}
+              onChange={(e) => setPostambleThreshold(parseFloat(e.target.value))}
+              disabled={isListening}
+            />
+            <span>{postambleThreshold.toFixed(2)}</span>
+          </div>
+          <small>Lower values = more sensitive. Default: 0.4</small>
         </div>
 
         <div className="mt-4">

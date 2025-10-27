@@ -52,61 +52,41 @@ impl WasmDecoder {
     }
 
     /// Set the detection threshold for both preamble and postamble
-    /// is_adaptive: true = adaptive threshold, false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_detection_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
-        let threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
+    pub fn set_detection_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         self.inner.set_detection_threshold(threshold);
     }
 
     /// Set the detection threshold for preamble only
-    /// is_adaptive: true = adaptive threshold, false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_preamble_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
-        let threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
+    pub fn set_preamble_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         self.inner.set_preamble_threshold(threshold);
     }
 
     /// Get the current preamble detection threshold
-    /// Returns is_adaptive flag as first element of array, fixed_value as second
     #[wasm_bindgen]
-    pub fn get_preamble_threshold(&self) -> Vec<f32> {
+    pub fn get_preamble_threshold(&self) -> f32 {
         match self.inner.get_preamble_threshold() {
-            DetectionThreshold::Adaptive => vec![1.0],
-            DetectionThreshold::Fixed(value) => vec![0.0, value],
+            DetectionThreshold::Fixed(value) => value,
+            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
         }
     }
 
     /// Set the detection threshold for postamble only
-    /// is_adaptive: true = adaptive threshold, false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_postamble_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
-        let threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
+    pub fn set_postamble_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         self.inner.set_postamble_threshold(threshold);
     }
 
     /// Get the current postamble detection threshold
-    /// Returns is_adaptive flag as first element of array, fixed_value as second
     #[wasm_bindgen]
-    pub fn get_postamble_threshold(&self) -> Vec<f32> {
+    pub fn get_postamble_threshold(&self) -> f32 {
         match self.inner.get_postamble_threshold() {
-            DetectionThreshold::Adaptive => vec![1.0],
-            DetectionThreshold::Fixed(value) => vec![0.0, value],
+            DetectionThreshold::Fixed(value) => value,
+            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
         }
     }
 
@@ -175,8 +155,8 @@ where
 
     fn threshold(&self) -> f32 {
         match self.threshold {
-            DetectionThreshold::Adaptive => 0.0,
             DetectionThreshold::Fixed(v) => v,
+            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
         }
     }
 
@@ -194,17 +174,11 @@ pub struct PreambleDetector {
 #[wasm_bindgen]
 impl PreambleDetector {
     /// Create a new preamble detector with specified threshold
-    /// is_adaptive: true = adaptive (auto-adjust based on signal strength), false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen(constructor)]
-    pub fn new(is_adaptive: bool, fixed_value: f32) -> PreambleDetector {
-        let detection_threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
+    pub fn new(fixed_value: f32) -> PreambleDetector {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         PreambleDetector {
-            detector: SignalDetector::new(detection_threshold, transmitwave_core::PREAMBLE_SAMPLES, detect_preamble),
+            detector: SignalDetector::new(threshold, transmitwave_core::PREAMBLE_SAMPLES, detect_preamble),
         }
     }
 
@@ -240,16 +214,10 @@ impl PreambleDetector {
     }
 
     /// Set a new threshold value
-    /// is_adaptive: true = adaptive (auto-adjust based on signal strength), false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
-        let detection_threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
-        self.detector.set_threshold(detection_threshold);
+    pub fn set_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
+        self.detector.set_threshold(threshold);
     }
 }
 
@@ -262,17 +230,11 @@ pub struct PostambleDetector {
 #[wasm_bindgen]
 impl PostambleDetector {
     /// Create a new postamble detector with specified threshold
-    /// is_adaptive: true = adaptive (auto-adjust based on signal strength), false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen(constructor)]
-    pub fn new(is_adaptive: bool, fixed_value: f32) -> PostambleDetector {
-        let detection_threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
+    pub fn new(fixed_value: f32) -> PostambleDetector {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         PostambleDetector {
-            detector: SignalDetector::new(detection_threshold, transmitwave_core::POSTAMBLE_SAMPLES, detect_postamble),
+            detector: SignalDetector::new(threshold, transmitwave_core::POSTAMBLE_SAMPLES, detect_postamble),
         }
     }
 
@@ -308,16 +270,10 @@ impl PostambleDetector {
     }
 
     /// Set a new threshold value
-    /// is_adaptive: true = adaptive (auto-adjust based on signal strength), false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
-        let detection_threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
-        self.detector.set_threshold(detection_threshold);
+    pub fn set_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
+        self.detector.set_threshold(threshold);
     }
 }
 
@@ -409,61 +365,41 @@ impl WasmFountainDecoder {
     }
 
     /// Set the detection threshold for both preamble and postamble
-    /// is_adaptive: true = adaptive threshold, false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_detection_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
-        let threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
+    pub fn set_detection_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         self.inner.set_detection_threshold(threshold);
     }
 
     /// Set the detection threshold for preamble only
-    /// is_adaptive: true = adaptive threshold, false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_preamble_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
-        let threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
+    pub fn set_preamble_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         self.inner.set_preamble_threshold(threshold);
     }
 
     /// Get the current preamble detection threshold
-    /// Returns is_adaptive flag as first element of array, fixed_value as second
     #[wasm_bindgen]
-    pub fn get_preamble_threshold(&self) -> Vec<f32> {
+    pub fn get_preamble_threshold(&self) -> f32 {
         match self.inner.get_preamble_threshold() {
-            DetectionThreshold::Adaptive => vec![1.0],
-            DetectionThreshold::Fixed(value) => vec![0.0, value],
+            DetectionThreshold::Fixed(value) => value,
+            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
         }
     }
 
     /// Set the detection threshold for postamble only
-    /// is_adaptive: true = adaptive threshold, false = use fixed_value
-    /// fixed_value: threshold value when is_adaptive=false (0.001-1.0)
     #[wasm_bindgen]
-    pub fn set_postamble_threshold(&mut self, is_adaptive: bool, fixed_value: f32) {
-        let threshold = if is_adaptive {
-            DetectionThreshold::Adaptive
-        } else {
-            DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0))
-        };
+    pub fn set_postamble_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         self.inner.set_postamble_threshold(threshold);
     }
 
     /// Get the current postamble detection threshold
-    /// Returns is_adaptive flag as first element of array, fixed_value as second
     #[wasm_bindgen]
-    pub fn get_postamble_threshold(&self) -> Vec<f32> {
+    pub fn get_postamble_threshold(&self) -> f32 {
         match self.inner.get_postamble_threshold() {
-            DetectionThreshold::Adaptive => vec![1.0],
-            DetectionThreshold::Fixed(value) => vec![0.0, value],
+            DetectionThreshold::Fixed(value) => value,
+            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
         }
     }
 
