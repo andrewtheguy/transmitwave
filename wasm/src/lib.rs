@@ -297,6 +297,8 @@ impl WasmFountainEncoder {
 #[wasm_bindgen]
 pub struct WasmFountainDecoder {
     inner: DecoderFsk,
+    buffer: Vec<f32>,
+    block_size: usize,
 }
 
 #[wasm_bindgen]
@@ -307,11 +309,60 @@ impl WasmFountainDecoder {
         DecoderFsk::new()
             .map(|decoder| WasmFountainDecoder {
                 inner: decoder,
+                buffer: Vec::new(),
+                block_size: 64, // Default block size
             })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Decode fountain-coded audio stream back to data
+    /// Set the block size for decoding
+    #[wasm_bindgen]
+    pub fn set_block_size(&mut self, block_size: usize) {
+        self.block_size = block_size;
+    }
+
+    /// Feed audio chunk to the decoder buffer
+    #[wasm_bindgen]
+    pub fn feed_chunk(&mut self, samples: &[f32]) {
+        self.buffer.extend_from_slice(samples);
+    }
+
+    /// Get the current number of samples in the buffer
+    #[wasm_bindgen]
+    pub fn get_sample_count(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Try to decode the accumulated audio buffer
+    /// Returns decoded data if successful, or error if decoding fails
+    #[wasm_bindgen]
+    pub fn try_decode(&mut self) -> Result<Vec<u8>, JsValue> {
+        if self.buffer.is_empty() {
+            return Err(JsValue::from_str("No audio data in buffer"));
+        }
+
+        let config = FountainConfig {
+            timeout_secs: 30, // Not enforced in WASM
+            block_size: self.block_size,
+            repair_blocks_ratio: 0.5, // Not used by decoder
+        };
+
+        self.inner
+            .decode_fountain(&self.buffer, Some(config))
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Reset the decoder and clear the buffer
+    #[wasm_bindgen]
+    pub fn reset(&mut self) {
+        self.buffer.clear();
+        // Create a new inner decoder to reset its state
+        if let Ok(decoder) = DecoderFsk::new() {
+            self.inner = decoder;
+        }
+    }
+
+    /// Decode fountain-coded audio stream back to data (non-streaming mode)
     ///
     /// Parameters:
     /// - samples: Audio samples from microphone/recording

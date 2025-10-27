@@ -22,6 +22,8 @@ const FountainListenPage: React.FC = () => {
   const [elapsed, setElapsed] = useState(0)
   const [decodedText, setDecodedText] = useState<string | null>(null)
   const [isDecoding, setIsDecoding] = useState(false)
+  const [sampleCount, setSampleCount] = useState(0)
+  const [decodeAttempts, setDecodeAttempts] = useState(0)
 
   const processorRef = useRef<AudioWorkletNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -37,6 +39,8 @@ const FountainListenPage: React.FC = () => {
   const startTimeRef = useRef<number>(0)
   const timerIntervalRef = useRef<number | null>(null)
   const samplesProcessedRef = useRef<number>(0)
+  const streamingDecoderRef = useRef<any>(null)
+  const decodeIntervalRef = useRef<number | null>(null)
 
   const startListening = async () => {
     try {
@@ -87,6 +91,8 @@ const FountainListenPage: React.FC = () => {
       setStatusType('info')
       setDecodedText(null)
       setElapsed(0)
+      setSampleCount(0)
+      setDecodeAttempts(0)
 
       processor.port.onmessage = (event: MessageEvent<Float32Array>) => {
         const samples: number[] = Array.from(event.data)
@@ -122,22 +128,41 @@ const FountainListenPage: React.FC = () => {
             preambleDetectedRef.current = true
             isRecordingRef.current = true
             setIsRecording(true)
-            setStatus('Preamble detected! Recording fountain stream...')
+            setStatus('Preamble detected! Starting streaming decode...')
             setStatusType('success')
             startTimeRef.current = Date.now()
 
             recordedSamplesRef.current = allResampledSamplesRef.current
             allResampledSamplesRef.current = []
             resampleBufferRef.current = []
+            setSampleCount(recordedSamplesRef.current.length)
+            setDecodeAttempts(0)
 
+            // Initialize streaming decoder
+            createFountainDecoder().then(decoder => {
+              streamingDecoderRef.current = decoder
+              decoder.set_block_size(BLOCK_SIZE)
+
+              // Feed initial samples (everything before preamble)
+              if (recordedSamplesRef.current.length > 0) {
+                decoder.feed_chunk(new Float32Array(recordedSamplesRef.current))
+              }
+            })
+
+            // Timer for UI updates and timeout
             timerIntervalRef.current = window.setInterval(() => {
               const elapsedSecs = (Date.now() - startTimeRef.current) / 1000
               setElapsed(elapsedSecs)
 
               if (elapsedSecs >= TIMEOUT_SECS) {
-                stopRecording('Recording complete (30 seconds)')
+                stopRecording('Timeout reached (30 seconds)')
               }
             }, 100)
+
+            // Periodic decode attempts (every 2 seconds)
+            decodeIntervalRef.current = window.setInterval(() => {
+              tryStreamingDecode()
+            }, 2000)
 
             detector.clear()
             samplesProcessedRef.current = 0
@@ -157,12 +182,41 @@ const FountainListenPage: React.FC = () => {
           }
 
           recordedSamplesRef.current.push(...resampledChunk)
+
+          // Feed chunk to streaming decoder
+          if (streamingDecoderRef.current && resampledChunk.length > 0) {
+            streamingDecoderRef.current.feed_chunk(new Float32Array(resampledChunk))
+            setSampleCount(streamingDecoderRef.current.get_sample_count())
+          }
         }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to access microphone'
       setStatus(`Error: ${message}`)
       setStatusType('error')
+    }
+  }
+
+  const tryStreamingDecode = async () => {
+    if (!streamingDecoderRef.current || !isRecordingRef.current) {
+      return
+    }
+
+    try {
+      setDecodeAttempts(prev => prev + 1)
+      console.log(`Decode attempt #${decodeAttempts + 1} with ${streamingDecoderRef.current.get_sample_count()} samples`)
+
+      const data = streamingDecoderRef.current.try_decode()
+      const text = new TextDecoder().decode(data)
+
+      // Success! Stop recording and show result
+      setDecodedText(text)
+      setStatus(`Decoded successfully: "${text}"`)
+      setStatusType('success')
+      stopRecording()
+    } catch (error) {
+      // Decode failed, continue recording
+      console.log(`Decode attempt failed:`, error)
     }
   }
 
@@ -221,6 +275,15 @@ const FountainListenPage: React.FC = () => {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current)
       timerIntervalRef.current = null
+    }
+
+    if (decodeIntervalRef.current) {
+      clearInterval(decodeIntervalRef.current)
+      decodeIntervalRef.current = null
+    }
+
+    if (streamingDecoderRef.current) {
+      streamingDecoderRef.current = null
     }
   }
 
@@ -382,10 +445,13 @@ const FountainListenPage: React.FC = () => {
     isRecordingRef.current = false
     recordedSamplesRef.current = []
     recordingResampleBufferRef.current = []
+    streamingDecoderRef.current = null
     setDecodedText(null)
     setElapsed(0)
     setStatus(null)
     setHasRecording(false)
+    setSampleCount(0)
+    setDecodeAttempts(0)
     startListening()
   }
 
@@ -394,8 +460,8 @@ const FountainListenPage: React.FC = () => {
   return (
     <div className="container">
       <div className="text-center mb-5">
-        <h1>Fountain Code Listener</h1>
-        <p>Listen for 30 seconds of fountain-coded audio stream and decode</p>
+        <h1>Fountain Code Listener (Streaming Mode)</h1>
+        <p>Detects preamble, then continuously attempts to decode until successful or 30s timeout</p>
       </div>
 
       <div className="card" style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -463,7 +529,8 @@ const FountainListenPage: React.FC = () => {
               height: '8px',
               background: '#e2e8f0',
               borderRadius: '4px',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              marginBottom: '1rem'
             }}>
               <div style={{
                 width: `${progressPercent}%`,
@@ -471,6 +538,10 @@ const FountainListenPage: React.FC = () => {
                 background: '#4299e1',
                 transition: 'width 0.1s linear'
               }} />
+            </div>
+            <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+              <div>Samples accumulated: {sampleCount.toLocaleString()}</div>
+              <div>Decode attempts: {decodeAttempts}</div>
             </div>
           </div>
         )}
