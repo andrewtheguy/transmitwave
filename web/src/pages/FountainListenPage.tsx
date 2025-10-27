@@ -25,6 +25,7 @@ const FountainListenPage: React.FC = () => {
   const [sampleCount, setSampleCount] = useState(0)
   const [decodeAttempts, setDecodeAttempts] = useState(0)
   const [micVolume, setMicVolume] = useState(0)
+  const [volumeGain, setVolumeGain] = useState(1)
   const [preambleThreshold, setPreambleThreshold] = useState(0.4)
   const [postambleThreshold, setPostambleThreshold] = useState(0.4)
 
@@ -33,6 +34,7 @@ const FountainListenPage: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
+  const gainNodeRef = useRef<GainNode | null>(null)
   const detectorRef = useRef<PreambleDetector | null>(null)
   const resampleBufferRef = useRef<number[]>([])
   const allResampledSamplesRef = useRef<number[]>([])
@@ -143,6 +145,11 @@ const FountainListenPage: React.FC = () => {
       audioContextRef.current = audioContext
       const source = audioContext.createMediaStreamSource(stream)
 
+      // Create gain node for volume control
+      const gainNode = audioContext.createGain()
+      gainNode.gain.value = volumeGain
+      gainNodeRef.current = gainNode
+
       // Create analyser for volume visualization
       const analyser = audioContext.createAnalyser()
       analyser.fftSize = 2048
@@ -172,7 +179,8 @@ const FountainListenPage: React.FC = () => {
       samplesProcessedRef.current = 0
       setHasRecording(false)
 
-      source.connect(analyser)
+      source.connect(gainNode)
+      gainNode.connect(analyser)
       analyser.connect(processor)
       processor.connect(audioContext.destination)
 
@@ -704,6 +712,29 @@ const FountainListenPage: React.FC = () => {
             <li>Duration: {TIMEOUT_SECS} seconds</li>
             <li>Block size: {BLOCK_SIZE} bytes</li>
           </ul>
+
+          <div style={{ marginTop: '1rem' }}>
+            <label><strong>Microphone Volume</strong></label>
+            <div className="flex items-center gap-3 mt-2">
+              <input
+                type="range"
+                min="0.5"
+                max="3"
+                step="0.1"
+                value={volumeGain}
+                onChange={(e) => {
+                  const newGain = parseFloat(e.target.value)
+                  setVolumeGain(newGain)
+                  if (gainNodeRef.current) {
+                    gainNodeRef.current.gain.value = newGain
+                  }
+                }}
+                disabled={isListening}
+              />
+              <span>{volumeGain.toFixed(1)}x</span>
+            </div>
+            <small>Amplify microphone input (0.5x to 3x). Recommended: 1.0x</small>
+          </div>
 
           <div style={{ marginTop: '1rem' }}>
             <label><strong>Preamble Detection Threshold</strong></label>

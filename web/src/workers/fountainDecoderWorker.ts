@@ -53,14 +53,14 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         const { samples } = event.data as FeedChunkMessage
         sampleBuffer.push(samples)
 
-        // Prevent unbounded buffer growth
         const totalSamples = sampleBuffer.reduce((sum, s) => sum + s.length, 0)
-        if (totalSamples > MAX_BUFFER_SAMPLES) {
-          console.warn(`Buffer overflow: ${totalSamples} > ${MAX_BUFFER_SAMPLES}, clearing buffer`)
-          sampleBuffer.length = 0
-        }
+        // // Prevent unbounded buffer growth
+        // if (totalSamples > MAX_BUFFER_SAMPLES) {
+        //   console.warn(`Buffer overflow: ${totalSamples} > ${MAX_BUFFER_SAMPLES}, clearing buffer`)
+        //   sampleBuffer.length = 0
+        // }
 
-        self.postMessage({ type: 'chunk_fed', sampleCount: totalSamples > MAX_BUFFER_SAMPLES ? 0 : totalSamples })
+        self.postMessage({ type: 'chunk_fed', sampleCount: totalSamples })
         break
       }
 
