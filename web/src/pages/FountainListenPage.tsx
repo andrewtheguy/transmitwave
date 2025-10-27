@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { PreambleDetector, createFountainDecoder } from '../utils/wasm'
 import { resampleAudio } from '../utils/audio'
@@ -127,16 +128,20 @@ const FountainListenPage: React.FC = () => {
           if (position >= 0) {
             preambleDetectedRef.current = true
             isRecordingRef.current = true
-            setIsRecording(true)
-            setStatus('Preamble detected! Starting streaming decode...')
-            setStatusType('success')
             startTimeRef.current = Date.now()
 
             recordedSamplesRef.current = allResampledSamplesRef.current
             allResampledSamplesRef.current = []
             resampleBufferRef.current = []
-            setSampleCount(recordedSamplesRef.current.length)
-            setDecodeAttempts(0)
+
+            // Force immediate UI update when preamble is detected
+            flushSync(() => {
+              setIsRecording(true)
+              setStatus('Preamble detected! Starting streaming decode...')
+              setStatusType('success')
+              setSampleCount(recordedSamplesRef.current.length)
+              setDecodeAttempts(0)
+            })
 
             // Initialize streaming decoder
             createFountainDecoder().then(decoder => {
