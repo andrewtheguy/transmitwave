@@ -96,9 +96,17 @@ enum Commands {
         #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
 
-        /// Detection threshold for preamble/postamble (0.0=adaptive, 0.1-1.0=fixed)
+        /// Detection threshold for both preamble and postamble (0.0=adaptive, 0.1-1.0=fixed)
         #[arg(short, long)]
         threshold: Option<f32>,
+
+        /// Detection threshold for preamble only (overrides --threshold for preamble)
+        #[arg(long)]
+        preamble_threshold: Option<f32>,
+
+        /// Detection threshold for postamble only (overrides --threshold for postamble)
+        #[arg(long)]
+        postamble_threshold: Option<f32>,
     },
 
     /// Start web server for encode/decode operations
@@ -149,9 +157,17 @@ enum Commands {
         #[arg(short, long, default_value = "64")]
         block_size: usize,
 
-        /// Detection threshold for preamble/postamble (0.0=adaptive, 0.1-1.0=fixed)
+        /// Detection threshold for both preamble and postamble (0.0=adaptive, 0.1-1.0=fixed)
         #[arg(long)]
         threshold: Option<f32>,
+
+        /// Detection threshold for preamble only (overrides --threshold for preamble)
+        #[arg(long)]
+        preamble_threshold: Option<f32>,
+
+        /// Detection threshold for postamble only (overrides --threshold for postamble)
+        #[arg(long)]
+        postamble_threshold: Option<f32>,
     },
 }
 
@@ -169,8 +185,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Encode { input, output } => {
                 encode_fsk_command(&input, &output)?
             }
-            Commands::Decode { input, output, threshold } => {
-                decode_fsk_command(&input, &output, threshold)?
+            Commands::Decode { input, output, threshold, preamble_threshold, postamble_threshold } => {
+                decode_fsk_command(&input, &output, threshold, preamble_threshold, postamble_threshold)?
             }
             Commands::Server { port } => {
                 return start_web_server(port);
@@ -178,8 +194,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::FountainEncode { input, output, timeout, block_size, repair_ratio } => {
                 fountain_encode_command(&input, &output, timeout, block_size, repair_ratio)?
             }
-            Commands::FountainDecode { input, output, timeout, block_size, threshold } => {
-                fountain_decode_command(&input, &output, timeout, block_size, threshold)?
+            Commands::FountainDecode { input, output, timeout, block_size, threshold, preamble_threshold, postamble_threshold } => {
+                fountain_decode_command(&input, &output, timeout, block_size, threshold, preamble_threshold, postamble_threshold)?
             }
         }
         return Ok(());
@@ -202,7 +218,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if mode == "encode" || mode == "enc" {
             encode_fsk_command(&input, &output)?
         } else if mode == "decode" || mode == "dec" {
-            decode_fsk_command(&input, &output, None)?
+            decode_fsk_command(&input, &output, None, None, None)?
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
             std::process::exit(1);
@@ -329,6 +345,8 @@ fn fountain_decode_command(
     timeout: u32,
     block_size: usize,
     threshold: Option<f32>,
+    preamble_threshold: Option<f32>,
+    postamble_threshold: Option<f32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
     let file = File::open(input_path)?;
@@ -389,10 +407,19 @@ fn fountain_decode_command(
     // Decode with fountain mode
     let mut decoder = DecoderFsk::new()?;
 
-    // Set detection threshold if provided
-    if let Some(thresh) = threshold {
-        decoder.set_detection_threshold(thresh);
-        println!("Using detection threshold: {:.2}", thresh);
+    // Set detection thresholds with fallback logic:
+    // - If specific threshold is provided, use it
+    // - Otherwise, use the general --threshold if provided
+    let actual_preamble = preamble_threshold.or(threshold);
+    let actual_postamble = postamble_threshold.or(threshold);
+
+    if let Some(thresh) = actual_preamble {
+        decoder.set_preamble_threshold(thresh);
+        println!("Using preamble detection threshold: {:.2}", thresh);
+    }
+    if let Some(thresh) = actual_postamble {
+        decoder.set_postamble_threshold(thresh);
+        println!("Using postamble detection threshold: {:.2}", thresh);
     }
 
     let data = decoder.decode_fountain(&samples, Some(config))?;
@@ -409,6 +436,8 @@ fn decode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
     threshold: Option<f32>,
+    preamble_threshold: Option<f32>,
+    postamble_threshold: Option<f32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
     let file = File::open(input_path)?;
@@ -459,10 +488,19 @@ fn decode_fsk_command(
     // Decode with FSK
     let mut decoder = DecoderFsk::new()?;
 
-    // Set detection threshold if provided
-    if let Some(thresh) = threshold {
-        decoder.set_detection_threshold(thresh);
-        println!("Using detection threshold: {:.2}", thresh);
+    // Set detection thresholds with fallback logic:
+    // - If specific threshold is provided, use it
+    // - Otherwise, use the general --threshold if provided
+    let actual_preamble = preamble_threshold.or(threshold);
+    let actual_postamble = postamble_threshold.or(threshold);
+
+    if let Some(thresh) = actual_preamble {
+        decoder.set_preamble_threshold(thresh);
+        println!("Using preamble detection threshold: {:.2}", thresh);
+    }
+    if let Some(thresh) = actual_postamble {
+        decoder.set_postamble_threshold(thresh);
+        println!("Using postamble detection threshold: {:.2}", thresh);
     }
 
     let data = decoder.decode(&samples)?;

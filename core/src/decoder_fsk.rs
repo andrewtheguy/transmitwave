@@ -17,7 +17,8 @@ use std::time::{Duration, Instant};
 pub struct DecoderFsk {
     fsk: FskDemodulator,
     fec: FecDecoder,
-    detection_threshold: f32, // 0.0 = adaptive, >0.0 = fixed threshold
+    preamble_threshold: f32, // 0.0 = adaptive, >0.0 = fixed threshold
+    postamble_threshold: f32, // 0.0 = adaptive, >0.0 = fixed threshold
 }
 
 impl DecoderFsk {
@@ -25,20 +26,45 @@ impl DecoderFsk {
         Ok(Self {
             fsk: FskDemodulator::new(),
             fec: FecDecoder::new()?,
-            detection_threshold: 0.0, // Default: use adaptive threshold
+            preamble_threshold: 0.0, // Default: use adaptive threshold
+            postamble_threshold: 0.0, // Default: use adaptive threshold
         })
     }
 
-    /// Set the detection threshold for preamble/postamble detection
+    /// Set the detection threshold for preamble detection
     /// 0.0 = adaptive threshold based on signal strength
     /// 0.1-1.0 = fixed threshold value
-    pub fn set_detection_threshold(&mut self, threshold: f32) {
-        self.detection_threshold = threshold.max(0.0).min(1.0);
+    pub fn set_preamble_threshold(&mut self, threshold: f32) {
+        self.preamble_threshold = threshold.max(0.0).min(1.0);
     }
 
-    /// Get the current detection threshold
+    /// Get the current preamble detection threshold
+    pub fn get_preamble_threshold(&self) -> f32 {
+        self.preamble_threshold
+    }
+
+    /// Set the detection threshold for postamble detection
+    /// 0.0 = adaptive threshold based on signal strength
+    /// 0.1-1.0 = fixed threshold value
+    pub fn set_postamble_threshold(&mut self, threshold: f32) {
+        self.postamble_threshold = threshold.max(0.0).min(1.0);
+    }
+
+    /// Get the current postamble detection threshold
+    pub fn get_postamble_threshold(&self) -> f32 {
+        self.postamble_threshold
+    }
+
+    /// Set both preamble and postamble detection thresholds to the same value
+    /// Provided for backward compatibility
+    pub fn set_detection_threshold(&mut self, threshold: f32) {
+        self.set_preamble_threshold(threshold);
+        self.set_postamble_threshold(threshold);
+    }
+
+    /// Get the preamble detection threshold (provided for backward compatibility)
     pub fn get_detection_threshold(&self) -> f32 {
-        self.detection_threshold
+        self.preamble_threshold
     }
 
     /// Decode audio samples back to binary data
@@ -52,7 +78,7 @@ impl DecoderFsk {
         }
 
         // Detect preamble to find start of data, using configured threshold
-        let preamble_pos = detect_preamble(samples, self.detection_threshold)
+        let preamble_pos = detect_preamble(samples, self.preamble_threshold)
             .ok_or(AudioModemError::PreambleNotFound)?;
 
         // Data starts after preamble
@@ -64,7 +90,7 @@ impl DecoderFsk {
 
         // Try to detect postamble to find end of data, using configured threshold
         let remaining = &samples[data_start..];
-        let postamble_pos = detect_postamble(remaining, self.detection_threshold)
+        let postamble_pos = detect_postamble(remaining, self.postamble_threshold)
             .ok_or(AudioModemError::PostambleNotFound)?;
 
         let data_end = data_start + postamble_pos;
@@ -224,7 +250,7 @@ impl DecoderFsk {
                 break;
             }
             let preamble_slice = &remaining[..search_len];
-            let preamble_pos = match detect_preamble(preamble_slice, self.detection_threshold) {
+            let preamble_pos = match detect_preamble(preamble_slice, self.preamble_threshold) {
                 Some(pos) => pos,
                 None => break,
             };

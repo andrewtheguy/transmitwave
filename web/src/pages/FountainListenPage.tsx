@@ -25,7 +25,8 @@ const FountainListenPage: React.FC = () => {
   const [isDecoding, setIsDecoding] = useState(false)
   const [sampleCount, setSampleCount] = useState(0)
   const [decodeAttempts, setDecodeAttempts] = useState(0)
-  const [detectionThreshold, setDetectionThreshold] = useState(DEFAULT_DETECTION_THRESHOLD)
+  const [preambleThreshold, setPreambleThreshold] = useState(DEFAULT_DETECTION_THRESHOLD)
+  const [postambleThreshold, setPostambleThreshold] = useState(DEFAULT_DETECTION_THRESHOLD)
 
   const processorRef = useRef<AudioWorkletNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -99,7 +100,7 @@ const FountainListenPage: React.FC = () => {
       }
 
       // Initialize preamble detector with threshold
-      preambleWorker.postMessage({ type: 'init', threshold: detectionThreshold })
+      preambleWorker.postMessage({ type: 'init', threshold: preambleThreshold })
 
       // Initialize the decoder worker
       const worker = new Worker(new URL('../workers/fountainDecoderWorker.ts', import.meta.url), {
@@ -406,7 +407,9 @@ const FountainListenPage: React.FC = () => {
         hasInfinity: samples.some(s => !isFinite(s))
       })
 
-      const decoder = await createFountainDecoder({ detectionThreshold: detectionThreshold })
+      const decoder = await createFountainDecoder({})
+      decoder.set_preamble_threshold(preambleThreshold)
+      decoder.set_postamble_threshold(postambleThreshold)
       const data = decoder.decode_fountain(
         samples,
         TIMEOUT_SECS,
@@ -658,22 +661,42 @@ const FountainListenPage: React.FC = () => {
           </ul>
 
           <div style={{ marginTop: '1rem' }}>
-            <label htmlFor="threshold-slider" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              <strong>Preamble Detection Threshold:</strong> {detectionThreshold.toFixed(2)}
+            <label htmlFor="preamble-threshold-slider" style={{ display: 'block', marginBottom: '0.5rem' }}>
+              <strong>Preamble Detection Threshold:</strong> {preambleThreshold.toFixed(2)}
             </label>
             <input
-              id="threshold-slider"
+              id="preamble-threshold-slider"
               type="range"
               min="0.1"
               max="1.0"
               step="0.05"
-              value={detectionThreshold}
-              onChange={(e) => setDetectionThreshold(parseFloat(e.target.value))}
+              value={preambleThreshold}
+              onChange={(e) => setPreambleThreshold(parseFloat(e.target.value))}
               disabled={isListening || isRecording}
               style={{ width: '100%', cursor: isListening || isRecording ? 'not-allowed' : 'pointer' }}
             />
             <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.25rem' }}>
               Lower = more sensitive (easier preamble detection), Higher = less sensitive (fewer false positives)
+            </div>
+          </div>
+
+          <div style={{ marginTop: '1rem' }}>
+            <label htmlFor="postamble-threshold-slider" style={{ display: 'block', marginBottom: '0.5rem' }}>
+              <strong>Postamble Detection Threshold:</strong> {postambleThreshold.toFixed(2)}
+            </label>
+            <input
+              id="postamble-threshold-slider"
+              type="range"
+              min="0.1"
+              max="1.0"
+              step="0.05"
+              value={postambleThreshold}
+              onChange={(e) => setPostambleThreshold(parseFloat(e.target.value))}
+              disabled={isListening || isRecording}
+              style={{ width: '100%', cursor: isListening || isRecording ? 'not-allowed' : 'pointer' }}
+            />
+            <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.25rem' }}>
+              Lower = more sensitive (easier postamble detection), Higher = less sensitive (fewer false positives)
             </div>
           </div>
         </div>

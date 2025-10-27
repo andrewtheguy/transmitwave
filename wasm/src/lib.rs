@@ -50,17 +50,43 @@ impl WasmDecoder {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Set the detection threshold for preamble/postamble detection
+    /// Set the detection threshold for both preamble and postamble
     /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
     #[wasm_bindgen]
     pub fn set_detection_threshold(&mut self, threshold: f32) {
         self.inner.set_detection_threshold(threshold);
     }
 
-    /// Get the current detection threshold
+    /// Get the preamble detection threshold
     #[wasm_bindgen]
     pub fn get_detection_threshold(&self) -> f32 {
         self.inner.get_detection_threshold()
+    }
+
+    /// Set the detection threshold for preamble only
+    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    #[wasm_bindgen]
+    pub fn set_preamble_threshold(&mut self, threshold: f32) {
+        self.inner.set_preamble_threshold(threshold);
+    }
+
+    /// Get the current preamble detection threshold
+    #[wasm_bindgen]
+    pub fn get_preamble_threshold(&self) -> f32 {
+        self.inner.get_preamble_threshold()
+    }
+
+    /// Set the detection threshold for postamble only
+    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    #[wasm_bindgen]
+    pub fn set_postamble_threshold(&mut self, threshold: f32) {
+        self.inner.set_postamble_threshold(threshold);
+    }
+
+    /// Get the current postamble detection threshold
+    #[wasm_bindgen]
+    pub fn get_postamble_threshold(&self) -> f32 {
+        self.inner.get_postamble_threshold()
     }
 
     /// Decode audio samples back to binary data with FSK
@@ -334,17 +360,43 @@ impl WasmFountainDecoder {
         self.block_size = block_size;
     }
 
-    /// Set the detection threshold for preamble/postamble detection
+    /// Set the detection threshold for both preamble and postamble
     /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
     #[wasm_bindgen]
     pub fn set_detection_threshold(&mut self, threshold: f32) {
         self.inner.set_detection_threshold(threshold);
     }
 
-    /// Get the current detection threshold
+    /// Get the preamble detection threshold
     #[wasm_bindgen]
     pub fn get_detection_threshold(&self) -> f32 {
         self.inner.get_detection_threshold()
+    }
+
+    /// Set the detection threshold for preamble only
+    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    #[wasm_bindgen]
+    pub fn set_preamble_threshold(&mut self, threshold: f32) {
+        self.inner.set_preamble_threshold(threshold);
+    }
+
+    /// Get the current preamble detection threshold
+    #[wasm_bindgen]
+    pub fn get_preamble_threshold(&self) -> f32 {
+        self.inner.get_preamble_threshold()
+    }
+
+    /// Set the detection threshold for postamble only
+    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    #[wasm_bindgen]
+    pub fn set_postamble_threshold(&mut self, threshold: f32) {
+        self.inner.set_postamble_threshold(threshold);
+    }
+
+    /// Get the current postamble detection threshold
+    #[wasm_bindgen]
+    pub fn get_postamble_threshold(&self) -> f32 {
+        self.inner.get_postamble_threshold()
     }
 
     /// Feed audio chunk to the decoder buffer
