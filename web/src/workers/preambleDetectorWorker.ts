@@ -1,0 +1,110 @@
+import { PreambleDetector, initWasm } from '../utils/wasm'
+
+interface InitMessage {
+  type: 'init'
+  threshold: number
+}
+
+interface AddSamplesMessage {
+  type: 'add_samples'
+  samples: Float32Array
+}
+
+interface ClearMessage {
+  type: 'clear'
+}
+
+type WorkerMessage = InitMessage | AddSamplesMessage | ClearMessage
+
+let detector: PreambleDetector | null = null
+let isInitialized = false
+const sampleBuffer: Float32Array[] = []
+
+// Eagerly initialize WASM when the worker starts
+void (async () => {
+  try {
+    await initWasm()
+    console.log('WASM pre-initialized in preamble worker')
+  } catch (error) {
+    console.error('Failed to pre-initialize WASM in preamble worker:', error)
+  }
+})()
+
+self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
+  try {
+    const { type } = event.data
+
+    switch (type) {
+      case 'init': {
+        const { threshold } = event.data as InitMessage
+
+        // Initialize WASM first
+        try {
+          await initWasm()
+          console.log('WASM initialized in preamble worker')
+        } catch (error) {
+          console.error('Failed to initialize WASM in preamble worker:', error)
+          self.postMessage({ type: 'error', error: `WASM initialization failed: ${error}` })
+          return
+        }
+
+        detector = new PreambleDetector(threshold)
+        isInitialized = true
+        console.log(`Preamble detector initialized with threshold ${threshold}`)
+        self.postMessage({ type: 'init_done' })
+
+        // Process any buffered samples
+        if (sampleBuffer.length > 0) {
+          console.log(`Processing ${sampleBuffer.length} buffered sample chunks`)
+          for (const bufferedSamples of sampleBuffer) {
+            if (detector) {
+              const position = detector.add_samples(bufferedSamples)
+              if (position >= 0) {
+                console.log(`Preamble detected in buffered samples at position ${position}!`)
+                self.postMessage({ type: 'preamble_detected', position })
+                sampleBuffer.length = 0 // Clear buffer after detection
+                return
+              }
+            }
+          }
+          console.log(`No preamble found in buffered samples`)
+        }
+        sampleBuffer.length = 0
+        break
+      }
+
+      case 'add_samples': {
+        const { samples } = event.data as AddSamplesMessage
+
+        // If not initialized yet, buffer the samples
+        if (!isInitialized || !detector) {
+          sampleBuffer.push(samples)
+          console.log(`Buffering samples (${sampleBuffer.length} chunks), total: ${sampleBuffer.reduce((sum, s) => sum + s.length, 0)} samples`)
+          return
+        }
+
+        const position = detector.add_samples(samples)
+
+        // position >= 0 means preamble was detected
+        if (position >= 0) {
+          self.postMessage({ type: 'preamble_detected', position })
+        }
+        break
+      }
+
+      case 'clear': {
+        if (detector) {
+          detector.clear()
+        }
+        sampleBuffer.length = 0
+        self.postMessage({ type: 'clear_done' })
+        break
+      }
+
+      default:
+        self.postMessage({ type: 'error', error: `Unknown message type: ${type}` })
+    }
+  } catch (error) {
+    self.postMessage({ type: 'error', error: String(error) })
+  }
+}

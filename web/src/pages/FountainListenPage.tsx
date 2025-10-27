@@ -43,11 +43,38 @@ const FountainListenPage: React.FC = () => {
   const streamingDecoderRef = useRef<any>(null)
   const decodeIntervalRef = useRef<number | null>(null)
   const workerRef = useRef<Worker | null>(null)
+  const preambleWorkerRef = useRef<Worker | null>(null)
 
   const startListening = async () => {
     try {
-      const detector = new PreambleDetector(DETECTION_THRESHOLD)
-      detectorRef.current = detector
+      // Initialize the preamble detection worker
+      const preambleWorker = new Worker(new URL('../workers/preambleDetectorWorker.ts', import.meta.url), {
+        type: 'module'
+      })
+      preambleWorkerRef.current = preambleWorker
+
+      // Set up preamble worker message handler that waits for init
+      let isInitialized = false
+
+      preambleWorker.onmessage = (event) => {
+        const { type } = event.data
+
+        if (type === 'init_done' && !isInitialized) {
+          isInitialized = true
+          console.log('Preamble worker initialized')
+        } else if (type === 'preamble_detected') {
+          // Preamble detected in worker, trigger recording start
+          if (!preambleDetectedRef.current && isRecordingRef.current === false) {
+            console.log('Preamble detected from worker!')
+            handlePreambleDetected()
+          }
+        } else if (type === 'error') {
+          console.error('Preamble worker error:', event.data.error)
+        }
+      }
+
+      // Initialize preamble detector with threshold
+      preambleWorker.postMessage({ type: 'init', threshold: DETECTION_THRESHOLD })
 
       // Initialize the decoder worker
       const worker = new Worker(new URL('../workers/fountainDecoderWorker.ts', import.meta.url), {
@@ -142,60 +169,26 @@ const FountainListenPage: React.FC = () => {
           }
 
           allResampledSamplesRef.current.push(...resampledChunk)
-
-          const position = detector.add_samples(new Float32Array(resampledChunk))
           samplesProcessedRef.current += resampledChunk.length
 
           if (samplesProcessedRef.current > MAX_BUFFER_SAMPLES) {
-            detector.clear()
+            if (preambleWorkerRef.current) {
+              preambleWorkerRef.current.postMessage({ type: 'clear' })
+            }
             samplesProcessedRef.current = 0
             resampleBufferRef.current = []
             allResampledSamplesRef.current = []
           }
 
-          if (position >= 0) {
-            preambleDetectedRef.current = true
-            isRecordingRef.current = true
-            startTimeRef.current = Date.now()
-
-            recordedSamplesRef.current = allResampledSamplesRef.current
-            allResampledSamplesRef.current = []
-            resampleBufferRef.current = []
-
-            // Force immediate UI update when preamble is detected
-            flushSync(() => {
-              setIsRecording(true)
-              setStatus('Preamble detected! Starting streaming decode...')
-              setStatusType('success')
-              setSampleCount(recordedSamplesRef.current.length)
-              setDecodeAttempts(0)
+          // Send resampled chunk to preamble detection worker
+          if (preambleWorkerRef.current && resampledChunk.length > 0) {
+            console.log(`Sending ${resampledChunk.length} samples to preamble worker`)
+            preambleWorkerRef.current.postMessage({
+              type: 'add_samples',
+              samples: new Float32Array(resampledChunk)
             })
-
-            // Feed initial samples to worker (everything before preamble)
-            if (workerRef.current && recordedSamplesRef.current.length > 0) {
-              workerRef.current.postMessage({
-                type: 'feed_chunk',
-                samples: new Float32Array(recordedSamplesRef.current)
-              })
-            }
-
-            // Timer for UI updates and timeout
-            timerIntervalRef.current = window.setInterval(() => {
-              const elapsedSecs = (Date.now() - startTimeRef.current) / 1000
-              setElapsed(elapsedSecs)
-
-              if (elapsedSecs >= TIMEOUT_SECS) {
-                stopRecording('Timeout reached (30 seconds)')
-              }
-            }, 100)
-
-            // Periodic decode attempts (every 2 seconds)
-            decodeIntervalRef.current = window.setInterval(() => {
-              tryStreamingDecode()
-            }, 2000)
-
-            detector.clear()
-            samplesProcessedRef.current = 0
+          } else if (!preambleWorkerRef.current) {
+            console.warn('Preamble worker not initialized')
           }
         } else if (isRecordingRef.current) {
           recordingResampleBufferRef.current.push(...samples)
@@ -226,6 +219,53 @@ const FountainListenPage: React.FC = () => {
       const message = error instanceof Error ? error.message : 'Failed to access microphone'
       setStatus(`Error: ${message}`)
       setStatusType('error')
+    }
+  }
+
+  const handlePreambleDetected = () => {
+    preambleDetectedRef.current = true
+    isRecordingRef.current = true
+    startTimeRef.current = Date.now()
+
+    recordedSamplesRef.current = allResampledSamplesRef.current
+    allResampledSamplesRef.current = []
+    resampleBufferRef.current = []
+
+    // Force immediate UI update when preamble is detected
+    flushSync(() => {
+      setIsRecording(true)
+      setStatus('Preamble detected! Starting streaming decode...')
+      setStatusType('success')
+      setSampleCount(recordedSamplesRef.current.length)
+      setDecodeAttempts(0)
+    })
+
+    // Feed initial samples to decoder worker (everything before preamble)
+    if (workerRef.current && recordedSamplesRef.current.length > 0) {
+      workerRef.current.postMessage({
+        type: 'feed_chunk',
+        samples: new Float32Array(recordedSamplesRef.current)
+      })
+    }
+
+    // Timer for UI updates and timeout
+    timerIntervalRef.current = window.setInterval(() => {
+      const elapsedSecs = (Date.now() - startTimeRef.current) / 1000
+      setElapsed(elapsedSecs)
+
+      if (elapsedSecs >= TIMEOUT_SECS) {
+        stopRecording('Timeout reached (30 seconds)')
+      }
+    }, 100)
+
+    // Periodic decode attempts (every 2 seconds)
+    decodeIntervalRef.current = window.setInterval(() => {
+      tryStreamingDecode()
+    }, 2000)
+
+    // Clear preamble detector since we detected it
+    if (preambleWorkerRef.current) {
+      preambleWorkerRef.current.postMessage({ type: 'clear' })
     }
   }
 
@@ -310,6 +350,11 @@ const FountainListenPage: React.FC = () => {
     if (workerRef.current) {
       workerRef.current.terminate()
       workerRef.current = null
+    }
+
+    if (preambleWorkerRef.current) {
+      preambleWorkerRef.current.terminate()
+      preambleWorkerRef.current = null
     }
   }
 
@@ -476,6 +521,10 @@ const FountainListenPage: React.FC = () => {
       workerRef.current.terminate()
       workerRef.current = null
     }
+    if (preambleWorkerRef.current) {
+      preambleWorkerRef.current.terminate()
+      preambleWorkerRef.current = null
+    }
     setDecodedText(null)
     setElapsed(0)
     setStatus(null)
@@ -613,13 +662,24 @@ const FountainListenPage: React.FC = () => {
             <>
               <h3 style={{ marginTop: '2rem' }}>Decoded Result</h3>
               <div style={{
+                background: '#f0f9ff',
+                padding: '0.75rem 1rem',
+                borderRadius: '0.5rem',
+                fontSize: '0.9rem',
+                color: '#0369a1',
+                marginTop: '1rem',
+                marginBottom: '1rem'
+              }}>
+                Decoded in {decodeAttempts} attempt{decodeAttempts !== 1 ? 's' : ''} ({(decodeAttempts * 2).toFixed(0)}s)
+              </div>
+              <div style={{
                 background: '#f7fafc',
                 padding: '1rem',
                 borderRadius: '0.5rem',
                 wordBreak: 'break-word',
                 fontFamily: 'monospace',
                 minHeight: '80px',
-                marginTop: '1rem'
+                marginTop: '0.5rem'
               }}>
                 {decodedText}
               </div>

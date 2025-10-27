@@ -1,4 +1,4 @@
-import { createFountainDecoder } from '../utils/wasm'
+import { createFountainDecoder, initWasm } from '../utils/wasm'
 
 interface FeedChunkMessage {
   type: 'feed_chunk'
@@ -22,9 +22,32 @@ type WorkerMessage = FeedChunkMessage | SetBlockSizeMessage | TryDecodeMessage |
 
 let decoder: any = null
 let blockSize = 64
+let wasmInitialized = false
+
+// Eagerly initialize WASM when the worker starts
+void (async () => {
+  try {
+    await initWasm()
+    wasmInitialized = true
+    console.log('WASM pre-initialized in decoder worker')
+  } catch (error) {
+    console.error('Failed to pre-initialize WASM in decoder worker:', error)
+  }
+})()
 
 async function initDecoder() {
   if (!decoder) {
+    // WASM should already be initialized, but ensure it
+    if (!wasmInitialized) {
+      try {
+        await initWasm()
+        wasmInitialized = true
+      } catch (error) {
+        console.error('Failed to initialize WASM in decoder worker:', error)
+        throw error
+      }
+    }
+
     decoder = await createFountainDecoder()
     decoder.set_block_size(blockSize)
   }
