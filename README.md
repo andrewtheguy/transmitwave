@@ -159,7 +159,6 @@ This modem prioritizes **reliability** over throughput:
 
 ## Dependencies
 
-- **rustfft**: FFT for frequency analysis (Goertzel detection)
 - **reed-solomon-erasure**: Forward error correction
 - **hound**: WAV file I/O (CLI only)
 - **wasm-bindgen**: JavaScript bindings (WASM only)

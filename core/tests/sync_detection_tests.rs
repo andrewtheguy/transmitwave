@@ -38,7 +38,7 @@ fn test_detect_preamble_with_chirp() {
     samples.extend_from_slice(&preamble);
     samples.extend_from_slice(&vec![0.0; 4000]);
 
-    let detected = detect_preamble(&samples, 100.0);
+    let detected = detect_preamble(&samples, 0.0);
     assert!(
         detected.is_some(),
         "Failed to detect preamble with clear signal"
@@ -62,7 +62,7 @@ fn test_detect_postamble_with_chirp() {
     samples.extend_from_slice(&postamble);
     samples.extend_from_slice(&vec![0.0; 4000]);
 
-    let detected = detect_postamble(&samples, 100.0);
+    let detected = detect_postamble(&samples, 0.0);
     assert!(
         detected.is_some(),
         "Failed to detect postamble with clear signal"
@@ -102,7 +102,7 @@ fn test_detect_preamble_with_noise() {
         samples.push(noise * 0.1);
     }
 
-    let detected = detect_preamble(&samples, 100.0);
+    let detected = detect_preamble(&samples, 0.0);
     assert!(
         detected.is_some(),
         "Failed to detect preamble in noisy signal"
@@ -139,7 +139,7 @@ fn test_detect_postamble_with_noise() {
         samples.push(noise * 0.1);
     }
 
-    let detected = detect_postamble(&samples, 100.0);
+    let detected = detect_postamble(&samples, 0.0);
     assert!(
         detected.is_some(),
         "Failed to detect postamble in noisy signal"
@@ -168,7 +168,7 @@ fn test_detect_preamble_wrong_signal() {
     samples.extend_from_slice(&vec![0.0; 4000]);
 
     // STRICT: Should NOT detect random noise as preamble
-    let detected = detect_preamble(&samples, 100.0);
+    let detected = detect_preamble(&samples, 0.0);
     assert!(
         detected.is_none(),
         "STRICT: Random noise should NOT be detected as preamble with high correlation threshold"
@@ -190,7 +190,7 @@ fn test_detect_postamble_wrong_signal() {
     samples.extend_from_slice(&vec![0.0; 4000]);
 
     // STRICT: Should NOT detect random noise as postamble
-    let detected = detect_postamble(&samples, 100.0);
+    let detected = detect_postamble(&samples, 0.0);
     assert!(
         detected.is_none(),
         "STRICT: Random noise should NOT be detected as postamble with high correlation threshold"
@@ -217,7 +217,7 @@ fn test_full_frame_detection() {
     samples.extend_from_slice(&vec![0.0; 2000]);
 
     // Detect preamble
-    let preamble_pos = detect_preamble(&samples, 100.0);
+    let preamble_pos = detect_preamble(&samples, 0.0);
     assert!(preamble_pos.is_some(), "Failed to detect preamble in full frame");
 
     let preamble_idx = preamble_pos.unwrap();
@@ -227,7 +227,7 @@ fn test_full_frame_detection() {
     );
 
     // Detect postamble
-    let postamble_pos = detect_postamble(&samples, 100.0);
+    let postamble_pos = detect_postamble(&samples, 0.0);
     assert!(postamble_pos.is_some(), "Failed to detect postamble in full frame");
 
     let postamble_idx = postamble_pos.unwrap();
@@ -310,7 +310,7 @@ fn test_fft_correlation_index_mapping_with_preamble() {
         insert_pos, template_len, expected_peak_idx, peak_idx);
 
     // Now verify that detect_preamble returns the correct window start position
-    let detected = detect_preamble(&signal, 100.0);
+    let detected = detect_preamble(&signal, 0.0);
 
     assert!(detected.is_some(), "Preamble should be detected");
     let detected_pos = detected.unwrap();
@@ -371,7 +371,7 @@ fn test_fft_correlation_index_mapping_with_preamble_noisy() {
     );
 
     // Verify: detect_preamble should still find the template start (±1 sample tolerance)
-    let detected = detect_preamble(&signal, 100.0);
+    let detected = detect_preamble(&signal, 0.0);
 
     assert!(detected.is_some(), "Preamble should be detected in noisy signal");
     let detected_pos = detected.unwrap();

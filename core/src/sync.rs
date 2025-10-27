@@ -263,8 +263,14 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
 
 /// Detect preamble using efficient FFT-based cross-correlation
 /// Returns the position where the preamble (PRN noise burst) is most likely to start
-/// min_peak_threshold: if > 0, uses fixed threshold; if = 0, uses adaptive threshold
-pub fn detect_preamble(samples: &[f32], min_peak_threshold: f32) -> Option<usize> {
+/// threshold: 0.0 = adaptive threshold, 0.0 < threshold <= 1.0 = fixed threshold
+/// Panics if threshold is invalid (e.g., > 1.0 or negative)
+pub fn detect_preamble(samples: &[f32], threshold: f32) -> Option<usize> {
+    // Validate threshold
+    if threshold < 0.0 || threshold > 1.0 {
+        panic!("Invalid detection threshold: {}. Must be in range [0.0, 1.0] (0.0=adaptive, 0.0<t<=1.0=fixed)", threshold);
+    }
+
     let preamble_samples = crate::PREAMBLE_SAMPLES;
 
     if samples.len() < preamble_samples {
@@ -323,11 +329,8 @@ pub fn detect_preamble(samples: &[f32], min_peak_threshold: f32) -> Option<usize
         }
     }
 
-    // Determine threshold: use fixed if provided, otherwise use adaptive
-    let threshold = if min_peak_threshold > 0.0 {
-        // Use user-specified fixed threshold (clamped to 0.0-1.0 range)
-        min_peak_threshold.max(0.0).min(1.0)
-    } else {
+    // Determine detection threshold
+    let threshold_value = if threshold == 0.0 {
         // Adaptive threshold: scale based on overall signal amplitude
         // For strong signals (high amplitude): use strict 0.4 threshold
         // For weak signals (low amplitude): lower threshold to ~0.3
@@ -339,9 +342,12 @@ pub fn detect_preamble(samples: &[f32], min_peak_threshold: f32) -> Option<usize
         } else {
             0.3  // Weak signal: relaxed threshold for low-amplitude recordings
         }
+    } else {
+        // Use fixed user-specified threshold
+        threshold
     };
 
-    if best_correlation > threshold {
+    if best_correlation > threshold_value {
         Some(best_pos)
     } else {
         None
@@ -350,8 +356,14 @@ pub fn detect_preamble(samples: &[f32], min_peak_threshold: f32) -> Option<usize
 
 /// Detect postamble using efficient cross-correlation
 /// Returns the position where the postamble (PRN noise burst) is most likely to start
-/// min_peak_threshold: if > 0, uses fixed threshold; if = 0, uses adaptive threshold
-pub fn detect_postamble(samples: &[f32], min_peak_threshold: f32) -> Option<usize> {
+/// threshold: 0.0 = adaptive threshold, 0.0 < threshold <= 1.0 = fixed threshold
+/// Panics if threshold is invalid (e.g., > 1.0 or negative)
+pub fn detect_postamble(samples: &[f32], threshold: f32) -> Option<usize> {
+    // Validate threshold
+    if threshold < 0.0 || threshold > 1.0 {
+        panic!("Invalid detection threshold: {}. Must be in range [0.0, 1.0] (0.0=adaptive, 0.0<t<=1.0=fixed)", threshold);
+    }
+
     let postamble_samples = crate::POSTAMBLE_SAMPLES;
 
     if samples.len() < postamble_samples {
@@ -410,11 +422,8 @@ pub fn detect_postamble(samples: &[f32], min_peak_threshold: f32) -> Option<usiz
         }
     }
 
-    // Determine threshold: use fixed if provided, otherwise use adaptive
-    let threshold = if min_peak_threshold > 0.0 {
-        // Use user-specified fixed threshold (clamped to 0.0-1.0 range)
-        min_peak_threshold.max(0.0).min(1.0)
-    } else {
+    // Determine detection threshold
+    let threshold_value = if threshold == 0.0 {
         // Adaptive threshold: scale based on overall signal amplitude
         // For strong signals (high amplitude): use strict 0.4 threshold
         // For weak signals (low amplitude): lower threshold to ~0.3
@@ -426,9 +435,12 @@ pub fn detect_postamble(samples: &[f32], min_peak_threshold: f32) -> Option<usiz
         } else {
             0.3  // Weak signal: relaxed threshold for low-amplitude recordings
         }
+    } else {
+        // Use fixed user-specified threshold
+        threshold
     };
 
-    if best_correlation > threshold {
+    if best_correlation > threshold_value {
         Some(best_pos)
     } else {
         None

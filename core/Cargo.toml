@@ -4,11 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rustfft = "6"
-realfft = "3"
-reed-solomon-simd = "3"
-thiserror = "1"
-bytemuck = "1"
+realfft = "3.5"
+reed-solomon-simd = "3.1"
+thiserror = "2.0"
 raptorq = "2"
 
 [dev-dependencies]
