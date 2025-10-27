@@ -118,7 +118,7 @@ const FountainListenPage: React.FC = () => {
           setStatus(`Decoded successfully: "${text}"`)
           setStatusType('success')
           console.log('Decode succeeded via worker!')
-          stopRecording()
+          stopRecording().catch(err => console.warn('Error in stopRecording:', err))
         } else if (type === 'decode_failed') {
           console.log(`Decode attempt failed via worker:`, event.data.error)
         } else if (type === 'chunk_fed') {
@@ -166,7 +166,6 @@ const FountainListenPage: React.FC = () => {
       setHasRecording(false)
 
       source.connect(processor)
-      processor.connect(audioContext.destination)
 
       setIsListening(true)
       setStatus('Listening for preamble...')
@@ -280,7 +279,7 @@ const FountainListenPage: React.FC = () => {
       setElapsed(elapsedSecs)
 
       if (elapsedSecs >= TIMEOUT_SECS) {
-        stopRecording('Timeout reached (30 seconds)')
+        stopRecording('Timeout reached (30 seconds)').catch(err => console.warn('Error in stopRecording:', err))
       }
     }, 100)
 
@@ -307,15 +306,15 @@ const FountainListenPage: React.FC = () => {
     workerRef.current.postMessage({ type: 'try_decode' })
   }
 
-  const stopListening = () => {
-    cleanup()
+  const stopListening = async () => {
+    await cleanup()
     setIsListening(false)
     setIsRecording(false)
     setStatus('Stopped listening')
     setStatusType('info')
   }
 
-  const stopRecording = (message?: string) => {
+  const stopRecording = async (message?: string) => {
     // Flush any remaining samples in the recording buffer
     if (recordingResampleBufferRef.current.length > 0) {
       const actualSampleRate = audioContextRef.current?.sampleRate || 48000
@@ -327,7 +326,7 @@ const FountainListenPage: React.FC = () => {
       recordingResampleBufferRef.current = []
     }
 
-    cleanup()
+    await cleanup()
     isRecordingRef.current = false
     setIsRecording(false)
     setIsListening(false)
@@ -342,7 +341,7 @@ const FountainListenPage: React.FC = () => {
     }
   }
 
-  const cleanup = () => {
+  const cleanup = async () => {
     if (processorRef.current) {
       processorRef.current.port.onmessage = null
       processorRef.current.disconnect()
@@ -357,6 +356,15 @@ const FountainListenPage: React.FC = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
+    }
+
+    if (audioContextRef.current) {
+      try {
+        await audioContextRef.current.close()
+      } catch (error) {
+        console.warn('Error closing AudioContext:', error)
+      }
+      audioContextRef.current = null
     }
 
     if (timerIntervalRef.current) {
@@ -497,12 +505,14 @@ const FountainListenPage: React.FC = () => {
     const file = event.target.files?.[0]
     if (!file) return
 
+    let audioContext: AudioContext | null = null
+
     try {
       setStatus('Loading WAV file...')
       setStatusType('info')
 
       const arrayBuffer = await file.arrayBuffer()
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
 
       // Extract samples from first channel
@@ -536,6 +546,14 @@ const FountainListenPage: React.FC = () => {
       setStatus(`Error: ${message}`)
       setStatusType('error')
       console.error('File upload error:', error)
+    } finally {
+      if (audioContext && typeof audioContext.close === 'function') {
+        try {
+          await audioContext.close()
+        } catch (error) {
+          console.warn('Error closing AudioContext:', error)
+        }
+      }
     }
   }
 
@@ -617,7 +635,7 @@ const FountainListenPage: React.FC = () => {
 
         {isRecording && (
           <div className="mt-4">
-            <button onClick={() => stopRecording('Recording stopped manually')} className="btn-secondary w-full">
+            <button onClick={() => stopRecording('Recording stopped manually').catch(err => console.warn('Error in stopRecording:', err))} className="btn-secondary w-full">
               Stop Recording
             </button>
           </div>

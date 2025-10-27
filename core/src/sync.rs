@@ -261,6 +261,27 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
     }
 }
 
+/// Compute the detection threshold value
+/// If threshold < 1e-9 (effectively zero), uses adaptive thresholding based on signal RMS:
+///   - RMS > 0.1: 0.4 (strong signal, strict detection)
+///   - 0.02 < RMS ≤ 0.1: 0.35 (medium signal)
+///   - RMS ≤ 0.02: 0.3 (weak signal, relaxed threshold)
+/// Otherwise returns the provided threshold value
+fn compute_threshold_value(samples: &[f32], threshold: f32) -> f32 {
+    if threshold < 1e-9 {
+        let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
+        if signal_rms > 0.1 {
+            0.4
+        } else if signal_rms > 0.02 {
+            0.35
+        } else {
+            0.3
+        }
+    } else {
+        threshold
+    }
+}
+
 /// Detect preamble using efficient FFT-based cross-correlation
 /// Returns the position where the preamble (PRN noise burst) is most likely to start
 /// threshold: 0.0 = adaptive threshold, 0.0 < threshold <= 1.0 = fixed threshold
@@ -330,22 +351,7 @@ pub fn detect_preamble(samples: &[f32], threshold: f32) -> Option<usize> {
     }
 
     // Determine detection threshold
-    let threshold_value = if threshold == 0.0 {
-        // Adaptive threshold: scale based on overall signal amplitude
-        // For strong signals (high amplitude): use strict 0.4 threshold
-        // For weak signals (low amplitude): lower threshold to ~0.3
-        let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
-        if signal_rms > 0.1 {
-            0.4  // Strong signal: strict detection
-        } else if signal_rms > 0.02 {
-            0.35 // Medium signal: moderate threshold
-        } else {
-            0.3  // Weak signal: relaxed threshold for low-amplitude recordings
-        }
-    } else {
-        // Use fixed user-specified threshold
-        threshold
-    };
+    let threshold_value = compute_threshold_value(samples, threshold);
 
     if best_correlation > threshold_value {
         Some(best_pos)
@@ -423,22 +429,7 @@ pub fn detect_postamble(samples: &[f32], threshold: f32) -> Option<usize> {
     }
 
     // Determine detection threshold
-    let threshold_value = if threshold == 0.0 {
-        // Adaptive threshold: scale based on overall signal amplitude
-        // For strong signals (high amplitude): use strict 0.4 threshold
-        // For weak signals (low amplitude): lower threshold to ~0.3
-        let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
-        if signal_rms > 0.1 {
-            0.4  // Strong signal: strict detection
-        } else if signal_rms > 0.02 {
-            0.35 // Medium signal: moderate threshold
-        } else {
-            0.3  // Weak signal: relaxed threshold for low-amplitude recordings
-        }
-    } else {
-        // Use fixed user-specified threshold
-        threshold
-    };
+    let threshold_value = compute_threshold_value(samples, threshold);
 
     if best_correlation > threshold_value {
         Some(best_pos)

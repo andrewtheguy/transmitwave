@@ -327,6 +327,7 @@ impl DecoderFsk {
                     }
 
                     let packet_bytes = &slice[..packet_len];
+                    // Attempt to deserialize the packet; if deserialization fails, skip this packet and continue
                     let packet = EncodingPacket::deserialize(packet_bytes);
 
                     // Initialize decoder on first packet with matching OTI
@@ -340,12 +341,14 @@ impl DecoderFsk {
 
                     // Add packet and try to decode
                     if let Some(ref mut dec) = decoder {
+                        // Attempt to decode with the packet
+                        // If decode fails (returns None), continue to next packet
                         if let Some(decoded_data) = dec.decode(packet) {
                             // Successfully decoded! Extract frame
                             match FrameDecoder::decode(&decoded_data) {
                                 Ok(frame) => return Ok(frame.payload),
                                 Err(_) => {
-                                    // Frame decode failed, continue
+                                    // Frame decode failed, continue to next packet
                                 }
                             }
                         }

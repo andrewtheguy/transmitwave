@@ -57,12 +57,6 @@ impl WasmDecoder {
         self.inner.set_detection_threshold(threshold);
     }
 
-    /// Get the preamble detection threshold
-    #[wasm_bindgen]
-    pub fn get_detection_threshold(&self) -> f32 {
-        self.inner.get_detection_threshold()
-    }
-
     /// Set the detection threshold for preamble only
     /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
     #[wasm_bindgen]
@@ -367,12 +361,6 @@ impl WasmFountainDecoder {
         self.inner.set_detection_threshold(threshold);
     }
 
-    /// Get the preamble detection threshold
-    #[wasm_bindgen]
-    pub fn get_detection_threshold(&self) -> f32 {
-        self.inner.get_detection_threshold()
-    }
-
     /// Set the detection threshold for preamble only
     /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
     #[wasm_bindgen]
@@ -430,14 +418,20 @@ impl WasmFountainDecoder {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Reset the decoder and clear the buffer
+    /// Reset the decoder and clear the buffer.
+    ///
+    /// Returns an error if decoder initialization fails. On success, both the
+    /// buffer and decoder state are cleared. On failure, the decoder state
+    /// is left unchanged and the buffer is cleared.
     #[wasm_bindgen]
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self) -> Result<(), JsValue> {
         self.buffer.clear();
         // Create a new inner decoder to reset its state
-        if let Ok(decoder) = DecoderFsk::new() {
-            self.inner = decoder;
-        }
+        DecoderFsk::new()
+            .map(|decoder| {
+                self.inner = decoder;
+            })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     /// Decode fountain-coded audio stream back to data (non-streaming mode)

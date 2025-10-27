@@ -19,6 +19,7 @@ type WorkerMessage = InitMessage | AddSamplesMessage | ClearMessage
 let detector: PreambleDetector | null = null
 let isInitialized = false
 let wasmInitialized = false
+let wasmInitPromise: Promise<void> | null = null
 const sampleBuffer: Float32Array[] = []
 
 // No eager initialization - wait for explicit init message to avoid race conditions
@@ -33,14 +34,30 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
         // Initialize WASM first (only if not already initialized)
         if (!wasmInitialized) {
-          try {
-            await initWasm()
-            wasmInitialized = true
-            console.log('WASM initialized in preamble worker')
-          } catch (error) {
-            console.error('Failed to initialize WASM in preamble worker:', error)
-            self.postMessage({ type: 'error', error: `WASM initialization failed: ${error}` })
-            return
+          // If initialization is already in progress, wait for it
+          if (wasmInitPromise) {
+            try {
+              await wasmInitPromise
+            } catch (error) {
+              console.error('WASM initialization failed in preamble worker:', error)
+              self.postMessage({ type: 'error', error: `WASM initialization failed: ${error}` })
+              return
+            }
+          } else {
+            // Start initialization
+            wasmInitPromise = initWasm()
+            try {
+              await wasmInitPromise
+              wasmInitialized = true
+              console.log('WASM initialized in preamble worker')
+            } catch (error) {
+              console.error('Failed to initialize WASM in preamble worker:', error)
+              self.postMessage({ type: 'error', error: `WASM initialization failed: ${error}` })
+              wasmInitPromise = null
+              return
+            } finally {
+              wasmInitPromise = null
+            }
           }
         }
 
@@ -62,18 +79,25 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         // Process any buffered samples
         if (sampleBuffer.length > 0) {
           console.log(`Processing ${sampleBuffer.length} buffered sample chunks`)
-          for (const bufferedSamples of sampleBuffer) {
-            if (detector) {
-              const position = detector.add_samples(bufferedSamples)
-              if (position >= 0) {
-                console.log(`Preamble detected in buffered samples at position ${position}!`)
-                self.postMessage({ type: 'preamble_detected', position })
-                sampleBuffer.length = 0 // Clear buffer after detection
-                return
+          try {
+            for (const bufferedSamples of sampleBuffer) {
+              if (detector) {
+                const position = detector.add_samples(bufferedSamples)
+                if (position >= 0) {
+                  console.log(`Preamble detected in buffered samples at position ${position}!`)
+                  self.postMessage({ type: 'preamble_detected', position })
+                  sampleBuffer.length = 0 // Clear buffer after detection
+                  return
+                }
               }
             }
+            console.log(`No preamble found in buffered samples`)
+          } catch (error) {
+            console.error('Error processing buffered samples:', error)
+            self.postMessage({ type: 'error', error: `Buffered sample processing error: ${error}` })
+            sampleBuffer.length = 0
+            return
           }
-          console.log(`No preamble found in buffered samples`)
         }
         sampleBuffer.length = 0
         break

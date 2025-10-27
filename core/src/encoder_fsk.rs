@@ -138,8 +138,13 @@ impl EncoderFsk {
 
         let frame_data = FrameEncoder::encode(&frame)?;
 
+        // Validate block_size before casting to u16
+        let symbol_size = u16::try_from(config.block_size)
+            .map_err(|_| crate::error::AudioModemError::InvalidConfig(
+                format!("block_size {} exceeds maximum u16 value ({})", config.block_size, u16::MAX)
+            ))?;
+
         // Create RaptorQ encoder using with_defaults for proper parameter handling
-        let symbol_size = config.block_size as u16;
         let oti = raptorq::ObjectTransmissionInformation::with_defaults(
             frame_data.len() as u64,
             symbol_size
@@ -169,8 +174,8 @@ impl EncoderFsk {
         };
 
         // Calculate max samples based on timeout_secs as audio duration
-        let sample_rate = 16000; // FSK sample rate
-        let max_samples = config.timeout_secs as usize * sample_rate;
+        // Use the single source of truth: crate::SAMPLE_RATE
+        let max_samples = config.timeout_secs as usize * crate::SAMPLE_RATE;
 
         Ok(FountainStream {
             encoder,
@@ -213,7 +218,7 @@ impl Iterator for FountainStream {
     type Item = Vec<f32>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Check if we've reached the audio duration limit
+        // Check if we've already reached the audio duration limit
         if self.total_samples_generated >= self.max_samples {
             return None;
         }
@@ -251,6 +256,9 @@ impl Iterator for FountainStream {
                 samples.extend_from_slice(&fsk_samples);
                 // No postamble - fountain mode is open-ended with only preamble signaling
 
+                // Always emit complete blocks without truncation, as truncating mid-block creates
+                // malformed audio that cannot be deserialized. The max_samples limit is
+                // approximate and may be exceeded by one block, which is acceptable.
                 self.total_samples_generated += samples.len();
                 self.block_id += 1;
                 Some(samples)
@@ -327,6 +335,7 @@ impl Default for EncoderFsk {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SAMPLE_RATE;
 
     #[test]
     fn test_encoder_fsk_basic() {
@@ -422,9 +431,9 @@ mod tests {
         // Should generate at least some blocks
         assert!(!blocks.is_empty());
 
-        // Each block should contain preamble + data + postamble
+        // Each block should contain preamble + data (no postamble in fountain mode)
         for block in &blocks {
-            assert!(block.len() > PREAMBLE_SAMPLES + POSTAMBLE_SAMPLES);
+            assert!(block.len() > PREAMBLE_SAMPLES);
         }
     }
 
@@ -459,5 +468,106 @@ mod tests {
 
         // Should generate at least one block
         assert!(stream.next().is_some());
+    }
+
+    #[test]
+    fn test_fountain_respects_max_samples() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let data = b"Max samples test";
+
+        let config = FountainConfig {
+            timeout_secs: 10, // Long timeout
+            block_size: 32,
+            repair_blocks_ratio: 0.5,
+        };
+
+        let stream = encoder.encode_fountain(data, Some(config)).unwrap();
+        let max_samples = stream.max_samples;
+
+        // Generate all blocks and verify total doesn't greatly exceed max_samples
+        // Note: May exceed by one block since we emit complete blocks without truncation
+        let total: usize = stream
+            .map(|block| block.len())
+            .sum();
+
+        // Allow some overshoot - one additional block beyond max_samples is acceptable
+        // since we emit complete blocks and never truncate mid-block
+        let max_allowed = max_samples + (50 * crate::fsk::FSK_SYMBOL_SAMPLES);
+
+        assert!(
+            total <= max_allowed,
+            "Total samples {} far exceeds max_samples {} with allowance ({} max)",
+            total,
+            max_samples,
+            max_allowed
+        );
+    }
+
+    #[test]
+    fn test_fountain_block_size_exceeds_u16_max() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let data = b"Block size test";
+
+        // Create a config with block_size that exceeds u16::MAX
+        let config = FountainConfig {
+            timeout_secs: 1,
+            block_size: u16::MAX as usize + 1, // 65536
+            repair_blocks_ratio: 0.5,
+        };
+
+        let result = encoder.encode_fountain(data, Some(config));
+
+        // Should return an error due to invalid block_size
+        assert!(result.is_err());
+
+        // Verify the error message mentions the issue
+        if let Err(err) = result {
+            let err_msg = format!("{:?}", err);
+            assert!(
+                err_msg.contains("block_size") || err_msg.contains("exceeds"),
+                "Error should mention block_size or exceeds: {}",
+                err_msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_fountain_block_size_at_u16_max() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let data = b"Block size at max test";
+
+        // Create a config with block_size exactly at u16::MAX
+        let config = FountainConfig {
+            timeout_secs: 1,
+            block_size: u16::MAX as usize,
+            repair_blocks_ratio: 0.5,
+        };
+
+        // Should succeed with u16::MAX
+        let result = encoder.encode_fountain(data, Some(config));
+        assert!(result.is_ok(), "Should accept block_size at u16::MAX");
+    }
+
+    #[test]
+    fn test_fountain_uses_sample_rate_constant() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let data = b"Sample rate test";
+
+        let timeout_secs = 5;
+        let config = FountainConfig {
+            timeout_secs,
+            block_size: 32,
+            repair_blocks_ratio: 0.5,
+        };
+
+        let stream = encoder.encode_fountain(data, Some(config)).unwrap();
+
+        // Verify that max_samples is calculated using crate::SAMPLE_RATE
+        let expected_max_samples = timeout_secs as usize * SAMPLE_RATE;
+        assert_eq!(
+            stream.max_samples, expected_max_samples,
+            "max_samples should be calculated as timeout_secs * SAMPLE_RATE ({} * {} = {})",
+            timeout_secs, SAMPLE_RATE, expected_max_samples
+        );
     }
 }
