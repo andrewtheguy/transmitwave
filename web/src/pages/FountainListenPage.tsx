@@ -42,11 +42,39 @@ const FountainListenPage: React.FC = () => {
   const samplesProcessedRef = useRef<number>(0)
   const streamingDecoderRef = useRef<any>(null)
   const decodeIntervalRef = useRef<number | null>(null)
+  const workerRef = useRef<Worker | null>(null)
 
   const startListening = async () => {
     try {
       const detector = new PreambleDetector(DETECTION_THRESHOLD)
       detectorRef.current = detector
+
+      // Initialize the decoder worker
+      const worker = new Worker(new URL('../workers/fountainDecoderWorker.ts', import.meta.url), {
+        type: 'module'
+      })
+      workerRef.current = worker
+
+      // Set up worker message handler
+      worker.onmessage = (event) => {
+        const { type } = event.data
+
+        if (type === 'decode_success') {
+          const { text } = event.data
+          setDecodedText(text)
+          setStatus(`Decoded successfully: "${text}"`)
+          setStatusType('success')
+          console.log('Decode succeeded via worker!')
+          stopRecording()
+        } else if (type === 'decode_failed') {
+          console.log(`Decode attempt failed via worker:`, event.data.error)
+        } else if (type === 'chunk_fed') {
+          setSampleCount(event.data.sampleCount)
+        }
+      }
+
+      // Tell worker the block size
+      worker.postMessage({ type: 'set_block_size', blockSize: BLOCK_SIZE })
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -143,16 +171,13 @@ const FountainListenPage: React.FC = () => {
               setDecodeAttempts(0)
             })
 
-            // Initialize streaming decoder
-            createFountainDecoder().then(decoder => {
-              streamingDecoderRef.current = decoder
-              decoder.set_block_size(BLOCK_SIZE)
-
-              // Feed initial samples (everything before preamble)
-              if (recordedSamplesRef.current.length > 0) {
-                decoder.feed_chunk(new Float32Array(recordedSamplesRef.current))
-              }
-            })
+            // Feed initial samples to worker (everything before preamble)
+            if (workerRef.current && recordedSamplesRef.current.length > 0) {
+              workerRef.current.postMessage({
+                type: 'feed_chunk',
+                samples: new Float32Array(recordedSamplesRef.current)
+              })
+            }
 
             // Timer for UI updates and timeout
             timerIntervalRef.current = window.setInterval(() => {
@@ -188,10 +213,12 @@ const FountainListenPage: React.FC = () => {
 
           recordedSamplesRef.current.push(...resampledChunk)
 
-          // Feed chunk to streaming decoder
-          if (streamingDecoderRef.current && resampledChunk.length > 0) {
-            streamingDecoderRef.current.feed_chunk(new Float32Array(resampledChunk))
-            setSampleCount(streamingDecoderRef.current.get_sample_count())
+          // Feed chunk to worker decoder
+          if (workerRef.current && resampledChunk.length > 0) {
+            workerRef.current.postMessage({
+              type: 'feed_chunk',
+              samples: new Float32Array(resampledChunk)
+            })
           }
         }
       }
@@ -202,27 +229,16 @@ const FountainListenPage: React.FC = () => {
     }
   }
 
-  const tryStreamingDecode = async () => {
-    if (!streamingDecoderRef.current || !isRecordingRef.current) {
+  const tryStreamingDecode = () => {
+    if (!workerRef.current || !isRecordingRef.current) {
       return
     }
 
-    try {
-      setDecodeAttempts(prev => prev + 1)
-      console.log(`Decode attempt #${decodeAttempts + 1} with ${streamingDecoderRef.current.get_sample_count()} samples`)
+    setDecodeAttempts(prev => prev + 1)
+    console.log(`Decode attempt #${decodeAttempts + 1}`)
 
-      const data = streamingDecoderRef.current.try_decode()
-      const text = new TextDecoder().decode(data)
-
-      // Success! Stop recording and show result
-      setDecodedText(text)
-      setStatus(`Decoded successfully: "${text}"`)
-      setStatusType('success')
-      stopRecording()
-    } catch (error) {
-      // Decode failed, continue recording
-      console.log(`Decode attempt failed:`, error)
-    }
+    // Send decode attempt to worker (it will respond asynchronously via onmessage)
+    workerRef.current.postMessage({ type: 'try_decode' })
   }
 
   const stopListening = () => {
@@ -289,6 +305,11 @@ const FountainListenPage: React.FC = () => {
 
     if (streamingDecoderRef.current) {
       streamingDecoderRef.current = null
+    }
+
+    if (workerRef.current) {
+      workerRef.current.terminate()
+      workerRef.current = null
     }
   }
 
@@ -451,6 +472,10 @@ const FountainListenPage: React.FC = () => {
     recordedSamplesRef.current = []
     recordingResampleBufferRef.current = []
     streamingDecoderRef.current = null
+    if (workerRef.current) {
+      workerRef.current.terminate()
+      workerRef.current = null
+    }
     setDecodedText(null)
     setElapsed(0)
     setStatus(null)
