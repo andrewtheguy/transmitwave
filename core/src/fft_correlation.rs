@@ -22,13 +22,8 @@
 //! - scipy.signal.correlate: https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.correlate.html
 //! - numpy.correlate: https://numpy.org/doc/stable/reference/generated/numpy.correlate.html
 
-use std::cell::RefCell;
 use realfft::RealFftPlanner;
 use crate::error::{AudioModemError, Result};
-
-thread_local! {
-    static FFT_PLANNER: RefCell<RealFftPlanner<f32>> = RefCell::new(RealFftPlanner::new());
-}
 
 /// Output mode for correlation, matching scipy/numpy conventions
 ///
@@ -112,13 +107,11 @@ pub fn fft_correlate_1d(signal: &[f32], template: &[f32], mode: Mode) -> Result<
         padded_template[i] = val;
     }
 
-    // Get FFT plans from planner (RealFftPlanner has internal caching)
-    let (r2c, c2r) = FFT_PLANNER.with(|planner| {
-        let mut planner_ref = planner.borrow_mut();
-        let r2c = planner_ref.plan_fft_forward(fft_size);
-        let c2r = planner_ref.plan_fft_inverse(fft_size);
-        (r2c, c2r)
-    });
+    // Create FFT planner and get plans
+    // RealFftPlanner has internal caching, so creating a new one per call is acceptable
+    let mut planner = RealFftPlanner::new();
+    let r2c = planner.plan_fft_forward(fft_size);
+    let c2r = planner.plan_fft_inverse(fft_size);
 
     // Allocate buffers for FFT output (complex)
     let mut signal_spectrum = r2c.make_output_vec();
