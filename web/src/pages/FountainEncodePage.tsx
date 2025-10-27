@@ -86,6 +86,25 @@ const FountainEncodePage: React.FC = () => {
     }
   }
 
+  const handleClearText = () => {
+    setText('')
+    setError(null)
+  }
+
+  const handleReset = () => {
+    setText('Hello fountain mode!')
+    setError(null)
+    setIsPlaying(false)
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl)
+      setAudioUrl(null)
+    }
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
+  }
+
   return (
     <div className="container">
       <div className="text-center mb-5">
@@ -106,8 +125,18 @@ const FountainEncodePage: React.FC = () => {
             disabled={isEncoding || isPlaying}
             style={{ minHeight: '120px', resize: 'vertical' }}
           />
-          <div style={{ textAlign: 'right', marginTop: '0.5rem', fontSize: '0.9rem', color: '#718096' }}>
-            {text.length} / 200 characters
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+            <div style={{ fontSize: '0.9rem', color: '#718096' }}>
+              {text.length} / 200 characters
+            </div>
+            <button
+              onClick={handleClearText}
+              disabled={isEncoding || isPlaying || !text}
+              className="btn-tertiary"
+              style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem' }}
+            >
+              Clear
+            </button>
           </div>
         </div>
 
@@ -133,9 +162,14 @@ const FountainEncodePage: React.FC = () => {
               onEnded={handleAudioEnded}
               src={audioUrl}
             />
-            <button onClick={handleDownload} className="btn-secondary w-full mt-3">
-              Download WAV
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <button onClick={handleDownload} className="btn-secondary" style={{ flex: 1 }}>
+                Download WAV
+              </button>
+              <button onClick={handleReset} className="btn-secondary" style={{ flex: 1 }}>
+                Reset
+              </button>
+            </div>
           </div>
         )}
 
