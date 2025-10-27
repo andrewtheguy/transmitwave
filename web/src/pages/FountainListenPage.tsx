@@ -28,11 +28,13 @@ const FountainListenPage: React.FC = () => {
   const [preambleThreshold, setPreambleThreshold] = useState(0.1)
   const [postambleAdaptive, setPostambleAdaptive] = useState(true)
   const [postambleThreshold, setPostambleThreshold] = useState(0.1)
+  const [micVolume, setMicVolume] = useState(0)
 
   const processorRef = useRef<AudioWorkletNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
   const detectorRef = useRef<PreambleDetector | null>(null)
   const resampleBufferRef = useRef<number[]>([])
   const allResampledSamplesRef = useRef<number[]>([])
@@ -45,6 +47,7 @@ const FountainListenPage: React.FC = () => {
   const samplesProcessedRef = useRef<number>(0)
   const streamingDecoderRef = useRef<any>(null)
   const decodeIntervalRef = useRef<number | null>(null)
+  const volumeUpdateIntervalRef = useRef<number>(0)
   const workerRef = useRef<Worker | null>(null)
   const preambleWorkerRef = useRef<Worker | null>(null)
 
@@ -142,6 +145,11 @@ const FountainListenPage: React.FC = () => {
       audioContextRef.current = audioContext
       const source = audioContext.createMediaStreamSource(stream)
 
+      // Create analyser for volume visualization
+      const analyser = audioContext.createAnalyser()
+      analyser.fftSize = 2048
+      analyserRef.current = analyser
+
       if (!audioContext.audioWorklet) {
         throw new Error('AudioWorklet API is not supported')
       }
@@ -166,7 +174,21 @@ const FountainListenPage: React.FC = () => {
       samplesProcessedRef.current = 0
       setHasRecording(false)
 
-      source.connect(processor)
+      source.connect(analyser)
+      analyser.connect(processor)
+      processor.connect(audioContext.destination)
+
+      // Start volume meter updates
+      volumeUpdateIntervalRef.current = window.setInterval(() => {
+        if (analyserRef.current) {
+          const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+          analyserRef.current.getByteFrequencyData(dataArray)
+          const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+          const db = 20 * Math.log10(average / 128 + 0.0001)
+          const normalizedDb = Math.max(0, Math.min(100, (db + 60) / 0.6))
+          setMicVolume(normalizedDb)
+        }
+      }, 50)
 
       setIsListening(true)
       setStatus('Listening for preamble...')
@@ -313,6 +335,7 @@ const FountainListenPage: React.FC = () => {
     setIsRecording(false)
     setStatus('Stopped listening')
     setStatusType('info')
+    setMicVolume(0)
   }
 
   const stopRecording = async (message?: string) => {
@@ -376,6 +399,11 @@ const FountainListenPage: React.FC = () => {
     if (decodeIntervalRef.current) {
       clearInterval(decodeIntervalRef.current)
       decodeIntervalRef.current = null
+    }
+
+    if (volumeUpdateIntervalRef.current) {
+      clearInterval(volumeUpdateIntervalRef.current)
+      volumeUpdateIntervalRef.current = 0
     }
 
     if (streamingDecoderRef.current) {
@@ -681,6 +709,23 @@ const FountainListenPage: React.FC = () => {
             <li>Duration: {TIMEOUT_SECS} seconds</li>
             <li>Block size: {BLOCK_SIZE} bytes</li>
           </ul>
+
+          <div style={{ marginTop: '1rem' }}>
+            <label><strong>Input Level</strong></label>
+            <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '0.5rem', marginTop: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', height: '20px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  background: 'linear-gradient(90deg, #4ade80, #facc15, #ef4444)',
+                  height: '100%',
+                  width: `${micVolume}%`,
+                  transition: 'width 0.05s linear'
+                }}></div>
+              </div>
+              <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#666' }}>
+                Peak: {(micVolume * 0.6 - 60).toFixed(1)} dB
+              </div>
+            </div>
+          </div>
 
           <div style={{ marginTop: '1rem' }}>
             <label htmlFor="preamble-threshold-select" style={{ display: 'block', marginBottom: '0.5rem' }}>
