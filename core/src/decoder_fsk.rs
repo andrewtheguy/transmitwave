@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 pub struct DecoderFsk {
     fsk: FskDemodulator,
     fec: FecDecoder,
+    detection_threshold: f32, // 0.0 = adaptive, >0.0 = fixed threshold
 }
 
 impl DecoderFsk {
@@ -24,7 +25,20 @@ impl DecoderFsk {
         Ok(Self {
             fsk: FskDemodulator::new(),
             fec: FecDecoder::new()?,
+            detection_threshold: 0.0, // Default: use adaptive threshold
         })
+    }
+
+    /// Set the detection threshold for preamble/postamble detection
+    /// 0.0 = adaptive threshold based on signal strength
+    /// 0.1-1.0 = fixed threshold value
+    pub fn set_detection_threshold(&mut self, threshold: f32) {
+        self.detection_threshold = threshold.max(0.0).min(1.0);
+    }
+
+    /// Get the current detection threshold
+    pub fn get_detection_threshold(&self) -> f32 {
+        self.detection_threshold
     }
 
     /// Decode audio samples back to binary data
@@ -37,8 +51,8 @@ impl DecoderFsk {
             return Err(AudioModemError::InsufficientData);
         }
 
-        // Detect preamble to find start of data
-        let preamble_pos = detect_preamble(samples, 500.0)
+        // Detect preamble to find start of data, using configured threshold
+        let preamble_pos = detect_preamble(samples, self.detection_threshold)
             .ok_or(AudioModemError::PreambleNotFound)?;
 
         // Data starts after preamble
@@ -48,9 +62,9 @@ impl DecoderFsk {
             return Err(AudioModemError::InsufficientData);
         }
 
-        // Try to detect postamble to find end of data
+        // Try to detect postamble to find end of data, using configured threshold
         let remaining = &samples[data_start..];
-        let postamble_pos = detect_postamble(remaining, 100.0)
+        let postamble_pos = detect_postamble(remaining, self.detection_threshold)
             .ok_or(AudioModemError::PostambleNotFound)?;
 
         let data_end = data_start + postamble_pos;
@@ -210,7 +224,7 @@ impl DecoderFsk {
                 break;
             }
             let preamble_slice = &remaining[..search_len];
-            let preamble_pos = match detect_preamble(preamble_slice, 500.0) {
+            let preamble_pos = match detect_preamble(preamble_slice, self.detection_threshold) {
                 Some(pos) => pos,
                 None => break,
             };

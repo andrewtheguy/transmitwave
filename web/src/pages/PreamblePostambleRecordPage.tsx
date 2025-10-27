@@ -477,8 +477,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
       // recordedSamplesRef.current is already normalized and resampled to 16kHz
       const resampledSamples = recordedSamplesRef.current
 
-      // Decode
-      const decoder = await createDecoder()
+      // Decode with user-configured threshold
+      const decoder = await createDecoder({ detectionThreshold: threshold })
       const data = decoder.decode(new Float32Array(resampledSamples))
       const text = new TextDecoder().decode(data)
 

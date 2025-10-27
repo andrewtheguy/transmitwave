@@ -263,7 +263,8 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
 
 /// Detect preamble using efficient FFT-based cross-correlation
 /// Returns the position where the preamble (PRN noise burst) is most likely to start
-pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usize> {
+/// min_peak_threshold: if > 0, uses fixed threshold; if = 0, uses adaptive threshold
+pub fn detect_preamble(samples: &[f32], min_peak_threshold: f32) -> Option<usize> {
     let preamble_samples = crate::PREAMBLE_SAMPLES;
 
     if samples.len() < preamble_samples {
@@ -322,16 +323,22 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
         }
     }
 
-    // Adaptive threshold: scale based on overall signal amplitude
-    // For strong signals (high amplitude): use strict 0.4 threshold
-    // For weak signals (low amplitude): lower threshold to ~0.3
-    let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
-    let threshold = if signal_rms > 0.1 {
-        0.4  // Strong signal: strict detection
-    } else if signal_rms > 0.02 {
-        0.35 // Medium signal: moderate threshold
+    // Determine threshold: use fixed if provided, otherwise use adaptive
+    let threshold = if min_peak_threshold > 0.0 {
+        // Use user-specified fixed threshold (clamped to 0.0-1.0 range)
+        min_peak_threshold.max(0.0).min(1.0)
     } else {
-        0.3  // Weak signal: relaxed threshold for low-amplitude recordings
+        // Adaptive threshold: scale based on overall signal amplitude
+        // For strong signals (high amplitude): use strict 0.4 threshold
+        // For weak signals (low amplitude): lower threshold to ~0.3
+        let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
+        if signal_rms > 0.1 {
+            0.4  // Strong signal: strict detection
+        } else if signal_rms > 0.02 {
+            0.35 // Medium signal: moderate threshold
+        } else {
+            0.3  // Weak signal: relaxed threshold for low-amplitude recordings
+        }
     };
 
     if best_correlation > threshold {
@@ -343,7 +350,8 @@ pub fn detect_preamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usiz
 
 /// Detect postamble using efficient cross-correlation
 /// Returns the position where the postamble (PRN noise burst) is most likely to start
-pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usize> {
+/// min_peak_threshold: if > 0, uses fixed threshold; if = 0, uses adaptive threshold
+pub fn detect_postamble(samples: &[f32], min_peak_threshold: f32) -> Option<usize> {
     let postamble_samples = crate::POSTAMBLE_SAMPLES;
 
     if samples.len() < postamble_samples {
@@ -402,16 +410,22 @@ pub fn detect_postamble(samples: &[f32], _min_peak_threshold: f32) -> Option<usi
         }
     }
 
-    // Adaptive threshold: scale based on overall signal amplitude
-    // For strong signals (high amplitude): use strict 0.4 threshold
-    // For weak signals (low amplitude): lower threshold to ~0.3
-    let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
-    let threshold = if signal_rms > 0.1 {
-        0.4  // Strong signal: strict detection
-    } else if signal_rms > 0.02 {
-        0.35 // Medium signal: moderate threshold
+    // Determine threshold: use fixed if provided, otherwise use adaptive
+    let threshold = if min_peak_threshold > 0.0 {
+        // Use user-specified fixed threshold (clamped to 0.0-1.0 range)
+        min_peak_threshold.max(0.0).min(1.0)
     } else {
-        0.3  // Weak signal: relaxed threshold for low-amplitude recordings
+        // Adaptive threshold: scale based on overall signal amplitude
+        // For strong signals (high amplitude): use strict 0.4 threshold
+        // For weak signals (low amplitude): lower threshold to ~0.3
+        let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
+        if signal_rms > 0.1 {
+            0.4  // Strong signal: strict detection
+        } else if signal_rms > 0.02 {
+            0.35 // Medium signal: moderate threshold
+        } else {
+            0.3  // Weak signal: relaxed threshold for low-amplitude recordings
+        }
     };
 
     if best_correlation > threshold {

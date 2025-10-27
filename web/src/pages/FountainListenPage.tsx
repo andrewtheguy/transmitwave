@@ -406,7 +406,7 @@ const FountainListenPage: React.FC = () => {
         hasInfinity: samples.some(s => !isFinite(s))
       })
 
-      const decoder = await createFountainDecoder()
+      const decoder = await createFountainDecoder({ detectionThreshold: detectionThreshold })
       const data = decoder.decode_fountain(
         samples,
         TIMEOUT_SECS,

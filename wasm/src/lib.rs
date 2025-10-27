@@ -50,6 +50,19 @@ impl WasmDecoder {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
+    /// Set the detection threshold for preamble/postamble detection
+    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    #[wasm_bindgen]
+    pub fn set_detection_threshold(&mut self, threshold: f32) {
+        self.inner.set_detection_threshold(threshold);
+    }
+
+    /// Get the current detection threshold
+    #[wasm_bindgen]
+    pub fn get_detection_threshold(&self) -> f32 {
+        self.inner.get_detection_threshold()
+    }
+
     /// Decode audio samples back to binary data with FSK
     /// Takes a Float32Array and returns Uint8Array of decoded data
     #[wasm_bindgen]
@@ -319,6 +332,19 @@ impl WasmFountainDecoder {
     #[wasm_bindgen]
     pub fn set_block_size(&mut self, block_size: usize) {
         self.block_size = block_size;
+    }
+
+    /// Set the detection threshold for preamble/postamble detection
+    /// threshold: 0.0 = adaptive threshold, 0.1-1.0 = fixed threshold value
+    #[wasm_bindgen]
+    pub fn set_detection_threshold(&mut self, threshold: f32) {
+        self.inner.set_detection_threshold(threshold);
+    }
+
+    /// Get the current detection threshold
+    #[wasm_bindgen]
+    pub fn get_detection_threshold(&self) -> f32 {
+        self.inner.get_detection_threshold()
     }
 
     /// Feed audio chunk to the decoder buffer

@@ -95,6 +95,10 @@ enum Commands {
         /// Output binary file
         #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
+
+        /// Detection threshold for preamble/postamble (0.0=adaptive, 0.1-1.0=fixed)
+        #[arg(short, long)]
+        threshold: Option<f32>,
     },
 
     /// Start web server for encode/decode operations
@@ -144,6 +148,10 @@ enum Commands {
         /// Block size in bytes (default: 64)
         #[arg(short, long, default_value = "64")]
         block_size: usize,
+
+        /// Detection threshold for preamble/postamble (0.0=adaptive, 0.1-1.0=fixed)
+        #[arg(long)]
+        threshold: Option<f32>,
     },
 }
 
@@ -161,8 +169,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Encode { input, output } => {
                 encode_fsk_command(&input, &output)?
             }
-            Commands::Decode { input, output } => {
-                decode_fsk_command(&input, &output)?
+            Commands::Decode { input, output, threshold } => {
+                decode_fsk_command(&input, &output, threshold)?
             }
             Commands::Server { port } => {
                 return start_web_server(port);
@@ -170,8 +178,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::FountainEncode { input, output, timeout, block_size, repair_ratio } => {
                 fountain_encode_command(&input, &output, timeout, block_size, repair_ratio)?
             }
-            Commands::FountainDecode { input, output, timeout, block_size } => {
-                fountain_decode_command(&input, &output, timeout, block_size)?
+            Commands::FountainDecode { input, output, timeout, block_size, threshold } => {
+                fountain_decode_command(&input, &output, timeout, block_size, threshold)?
             }
         }
         return Ok(());
@@ -194,7 +202,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if mode == "encode" || mode == "enc" {
             encode_fsk_command(&input, &output)?
         } else if mode == "decode" || mode == "dec" {
-            decode_fsk_command(&input, &output)?
+            decode_fsk_command(&input, &output, None)?
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
             std::process::exit(1);
@@ -320,6 +328,7 @@ fn fountain_decode_command(
     output_path: &PathBuf,
     timeout: u32,
     block_size: usize,
+    threshold: Option<f32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
     let file = File::open(input_path)?;
@@ -379,6 +388,13 @@ fn fountain_decode_command(
 
     // Decode with fountain mode
     let mut decoder = DecoderFsk::new()?;
+
+    // Set detection threshold if provided
+    if let Some(thresh) = threshold {
+        decoder.set_detection_threshold(thresh);
+        println!("Using detection threshold: {:.2}", thresh);
+    }
+
     let data = decoder.decode_fountain(&samples, Some(config))?;
     println!("Successfully decoded {} bytes using fountain mode", data.len());
 
@@ -392,6 +408,7 @@ fn fountain_decode_command(
 fn decode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
+    threshold: Option<f32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
     let file = File::open(input_path)?;
@@ -441,6 +458,13 @@ fn decode_fsk_command(
 
     // Decode with FSK
     let mut decoder = DecoderFsk::new()?;
+
+    // Set detection threshold if provided
+    if let Some(thresh) = threshold {
+        decoder.set_detection_threshold(thresh);
+        println!("Using detection threshold: {:.2}", thresh);
+    }
+
     let data = decoder.decode(&samples)?;
     println!("Decoded {} bytes with multi-tone FSK", data.len());
 
