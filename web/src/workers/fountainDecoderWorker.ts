@@ -24,16 +24,7 @@ let sampleBuffer: Float32Array[] = []
 let blockSize = 64
 let wasmInitialized = false
 
-// Eagerly initialize WASM when the worker starts
-void (async () => {
-  try {
-    await initWasm()
-    wasmInitialized = true
-    console.log('WASM pre-initialized in decoder worker')
-  } catch (error) {
-    console.error('Failed to pre-initialize WASM in decoder worker:', error)
-  }
-})()
+// No eager initialization - initialize on first use to avoid race conditions
 
 async function createNewDecoder() {
   // Ensure WASM is initialized

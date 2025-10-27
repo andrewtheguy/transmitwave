@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { PreambleDetector, createFountainDecoder } from '../utils/wasm'
@@ -45,7 +45,31 @@ const FountainListenPage: React.FC = () => {
   const workerRef = useRef<Worker | null>(null)
   const preambleWorkerRef = useRef<Worker | null>(null)
 
+  // Cleanup workers on unmount
+  useEffect(() => {
+    return () => {
+      if (workerRef.current) {
+        workerRef.current.terminate()
+        workerRef.current = null
+      }
+      if (preambleWorkerRef.current) {
+        preambleWorkerRef.current.terminate()
+        preambleWorkerRef.current = null
+      }
+    }
+  }, [])
+
   const startListening = async () => {
+    // Cleanup any existing workers before creating new ones
+    if (preambleWorkerRef.current) {
+      preambleWorkerRef.current.terminate()
+      preambleWorkerRef.current = null
+    }
+    if (workerRef.current) {
+      workerRef.current.terminate()
+      workerRef.current = null
+    }
+
     try {
       // Initialize the preamble detection worker
       const preambleWorker = new Worker(new URL('../workers/preambleDetectorWorker.ts', import.meta.url), {

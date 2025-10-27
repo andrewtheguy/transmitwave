@@ -18,17 +18,10 @@ type WorkerMessage = InitMessage | AddSamplesMessage | ClearMessage
 
 let detector: PreambleDetector | null = null
 let isInitialized = false
+let wasmInitialized = false
 const sampleBuffer: Float32Array[] = []
 
-// Eagerly initialize WASM when the worker starts
-void (async () => {
-  try {
-    await initWasm()
-    console.log('WASM pre-initialized in preamble worker')
-  } catch (error) {
-    console.error('Failed to pre-initialize WASM in preamble worker:', error)
-  }
-})()
+// No eager initialization - wait for explicit init message to avoid race conditions
 
 self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   try {
@@ -38,14 +31,27 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       case 'init': {
         const { threshold } = event.data as InitMessage
 
-        // Initialize WASM first
-        try {
-          await initWasm()
-          console.log('WASM initialized in preamble worker')
-        } catch (error) {
-          console.error('Failed to initialize WASM in preamble worker:', error)
-          self.postMessage({ type: 'error', error: `WASM initialization failed: ${error}` })
-          return
+        // Initialize WASM first (only if not already initialized)
+        if (!wasmInitialized) {
+          try {
+            await initWasm()
+            wasmInitialized = true
+            console.log('WASM initialized in preamble worker')
+          } catch (error) {
+            console.error('Failed to initialize WASM in preamble worker:', error)
+            self.postMessage({ type: 'error', error: `WASM initialization failed: ${error}` })
+            return
+          }
+        }
+
+        // Clean up old detector if it exists
+        if (detector) {
+          try {
+            detector.free()
+          } catch (e) {
+            console.warn('Failed to free old detector:', e)
+          }
+          detector = null
         }
 
         detector = new PreambleDetector(threshold)
@@ -100,7 +106,11 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
       case 'clear': {
         if (detector) {
-          detector.clear()
+          try {
+            detector.clear()
+          } catch (e) {
+            console.error('Error clearing detector:', e)
+          }
         }
         sampleBuffer.length = 0
         self.postMessage({ type: 'clear_done' })
