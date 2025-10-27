@@ -27,10 +27,10 @@ Native command-line tool for WAV file processing:
 
 ```bash
 # Encode binary data to WAV audio using FSK
-cargo run -p transmitwave-cli --bin transmitwave -- encode input.bin output.wav
+cargo run -- encode input.bin output.wav
 
 # Decode WAV audio back to binary using FSK
-cargo run -p transmitwave-cli --bin transmitwave -- decode input.wav output.bin
+cargo run -- decode input.wav output.bin
 ```
 
 ### WASM Library (`wasm/`)
@@ -89,10 +89,10 @@ let decoded_data = decoder.decode(&samples)?;
 echo "Test message" > test.bin
 
 # Encode to audio
-cargo run -p transmitwave-cli --bin transmitwave -- encode test.bin test.wav
+cargo run -- encode test.bin test.wav
 
 # Decode back
-cargo run -p transmitwave-cli --bin transmitwave -- decode test.wav decoded.bin
+cargo run -- decode test.wav decoded.bin
 
 # Verify
 diff test.bin decoded.bin

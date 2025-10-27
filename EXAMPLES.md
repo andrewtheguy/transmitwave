@@ -9,7 +9,7 @@
 echo "Hello, World!" > tmp/message.txt
 
 # Encode to WAV audio file
-cargo run -p transmitwave-cli --bin transmitwave -- encode tmp/message.txt tmp/message.wav
+cargo run -- encode tmp/message.txt tmp/message.wav
 
 # Output:
 # Read 14 bytes from message.txt
@@ -21,7 +21,7 @@ cargo run -p transmitwave-cli --bin transmitwave -- encode tmp/message.txt tmp/m
 
 ```bash
 # Decode the WAV file
-cargo run -p transmitwave-cli --bin transmitwave -- decode tmp/message.wav tmp/recovered.txt
+cargo run -- decode tmp/message.wav tmp/recovered.txt
 
 # Output:
 # Read WAV: 16000 Hz, 1 channels, 32 bits
