@@ -32,12 +32,13 @@ impl DecoderFsk {
     }
 
     /// Set the detection threshold for preamble detection
-    /// Pass 0.0 for adaptive threshold (legacy), or a positive value for fixed threshold
+    /// Pass 0.0 for adaptive threshold (legacy), or a positive value for fixed threshold (0.001 minimum)
     pub fn set_preamble_threshold(&mut self, threshold: f32) {
         self.preamble_threshold = if threshold < 1e-9 {
             DetectionThreshold::Adaptive
         } else {
-            let value = threshold.max(0.0).min(1.0);
+            // Clamp to valid range: 0.001 (0.1%) to 1.0
+            let value = threshold.max(0.001).min(1.0);
             DetectionThreshold::Fixed(value)
         };
     }
@@ -52,12 +53,13 @@ impl DecoderFsk {
     }
 
     /// Set the detection threshold for postamble detection
-    /// Pass 0.0 for adaptive threshold (legacy), or a positive value for fixed threshold
+    /// Pass 0.0 for adaptive threshold (legacy), or a positive value for fixed threshold (0.001 minimum)
     pub fn set_postamble_threshold(&mut self, threshold: f32) {
         self.postamble_threshold = if threshold < 1e-9 {
             DetectionThreshold::Adaptive
         } else {
-            let value = threshold.max(0.0).min(1.0);
+            // Clamp to valid range: 0.001 (0.1%) to 1.0
+            let value = threshold.max(0.001).min(1.0);
             DetectionThreshold::Fixed(value)
         };
     }

@@ -12,7 +12,8 @@ pub enum DetectionThreshold {
     /// - 0.02 < RMS ≤ 0.1: 0.35 (medium signal)
     /// - RMS ≤ 0.02: 0.3 (weak signal, relaxed threshold)
     Adaptive,
-    /// Fixed threshold value (0.0 < value ≤ 1.0)
+    /// Fixed threshold value (0.001 < value ≤ 1.0)
+    /// Minimum is 0.001 (0.1%) to avoid false negatives
     Fixed(f32),
 }
 
@@ -301,12 +302,12 @@ fn compute_threshold_value(samples: &[f32], threshold: DetectionThreshold) -> f3
 /// Detect preamble using efficient FFT-based cross-correlation
 /// Returns the position where the preamble (PRN noise burst) is most likely to start
 /// threshold: Specifies how to determine the detection threshold (Adaptive or Fixed)
-/// Panics if Fixed threshold is invalid (not in range (0.0, 1.0])
+/// Panics if Fixed threshold is invalid (not in range (0.001, 1.0])
 pub fn detect_preamble(samples: &[f32], threshold: DetectionThreshold) -> Option<usize> {
     // Validate threshold
     if let DetectionThreshold::Fixed(value) = threshold {
-        if value <= 0.0 || value > 1.0 {
-            panic!("Invalid fixed detection threshold: {}. Must be in range (0.0, 1.0]", value);
+        if value <= 0.001 || value > 1.0 {
+            panic!("Invalid fixed detection threshold: {}. Must be in range (0.001, 1.0]. Minimum is 0.001 (0.1%)", value);
         }
     }
 
@@ -381,12 +382,12 @@ pub fn detect_preamble(samples: &[f32], threshold: DetectionThreshold) -> Option
 /// Detect postamble using efficient cross-correlation
 /// Returns the position where the postamble (PRN noise burst) is most likely to start
 /// threshold: Specifies how to determine the detection threshold (Adaptive or Fixed)
-/// Panics if Fixed threshold is invalid (not in range (0.0, 1.0])
+/// Panics if Fixed threshold is invalid (not in range (0.001, 1.0])
 pub fn detect_postamble(samples: &[f32], threshold: DetectionThreshold) -> Option<usize> {
     // Validate threshold
     if let DetectionThreshold::Fixed(value) = threshold {
-        if value <= 0.0 || value > 1.0 {
-            panic!("Invalid fixed detection threshold: {}. Must be in range (0.0, 1.0]", value);
+        if value <= 0.001 || value > 1.0 {
+            panic!("Invalid fixed detection threshold: {}. Must be in range (0.001, 1.0]. Minimum is 0.001 (0.1%)", value);
         }
     }
 
