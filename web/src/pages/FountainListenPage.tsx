@@ -16,6 +16,7 @@ const FountainListenPage: React.FC = () => {
 
   const [isListening, setIsListening] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
+  const [hasRecording, setHasRecording] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [statusType, setStatusType] = useState<'success' | 'error' | 'info' | 'warning'>('info')
   const [elapsed, setElapsed] = useState(0)
@@ -76,6 +77,7 @@ const FountainListenPage: React.FC = () => {
       preambleDetectedRef.current = false
       isRecordingRef.current = false
       samplesProcessedRef.current = 0
+      setHasRecording(false)
 
       source.connect(processor)
       processor.connect(audioContext.destination)
@@ -173,17 +175,29 @@ const FountainListenPage: React.FC = () => {
   }
 
   const stopRecording = (message?: string) => {
+    // Flush any remaining samples in the recording buffer
+    if (recordingResampleBufferRef.current.length > 0) {
+      const actualSampleRate = audioContextRef.current?.sampleRate || 48000
+      let resampledChunk = recordingResampleBufferRef.current
+      if (actualSampleRate !== TARGET_SAMPLE_RATE) {
+        resampledChunk = resampleAudio(recordingResampleBufferRef.current, actualSampleRate, TARGET_SAMPLE_RATE)
+      }
+      recordedSamplesRef.current.push(...resampledChunk)
+      recordingResampleBufferRef.current = []
+    }
+
     cleanup()
     isRecordingRef.current = false
     setIsRecording(false)
     setIsListening(false)
 
+    const hasRecordedAudio = recordedSamplesRef.current.length > 0
+    setHasRecording(hasRecordedAudio)
+    console.log('Stop recording - samples:', recordedSamplesRef.current.length, 'hasRecording:', hasRecordedAudio)
+
     if (message) {
       setStatus(message)
       setStatusType('success')
-      setTimeout(() => {
-        decodeFountainAudio()
-      }, 100)
     }
   }
 
@@ -222,9 +236,20 @@ const FountainListenPage: React.FC = () => {
       setStatus('Decoding fountain stream...')
       setStatusType('info')
 
+      const samples = new Float32Array(recordedSamplesRef.current)
+      console.log('Decoding with:', {
+        sampleCount: samples.length,
+        timeoutSecs: TIMEOUT_SECS,
+        blockSize: BLOCK_SIZE,
+        sampleRate: TARGET_SAMPLE_RATE,
+        firstSamples: Array.from(samples.slice(0, 10)),
+        hasNaN: samples.some(s => isNaN(s)),
+        hasInfinity: samples.some(s => !isFinite(s))
+      })
+
       const decoder = await createFountainDecoder()
       const data = decoder.decode_fountain(
-        new Float32Array(recordedSamplesRef.current),
+        samples,
         TIMEOUT_SECS,
         BLOCK_SIZE
       )
@@ -248,6 +273,110 @@ const FountainListenPage: React.FC = () => {
     }
   }
 
+  const downloadWavFile = () => {
+    if (recordedSamplesRef.current.length === 0) {
+      setStatus('No audio recorded to download')
+      setStatusType('error')
+      return
+    }
+
+    const sampleRate = TARGET_SAMPLE_RATE
+    const numChannels = 1
+    const bitsPerSample = 16
+    const samples = recordedSamplesRef.current
+
+    const dataLength = samples.length * 2
+    const buffer = new ArrayBuffer(44 + dataLength)
+    const view = new DataView(buffer)
+
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i))
+      }
+    }
+
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + dataLength, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, numChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true)
+    view.setUint16(32, numChannels * (bitsPerSample / 8), true)
+    view.setUint16(34, bitsPerSample, true)
+    writeString(36, 'data')
+    view.setUint32(40, dataLength, true)
+
+    let offset = 44
+    for (let i = 0; i < samples.length; i++) {
+      const sample = Math.max(-1, Math.min(1, samples[i]))
+      const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF
+      view.setInt16(offset, int16, true)
+      offset += 2
+    }
+
+    const blob = new Blob([buffer], { type: 'audio/wav' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `fountain-recorded-${Date.now()}.wav`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    setStatus('Recording downloaded')
+    setStatusType('success')
+  }
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      setStatus('Loading WAV file...')
+      setStatusType('info')
+
+      const arrayBuffer = await file.arrayBuffer()
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      // Extract samples from first channel
+      const samples = audioBuffer.getChannelData(0)
+
+      // Resample if needed
+      let finalSamples: number[] = Array.from(samples)
+      if (audioBuffer.sampleRate !== TARGET_SAMPLE_RATE) {
+        finalSamples = resampleAudio(
+          Array.from(samples),
+          audioBuffer.sampleRate,
+          TARGET_SAMPLE_RATE
+        )
+      }
+
+      recordedSamplesRef.current = finalSamples
+      setHasRecording(true)
+      setDecodedText(null)
+      setStatus(`Loaded ${finalSamples.length} samples from ${file.name}`)
+      setStatusType('success')
+
+      console.log('Uploaded file:', {
+        name: file.name,
+        originalSampleRate: audioBuffer.sampleRate,
+        targetSampleRate: TARGET_SAMPLE_RATE,
+        originalSamples: samples.length,
+        resampledSamples: finalSamples.length
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load WAV file'
+      setStatus(`Error: ${message}`)
+      setStatusType('error')
+      console.error('File upload error:', error)
+    }
+  }
+
   const resetAndListenAgain = () => {
     preambleDetectedRef.current = false
     isRecordingRef.current = false
@@ -256,6 +385,7 @@ const FountainListenPage: React.FC = () => {
     setDecodedText(null)
     setElapsed(0)
     setStatus(null)
+    setHasRecording(false)
     startListening()
   }
 
@@ -281,10 +411,41 @@ const FountainListenPage: React.FC = () => {
           </button>
         </div>
 
-        {isListening && (
+        <div className="mt-4" style={{
+          borderTop: '1px solid #e2e8f0',
+          paddingTop: '1rem',
+          textAlign: 'center'
+        }}>
+          <p style={{ marginBottom: '0.5rem', color: '#64748b' }}>OR</p>
+          <label
+            htmlFor="wav-upload"
+            className="btn-secondary w-full"
+            style={{ display: 'inline-block', cursor: 'pointer' }}
+          >
+            Upload WAV File
+          </label>
+          <input
+            id="wav-upload"
+            type="file"
+            accept=".wav,audio/wav"
+            onChange={handleFileUpload}
+            disabled={isListening || isRecording}
+            style={{ display: 'none' }}
+          />
+        </div>
+
+        {isListening && !isRecording && (
           <div className="mt-4">
             <button onClick={stopListening} className="btn-secondary w-full">
-              Stop
+              Stop Listening
+            </button>
+          </div>
+        )}
+
+        {isRecording && (
+          <div className="mt-4">
+            <button onClick={() => stopRecording('Recording stopped manually')} className="btn-secondary w-full">
+              Stop Recording
             </button>
           </div>
         )}
@@ -324,25 +485,49 @@ const FountainListenPage: React.FC = () => {
         </div>
       </div>
 
-      {!isListening && !isRecording && decodedText && (
+      {!isListening && !isRecording && hasRecording && (
         <div className="card" style={{ maxWidth: '600px', margin: '2rem auto 0' }}>
-          <h2>Decoded Result</h2>
+          <h2>Recording Complete</h2>
 
-          <div style={{
-            background: '#f7fafc',
-            padding: '1rem',
-            borderRadius: '0.5rem',
-            wordBreak: 'break-word',
-            fontFamily: 'monospace',
-            minHeight: '80px',
-            marginTop: '1rem'
-          }}>
-            {decodedText}
+          <div className="mt-4">
+            <button
+              onClick={decodeFountainAudio}
+              disabled={isDecoding}
+              className="btn-primary w-full"
+            >
+              {isDecoding ? 'Decoding...' : 'Decode Recording'}
+            </button>
           </div>
+
+          <div className="mt-4">
+            <button
+              onClick={downloadWavFile}
+              className="btn-secondary w-full"
+            >
+              Download Recording (.wav)
+            </button>
+          </div>
+
+          {decodedText && (
+            <>
+              <h3 style={{ marginTop: '2rem' }}>Decoded Result</h3>
+              <div style={{
+                background: '#f7fafc',
+                padding: '1rem',
+                borderRadius: '0.5rem',
+                wordBreak: 'break-word',
+                fontFamily: 'monospace',
+                minHeight: '80px',
+                marginTop: '1rem'
+              }}>
+                {decodedText}
+              </div>
+            </>
+          )}
 
           <button
             onClick={resetAndListenAgain}
-            className="btn-primary w-full mt-4"
+            className="btn-secondary w-full mt-4"
           >
             Listen Again
           </button>

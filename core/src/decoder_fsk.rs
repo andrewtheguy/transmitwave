@@ -5,6 +5,8 @@ use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBO
 use crate::sync::{detect_postamble, detect_preamble};
 use crate::PREAMBLE_SAMPLES;
 use raptorq::{Decoder, EncodingPacket};
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
 /// Decoder using Multi-tone FSK with Reed-Solomon FEC
@@ -180,7 +182,10 @@ impl DecoderFsk {
     /// Returns the decoded payload or an error if decoding fails or timeout occurs.
     pub fn decode_fountain(&mut self, samples: &[f32], config: Option<FountainConfig>) -> Result<Vec<u8>> {
         let config = config.unwrap_or_default();
+
+        #[cfg(not(target_arch = "wasm32"))]
         let start_time = Instant::now();
+        #[cfg(not(target_arch = "wasm32"))]
         let timeout = Duration::from_secs(config.timeout_secs as u64);
 
         let mut decoder: Option<Decoder> = None;
@@ -191,7 +196,8 @@ impl DecoderFsk {
             Self::fountain_payload_samples(config.block_size as u16);
 
         while search_offset < samples.len() {
-            // Check timeout
+            // Check timeout (not available in WASM)
+            #[cfg(not(target_arch = "wasm32"))]
             if start_time.elapsed() >= timeout {
                 return Err(AudioModemError::Timeout);
             }
