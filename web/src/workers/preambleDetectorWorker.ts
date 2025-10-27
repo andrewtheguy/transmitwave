@@ -83,11 +83,17 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
           return
         }
 
-        const position = detector.add_samples(samples)
+        try {
+          const position = detector.add_samples(samples)
 
-        // position >= 0 means preamble was detected
-        if (position >= 0) {
-          self.postMessage({ type: 'preamble_detected', position })
+          // position >= 0 means preamble was detected
+          if (position >= 0) {
+            self.postMessage({ type: 'preamble_detected', position })
+          }
+        } catch (error) {
+          // Catch any WASM errors (including FFT planner issues)
+          console.error('Error during preamble detection add_samples:', error)
+          self.postMessage({ type: 'error', error: `Preamble detection error: ${error}` })
         }
         break
       }
