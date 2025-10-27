@@ -43,6 +43,26 @@ const IndexPage: React.FC = () => {
           <p>Listen for preamble to auto-start recording, auto-stop on postamble, then auto-decode message.</p>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
+
+        <div
+          className="card transition-all"
+          style={{ cursor: 'pointer', height: '100%' }}
+          onClick={() => navigate('/fountain-encode')}
+        >
+          <h3>⛲ Fountain Encode</h3>
+          <p>Encode and continuously stream data for 30 seconds using RaptorQ fountain codes.</p>
+          <button className="btn-primary w-full">Open Demo</button>
+        </div>
+
+        <div
+          className="card transition-all"
+          style={{ cursor: 'pointer', height: '100%' }}
+          onClick={() => navigate('/fountain-listen')}
+        >
+          <h3>🎧 Fountain Listen</h3>
+          <p>Listen for fountain-coded stream and decode data after 30 seconds of reception.</p>
+          <button className="btn-primary w-full">Open Demo</button>
+        </div>
       </div>
 
       <div className="card mt-5">

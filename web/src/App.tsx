@@ -6,6 +6,8 @@ import IndexPage from './pages/IndexPage'
 import DemoPage from './pages/DemoPage'
 import AmplePage from './pages/AmplePage'
 import PreamblePostambleRecordPage from './pages/PreamblePostambleRecordPage'
+import FountainEncodePage from './pages/FountainEncodePage'
+import FountainListenPage from './pages/FountainListenPage'
 
 const App: React.FC = () => {
   const [wasmReady, setWasmReady] = useState(false)
@@ -58,6 +60,8 @@ const App: React.FC = () => {
         <Route path="/demo" element={<DemoPage />} />
         <Route path="/ample" element={<AmplePage />} />
         <Route path="/preamble-postamble-record" element={<PreamblePostambleRecordPage />} />
+        <Route path="/fountain-encode" element={<FountainEncodePage />} />
+        <Route path="/fountain-listen" element={<FountainListenPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

@@ -5,6 +5,8 @@
 import init, {
     WasmEncoder,
     WasmDecoder,
+    WasmFountainEncoder,
+    WasmFountainDecoder,
     PreambleDetector,
     PostambleDetector,
 } from 'transmitwave-wasm';
@@ -73,6 +75,8 @@ export function isWasmInitialized(): boolean {
 export {
     WasmEncoder,
     WasmDecoder,
+    WasmFountainEncoder,
+    WasmFountainDecoder,
     PreambleDetector,
     PostambleDetector,
 };
@@ -109,4 +113,20 @@ export async function createDecoder(
 ): Promise<WasmDecoder> {
     await initWasm();
     return new WasmDecoder();
+}
+
+/**
+ * Factory function to create a fountain encoder
+ */
+export async function createFountainEncoder(): Promise<WasmFountainEncoder> {
+    await initWasm();
+    return new WasmFountainEncoder();
+}
+
+/**
+ * Factory function to create a fountain decoder
+ */
+export async function createFountainDecoder(): Promise<WasmFountainDecoder> {
+    await initWasm();
+    return new WasmFountainDecoder();
 }

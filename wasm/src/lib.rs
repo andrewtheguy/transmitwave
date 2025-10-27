@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use transmitwave_core::{DecoderFsk, EncoderFsk, detect_preamble, detect_postamble};
+use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, detect_preamble, detect_postamble};
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
@@ -231,6 +231,108 @@ impl PostambleDetector {
     #[wasm_bindgen]
     pub fn set_threshold(&mut self, threshold: f32) {
         self.detector.set_threshold(threshold);
+    }
+}
+
+
+// ============================================================================
+// FOUNTAIN CODE ENCODER/DECODER
+// Continuous streaming mode using RaptorQ fountain codes (RFC 6330)
+// ============================================================================
+
+/// Fountain Code Encoder for continuous streaming
+#[wasm_bindgen]
+pub struct WasmFountainEncoder {
+    inner: EncoderFsk,
+}
+
+#[wasm_bindgen]
+impl WasmFountainEncoder {
+    /// Create a new fountain encoder
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmFountainEncoder, JsValue> {
+        EncoderFsk::new()
+            .map(|encoder| WasmFountainEncoder {
+                inner: encoder,
+            })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Encode data into fountain-coded audio stream
+    /// Returns a flat Float32Array of all audio samples (concatenated blocks)
+    ///
+    /// Parameters:
+    /// - data: Input data to encode
+    /// - timeout_secs: Audio duration in seconds (e.g., 30)
+    /// - block_size: Symbol size in bytes (e.g., 64)
+    /// - repair_ratio: Repair packet overhead (e.g., 0.5 for 50%)
+    #[wasm_bindgen]
+    pub fn encode_fountain(
+        &mut self,
+        data: &[u8],
+        timeout_secs: u32,
+        block_size: usize,
+        repair_ratio: f32,
+    ) -> Result<Vec<f32>, JsValue> {
+        let config = FountainConfig {
+            timeout_secs,
+            block_size,
+            repair_blocks_ratio: repair_ratio,
+        };
+
+        let stream = self.inner
+            .encode_fountain(data, Some(config))
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        // Collect all blocks and concatenate into single audio buffer
+        let all_samples: Vec<f32> = stream
+            .flat_map(|block| block)
+            .collect();
+
+        Ok(all_samples)
+    }
+}
+
+/// Fountain Code Decoder for continuous streaming
+#[wasm_bindgen]
+pub struct WasmFountainDecoder {
+    inner: DecoderFsk,
+}
+
+#[wasm_bindgen]
+impl WasmFountainDecoder {
+    /// Create a new fountain decoder
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmFountainDecoder, JsValue> {
+        DecoderFsk::new()
+            .map(|decoder| WasmFountainDecoder {
+                inner: decoder,
+            })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Decode fountain-coded audio stream back to data
+    ///
+    /// Parameters:
+    /// - samples: Audio samples from microphone/recording
+    /// - timeout_secs: Maximum time to spend decoding (e.g., 30)
+    /// - block_size: Symbol size in bytes (must match encoder, e.g., 64)
+    #[wasm_bindgen]
+    pub fn decode_fountain(
+        &mut self,
+        samples: &[f32],
+        timeout_secs: u32,
+        block_size: usize,
+    ) -> Result<Vec<u8>, JsValue> {
+        let config = FountainConfig {
+            timeout_secs,
+            block_size,
+            repair_blocks_ratio: 0.5, // Not used by decoder
+        };
+
+        self.inner
+            .decode_fountain(samples, Some(config))
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
 
