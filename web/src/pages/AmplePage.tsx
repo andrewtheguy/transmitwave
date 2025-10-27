@@ -11,7 +11,7 @@ type DetectionMode = 'preamble' | 'postamble'
 const AmplePage: React.FC = () => {
   const navigate = useNavigate()
   const [mode, setMode] = useState<DetectionMode>('preamble')
-  const [threshold, setThreshold] = useState(0.4)
+  const [threshold, setThreshold] = useState<number | null>(null) // null = adaptive
   const [isListening, setIsListening] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [statusType, setStatusType] = useState<'success' | 'error' | 'info' | 'warning'>('info')
@@ -299,18 +299,19 @@ const AmplePage: React.FC = () => {
         <div className="mt-4">
           <label><strong>Detection Threshold</strong></label>
           <div className="flex items-center gap-3 mt-2">
-            <input
-              type="range"
-              min="0.1"
-              max="0.9"
-              step="0.1"
-              value={threshold}
-              onChange={(e) => setThreshold(parseFloat(e.target.value))}
+            <select
+              value={threshold === null ? 'adaptive' : threshold.toString()}
+              onChange={(e) => setThreshold(e.target.value === 'adaptive' ? null : parseFloat(e.target.value))}
               disabled={isListening}
-            />
-            <span>{threshold.toFixed(1)}</span>
+              style={{ flex: 1 }}
+            >
+              <option value="adaptive">Adaptive (auto-adjust based on signal)</option>
+              {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].map(v => (
+                <option key={v} value={v}>{v.toFixed(1)} (fixed)</option>
+              ))}
+            </select>
           </div>
-          <small>Higher values require stronger detection. Recommended: 0.4</small>
+          <small>Adaptive: automatically adjusts based on signal strength | Fixed: use specific threshold value</small>
         </div>
 
         <div className="mt-4">

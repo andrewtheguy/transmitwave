@@ -9,7 +9,9 @@ import { getMicProcessorUrl } from '../utils/mic-processor-inline'
 const TARGET_SAMPLE_RATE = 16000
 const TIMEOUT_SECS = 30
 const BLOCK_SIZE = 64
-const DEFAULT_DETECTION_THRESHOLD = 0.4
+// Use null for adaptive threshold (automatically adjusts based on signal strength)
+// Set to a number (0.1-1.0) for fixed threshold
+const DEFAULT_DETECTION_THRESHOLD = null
 const MAX_BUFFER_SAMPLES = 80000
 
 const FountainListenPage: React.FC = () => {
@@ -25,8 +27,8 @@ const FountainListenPage: React.FC = () => {
   const [isDecoding, setIsDecoding] = useState(false)
   const [sampleCount, setSampleCount] = useState(0)
   const [decodeAttempts, setDecodeAttempts] = useState(0)
-  const [preambleThreshold, setPreambleThreshold] = useState(DEFAULT_DETECTION_THRESHOLD)
-  const [postambleThreshold, setPostambleThreshold] = useState(DEFAULT_DETECTION_THRESHOLD)
+  const [preambleThreshold, setPreambleThreshold] = useState<number | null>(DEFAULT_DETECTION_THRESHOLD)
+  const [postambleThreshold, setPostambleThreshold] = useState<number | null>(DEFAULT_DETECTION_THRESHOLD)
 
   const processorRef = useRef<AudioWorkletNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -679,42 +681,44 @@ const FountainListenPage: React.FC = () => {
           </ul>
 
           <div style={{ marginTop: '1rem' }}>
-            <label htmlFor="preamble-threshold-slider" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              <strong>Preamble Detection Threshold:</strong> {preambleThreshold.toFixed(2)}
+            <label htmlFor="preamble-threshold-select" style={{ display: 'block', marginBottom: '0.5rem' }}>
+              <strong>Preamble Detection Threshold:</strong>
             </label>
-            <input
-              id="preamble-threshold-slider"
-              type="range"
-              min="0.1"
-              max="1.0"
-              step="0.05"
-              value={preambleThreshold}
-              onChange={(e) => setPreambleThreshold(parseFloat(e.target.value))}
+            <select
+              id="preamble-threshold-select"
+              value={preambleThreshold === null ? 'adaptive' : preambleThreshold.toString()}
+              onChange={(e) => setPreambleThreshold(e.target.value === 'adaptive' ? null : parseFloat(e.target.value))}
               disabled={isListening || isRecording}
-              style={{ width: '100%', cursor: isListening || isRecording ? 'not-allowed' : 'pointer' }}
-            />
+              style={{ width: '100%', padding: '0.5rem', cursor: isListening || isRecording ? 'not-allowed' : 'pointer' }}
+            >
+              <option value="adaptive">Adaptive (auto-adjust based on signal)</option>
+              {[0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0].map(v => (
+                <option key={v} value={v}>{v.toFixed(2)} (fixed)</option>
+              ))}
+            </select>
             <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.25rem' }}>
-              Lower = more sensitive (easier preamble detection), Higher = less sensitive (fewer false positives)
+              Adaptive: automatically adjusts based on signal strength | Fixed: use specific threshold value
             </div>
           </div>
 
           <div style={{ marginTop: '1rem' }}>
-            <label htmlFor="postamble-threshold-slider" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              <strong>Postamble Detection Threshold:</strong> {postambleThreshold.toFixed(2)}
+            <label htmlFor="postamble-threshold-select" style={{ display: 'block', marginBottom: '0.5rem' }}>
+              <strong>Postamble Detection Threshold:</strong>
             </label>
-            <input
-              id="postamble-threshold-slider"
-              type="range"
-              min="0.1"
-              max="1.0"
-              step="0.05"
-              value={postambleThreshold}
-              onChange={(e) => setPostambleThreshold(parseFloat(e.target.value))}
+            <select
+              id="postamble-threshold-select"
+              value={postambleThreshold === null ? 'adaptive' : postambleThreshold.toString()}
+              onChange={(e) => setPostambleThreshold(e.target.value === 'adaptive' ? null : parseFloat(e.target.value))}
               disabled={isListening || isRecording}
-              style={{ width: '100%', cursor: isListening || isRecording ? 'not-allowed' : 'pointer' }}
-            />
+              style={{ width: '100%', padding: '0.5rem', cursor: isListening || isRecording ? 'not-allowed' : 'pointer' }}
+            >
+              <option value="adaptive">Adaptive (auto-adjust based on signal)</option>
+              {[0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0].map(v => (
+                <option key={v} value={v}>{v.toFixed(2)} (fixed)</option>
+              ))}
+            </select>
             <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.25rem' }}>
-              Lower = more sensitive (easier postamble detection), Higher = less sensitive (fewer false positives)
+              Adaptive: automatically adjusts based on signal strength | Fixed: use specific threshold value
             </div>
           </div>
         </div>

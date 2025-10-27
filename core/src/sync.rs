@@ -2,6 +2,21 @@ use crate::{fft_correlate_1d, Mode, SAMPLE_RATE};
 use std::f32::consts::PI;
 
 // ============================================================================
+// DETECTION THRESHOLD TYPE
+// ============================================================================
+/// Specifies how the detection threshold should be determined
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DetectionThreshold {
+    /// Automatically adjust threshold based on signal RMS:
+    /// - RMS > 0.1: 0.4 (strong signal, strict detection)
+    /// - 0.02 < RMS ≤ 0.1: 0.35 (medium signal)
+    /// - RMS ≤ 0.02: 0.3 (weak signal, relaxed threshold)
+    Adaptive,
+    /// Fixed threshold value (0.0 < value ≤ 1.0)
+    Fixed(f32),
+}
+
+// ============================================================================
 // SYNCHRONIZATION SIGNAL TYPE CONFIGURATION
 // ============================================================================
 // Toggle this constant to switch between different synchronization signal types:
@@ -261,35 +276,38 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
     }
 }
 
-/// Compute the detection threshold value
-/// If threshold < 1e-9 (effectively zero), uses adaptive thresholding based on signal RMS:
+/// Compute the detection threshold value based on the threshold specification
+/// - Adaptive: Adjusts threshold based on signal RMS:
 ///   - RMS > 0.1: 0.4 (strong signal, strict detection)
 ///   - 0.02 < RMS ≤ 0.1: 0.35 (medium signal)
 ///   - RMS ≤ 0.02: 0.3 (weak signal, relaxed threshold)
-/// Otherwise returns the provided threshold value
-fn compute_threshold_value(samples: &[f32], threshold: f32) -> f32 {
-    if threshold < 1e-9 {
-        let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
-        if signal_rms > 0.1 {
-            0.4
-        } else if signal_rms > 0.02 {
-            0.35
-        } else {
-            0.3
+/// - Fixed(value): Returns the provided fixed threshold value
+fn compute_threshold_value(samples: &[f32], threshold: DetectionThreshold) -> f32 {
+    match threshold {
+        DetectionThreshold::Adaptive => {
+            let signal_rms: f32 = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
+            if signal_rms > 0.1 {
+                0.4
+            } else if signal_rms > 0.02 {
+                0.35
+            } else {
+                0.3
+            }
         }
-    } else {
-        threshold
+        DetectionThreshold::Fixed(value) => value,
     }
 }
 
 /// Detect preamble using efficient FFT-based cross-correlation
 /// Returns the position where the preamble (PRN noise burst) is most likely to start
-/// threshold: 0.0 = adaptive threshold, 0.0 < threshold <= 1.0 = fixed threshold
-/// Panics if threshold is invalid (e.g., > 1.0 or negative)
-pub fn detect_preamble(samples: &[f32], threshold: f32) -> Option<usize> {
+/// threshold: Specifies how to determine the detection threshold (Adaptive or Fixed)
+/// Panics if Fixed threshold is invalid (not in range (0.0, 1.0])
+pub fn detect_preamble(samples: &[f32], threshold: DetectionThreshold) -> Option<usize> {
     // Validate threshold
-    if threshold < 0.0 || threshold > 1.0 {
-        panic!("Invalid detection threshold: {}. Must be in range [0.0, 1.0] (0.0=adaptive, 0.0<t<=1.0=fixed)", threshold);
+    if let DetectionThreshold::Fixed(value) = threshold {
+        if value <= 0.0 || value > 1.0 {
+            panic!("Invalid fixed detection threshold: {}. Must be in range (0.0, 1.0]", value);
+        }
     }
 
     let preamble_samples = crate::PREAMBLE_SAMPLES;
@@ -362,12 +380,14 @@ pub fn detect_preamble(samples: &[f32], threshold: f32) -> Option<usize> {
 
 /// Detect postamble using efficient cross-correlation
 /// Returns the position where the postamble (PRN noise burst) is most likely to start
-/// threshold: 0.0 = adaptive threshold, 0.0 < threshold <= 1.0 = fixed threshold
-/// Panics if threshold is invalid (e.g., > 1.0 or negative)
-pub fn detect_postamble(samples: &[f32], threshold: f32) -> Option<usize> {
+/// threshold: Specifies how to determine the detection threshold (Adaptive or Fixed)
+/// Panics if Fixed threshold is invalid (not in range (0.0, 1.0])
+pub fn detect_postamble(samples: &[f32], threshold: DetectionThreshold) -> Option<usize> {
     // Validate threshold
-    if threshold < 0.0 || threshold > 1.0 {
-        panic!("Invalid detection threshold: {}. Must be in range [0.0, 1.0] (0.0=adaptive, 0.0<t<=1.0=fixed)", threshold);
+    if let DetectionThreshold::Fixed(value) = threshold {
+        if value <= 0.0 || value > 1.0 {
+            panic!("Invalid fixed detection threshold: {}. Must be in range (0.0, 1.0]", value);
+        }
     }
 
     let postamble_samples = crate::POSTAMBLE_SAMPLES;
@@ -656,7 +676,7 @@ mod tests {
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]); // Add silence after
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Strong signal should be detected");
         assert!(result.unwrap() < 100, "Should detect near start");
     }
@@ -668,7 +688,7 @@ mod tests {
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Medium signal should be detected");
     }
 
@@ -679,7 +699,7 @@ mod tests {
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Weak signal should be detected");
     }
 
@@ -690,7 +710,7 @@ mod tests {
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         // May or may not detect (at threshold boundary), but should not crash
         let _ = result;
     }
@@ -707,7 +727,7 @@ mod tests {
         }
         signal.extend_from_slice(&vec![0.0; 1000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Weak signal with noise should be detected");
     }
 
@@ -718,7 +738,7 @@ mod tests {
         let mut signal = vec![0.0; 1000];
         signal.extend_from_slice(&postamble);
 
-        let result = detect_postamble(&signal, 0.1);
+        let result = detect_postamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Strong postamble should be detected");
     }
 
@@ -729,7 +749,7 @@ mod tests {
         let mut signal = vec![0.0; 1000];
         signal.extend_from_slice(&postamble);
 
-        let result = detect_postamble(&signal, 0.1);
+        let result = detect_postamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Weak postamble should be detected");
     }
 
@@ -742,7 +762,7 @@ mod tests {
 
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Adaptive);
         assert!(result.is_some());
     }
 
@@ -756,7 +776,7 @@ mod tests {
 
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Adaptive);
         assert!(result.is_some());
     }
 
@@ -770,7 +790,7 @@ mod tests {
 
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 1000]);
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Adaptive);
         assert!(result.is_some(), "Weak signal should be detected with adaptive threshold");
     }
 
@@ -781,7 +801,7 @@ mod tests {
             .map(|i| (i as f32 * 0.1).sin() * 0.01)
             .collect();
 
-        let result = detect_preamble(&noise, 0.1);
+        let result = detect_preamble(&noise, DetectionThreshold::Fixed(0.1));
         // May or may not detect, but should be much less likely than true preamble
         let _ = result;
     }
@@ -799,7 +819,7 @@ mod tests {
             let mut signal = preamble.clone();
             signal.extend_from_slice(&vec![0.0; 1000]);
 
-            if detect_preamble(&signal, 0.1).is_some() {
+            if detect_preamble(&signal, DetectionThreshold::Fixed(0.1)).is_some() {
                 detected_count += 1;
             }
         }
@@ -817,7 +837,7 @@ mod tests {
         signal.extend_from_slice(&preamble);
         signal.extend_from_slice(&vec![0.0; 1000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some());
 
         let pos = result.unwrap();
@@ -833,7 +853,7 @@ mod tests {
         signal.extend_from_slice(&postamble);
         signal.extend_from_slice(&vec![0.0; 500]);
 
-        let result = detect_postamble(&signal, 0.1);
+        let result = detect_postamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some());
 
         let pos = result.unwrap();
@@ -852,7 +872,7 @@ mod tests {
         let mut signal = preamble.clone();
         signal.extend_from_slice(&vec![0.0; 2000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Should detect preamble at signal start");
 
         let pos = result.unwrap();
@@ -869,7 +889,7 @@ mod tests {
         signal.extend_from_slice(&preamble);
         signal.extend_from_slice(&vec![0.0; 2000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Should detect preamble with 100 sample offset");
 
         let pos = result.unwrap();
@@ -887,7 +907,7 @@ mod tests {
         signal.extend_from_slice(&preamble);
         signal.extend_from_slice(&vec![0.0; 2000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Should detect preamble with 1000 sample offset");
 
         let pos = result.unwrap();
@@ -907,7 +927,7 @@ mod tests {
             signal.extend_from_slice(&preamble);
             signal.extend_from_slice(&vec![0.0; 2000]);
 
-            let result = detect_preamble(&signal, 0.1);
+            let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
             assert!(result.is_some(), "Should detect preamble at offset {}", offset);
 
             let pos = result.unwrap();
@@ -931,7 +951,7 @@ mod tests {
         signal.extend_from_slice(&postamble);
         signal.extend_from_slice(&vec![0.0; 1000]);
 
-        let result = detect_postamble(&signal, 0.1);
+        let result = detect_postamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Should detect postamble at position 2000");
 
         let pos = result.unwrap();
@@ -951,7 +971,7 @@ mod tests {
             signal.extend_from_slice(&postamble);
             signal.extend_from_slice(&vec![0.0; 1000]);
 
-            let result = detect_postamble(&signal, 0.1);
+            let result = detect_postamble(&signal, DetectionThreshold::Fixed(0.1));
             assert!(result.is_some(), "Should detect postamble at position {}", pos_target);
 
             let pos = result.unwrap();
@@ -977,8 +997,8 @@ mod tests {
         signal.extend_from_slice(&payload);
         signal.extend_from_slice(&postamble);
 
-        let preamble_pos = detect_preamble(&signal, 0.1);
-        let postamble_pos = detect_postamble(&signal, 0.1);
+        let preamble_pos = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
+        let postamble_pos = detect_postamble(&signal, DetectionThreshold::Fixed(0.1));
 
         assert!(preamble_pos.is_some(), "Should detect preamble in sequence");
         assert!(postamble_pos.is_some(), "Should detect postamble in sequence");
@@ -1009,7 +1029,7 @@ mod tests {
         signal.extend_from_slice(&preamble);
         signal.extend_from_slice(&vec![0.0; 2000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Should detect preamble despite leading noise");
 
         let pos = result.unwrap();
@@ -1029,7 +1049,7 @@ mod tests {
             signal.push((i as f32 * 0.1).sin() * 0.02);
         }
 
-        let result = detect_postamble(&signal, 0.1);
+        let result = detect_postamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Should detect postamble despite trailing noise");
 
         let pos = result.unwrap();
@@ -1051,7 +1071,7 @@ mod tests {
         signal.extend_from_slice(&preamble);
         signal.extend_from_slice(&vec![0.0; 1000]);
 
-        let result = detect_preamble(&signal, 0.1);
+        let result = detect_preamble(&signal, DetectionThreshold::Fixed(0.1));
         assert!(result.is_some(), "Should detect preamble with 500 sample offset");
 
         let pos = result.unwrap();

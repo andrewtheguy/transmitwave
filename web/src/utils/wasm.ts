@@ -91,7 +91,7 @@ export interface EncoderOptions {
 
 export interface DecoderOptions {
     // FSK is the only supported mode for over-the-air audio transmission
-    detectionThreshold?: number; // Optional: 0.0 = adaptive, 0.1-1.0 = fixed threshold
+    detectionThreshold?: number | null; // Optional: null = adaptive (auto-adjust), 0.1-1.0 = fixed threshold
 }
 
 /**
@@ -116,8 +116,10 @@ export async function createDecoder(
     const decoder = new WasmDecoder();
 
     // Set detection threshold if provided
+    // null = adaptive (pass 0.0 to Rust), number = fixed threshold
     if (options.detectionThreshold !== undefined) {
-        decoder.set_detection_threshold(options.detectionThreshold);
+        const threshold = options.detectionThreshold === null ? 0.0 : options.detectionThreshold;
+        decoder.set_detection_threshold(threshold);
     }
 
     return decoder;
@@ -141,8 +143,10 @@ export async function createFountainDecoder(
     const decoder = new WasmFountainDecoder();
 
     // Set detection threshold if provided
+    // null = adaptive (pass 0.0 to Rust), number = fixed threshold
     if (options.detectionThreshold !== undefined) {
-        decoder.set_detection_threshold(options.detectionThreshold);
+        const threshold = options.detectionThreshold === null ? 0.0 : options.detectionThreshold;
+        decoder.set_detection_threshold(threshold);
     }
 
     return decoder;

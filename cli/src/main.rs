@@ -410,16 +410,29 @@ fn fountain_decode_command(
     // Set detection thresholds with fallback logic:
     // - If specific threshold is provided, use it
     // - Otherwise, use the general --threshold if provided
+    // - If nothing provided, use adaptive threshold (default)
     let actual_preamble = preamble_threshold.or(threshold);
     let actual_postamble = postamble_threshold.or(threshold);
 
     if let Some(thresh) = actual_preamble {
         decoder.set_preamble_threshold(thresh);
-        println!("Using preamble detection threshold: {:.2}", thresh);
+        if thresh < 1e-9 {
+            println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
+        } else {
+            println!("Using fixed preamble detection threshold: {:.2}", thresh);
+        }
+    } else {
+        println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
     }
     if let Some(thresh) = actual_postamble {
         decoder.set_postamble_threshold(thresh);
-        println!("Using postamble detection threshold: {:.2}", thresh);
+        if thresh < 1e-9 {
+            println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+        } else {
+            println!("Using fixed postamble detection threshold: {:.2}", thresh);
+        }
+    } else {
+        println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
     }
 
     let data = decoder.decode_fountain(&samples, Some(config))?;
@@ -491,16 +504,29 @@ fn decode_fsk_command(
     // Set detection thresholds with fallback logic:
     // - If specific threshold is provided, use it
     // - Otherwise, use the general --threshold if provided
+    // - If nothing provided, use adaptive threshold (default)
     let actual_preamble = preamble_threshold.or(threshold);
     let actual_postamble = postamble_threshold.or(threshold);
 
     if let Some(thresh) = actual_preamble {
         decoder.set_preamble_threshold(thresh);
-        println!("Using preamble detection threshold: {:.2}", thresh);
+        if thresh < 1e-9 {
+            println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
+        } else {
+            println!("Using fixed preamble detection threshold: {:.2}", thresh);
+        }
+    } else {
+        println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
     }
     if let Some(thresh) = actual_postamble {
         decoder.set_postamble_threshold(thresh);
-        println!("Using postamble detection threshold: {:.2}", thresh);
+        if thresh < 1e-9 {
+            println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+        } else {
+            println!("Using fixed postamble detection threshold: {:.2}", thresh);
+        }
+    } else {
+        println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
     }
 
     let data = decoder.decode(&samples)?;

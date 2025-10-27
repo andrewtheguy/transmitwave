@@ -2,7 +2,7 @@ use crate::error::{AudioModemError, Result};
 use crate::fec::{FecDecoder, FecMode};
 use crate::framing::FrameDecoder;
 use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
-use crate::sync::{detect_postamble, detect_preamble};
+use crate::sync::{detect_postamble, detect_preamble, DetectionThreshold};
 use crate::PREAMBLE_SAMPLES;
 use raptorq::{Decoder, EncodingPacket};
 
@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 pub struct DecoderFsk {
     fsk: FskDemodulator,
     fec: FecDecoder,
-    preamble_threshold: f32, // 0.0 = adaptive, >0.0 = fixed threshold
-    postamble_threshold: f32, // 0.0 = adaptive, >0.0 = fixed threshold
+    preamble_threshold: DetectionThreshold,
+    postamble_threshold: DetectionThreshold,
 }
 
 impl DecoderFsk {
@@ -26,33 +26,49 @@ impl DecoderFsk {
         Ok(Self {
             fsk: FskDemodulator::new(),
             fec: FecDecoder::new()?,
-            preamble_threshold: 0.0, // Default: use adaptive threshold
-            postamble_threshold: 0.0, // Default: use adaptive threshold
+            preamble_threshold: DetectionThreshold::Adaptive, // Default: use adaptive threshold
+            postamble_threshold: DetectionThreshold::Adaptive, // Default: use adaptive threshold
         })
     }
 
     /// Set the detection threshold for preamble detection
-    /// 0.0 = adaptive threshold based on signal strength
-    /// 0.1-1.0 = fixed threshold value
+    /// Pass 0.0 for adaptive threshold (legacy), or a positive value for fixed threshold
     pub fn set_preamble_threshold(&mut self, threshold: f32) {
-        self.preamble_threshold = threshold.max(0.0).min(1.0);
+        self.preamble_threshold = if threshold < 1e-9 {
+            DetectionThreshold::Adaptive
+        } else {
+            let value = threshold.max(0.0).min(1.0);
+            DetectionThreshold::Fixed(value)
+        };
     }
 
-    /// Get the current preamble detection threshold
+    /// Get the current preamble detection threshold as f32 (for backward compatibility)
+    /// Returns 0.0 for adaptive, or the fixed value
     pub fn get_preamble_threshold(&self) -> f32 {
-        self.preamble_threshold
+        match self.preamble_threshold {
+            DetectionThreshold::Adaptive => 0.0,
+            DetectionThreshold::Fixed(value) => value,
+        }
     }
 
     /// Set the detection threshold for postamble detection
-    /// 0.0 = adaptive threshold based on signal strength
-    /// 0.1-1.0 = fixed threshold value
+    /// Pass 0.0 for adaptive threshold (legacy), or a positive value for fixed threshold
     pub fn set_postamble_threshold(&mut self, threshold: f32) {
-        self.postamble_threshold = threshold.max(0.0).min(1.0);
+        self.postamble_threshold = if threshold < 1e-9 {
+            DetectionThreshold::Adaptive
+        } else {
+            let value = threshold.max(0.0).min(1.0);
+            DetectionThreshold::Fixed(value)
+        };
     }
 
-    /// Get the current postamble detection threshold
+    /// Get the current postamble detection threshold as f32 (for backward compatibility)
+    /// Returns 0.0 for adaptive, or the fixed value
     pub fn get_postamble_threshold(&self) -> f32 {
-        self.postamble_threshold
+        match self.postamble_threshold {
+            DetectionThreshold::Adaptive => 0.0,
+            DetectionThreshold::Fixed(value) => value,
+        }
     }
 
     /// Set both preamble and postamble detection thresholds to the same value
@@ -64,7 +80,7 @@ impl DecoderFsk {
 
     /// Get the preamble detection threshold (provided for backward compatibility)
     pub fn get_detection_threshold(&self) -> f32 {
-        self.preamble_threshold
+        self.get_preamble_threshold()
     }
 
     /// Decode audio samples back to binary data

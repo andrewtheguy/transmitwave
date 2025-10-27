@@ -164,8 +164,8 @@ pub struct PreambleDetector {
 #[wasm_bindgen]
 impl PreambleDetector {
     /// Create a new preamble detector with specified threshold
-    /// threshold: minimum correlation coefficient (0.0 - 1.0) to detect preamble
-    /// Recommended: 0.4 for reliable detection
+    /// threshold: 0.0 = adaptive (auto-adjust based on signal strength), 0.1-1.0 = fixed threshold
+    /// Recommended: Use 0.0 for adaptive threshold, or 0.4 for reliable fixed detection
     #[wasm_bindgen(constructor)]
     pub fn new(threshold: f32) -> PreambleDetector {
         PreambleDetector {
@@ -220,8 +220,8 @@ pub struct PostambleDetector {
 #[wasm_bindgen]
 impl PostambleDetector {
     /// Create a new postamble detector with specified threshold
-    /// threshold: minimum correlation coefficient (0.0 - 1.0) to detect postamble
-    /// Recommended: 0.4 for reliable detection
+    /// threshold: 0.0 = adaptive (auto-adjust based on signal strength), 0.1-1.0 = fixed threshold
+    /// Recommended: Use 0.0 for adaptive threshold, or 0.4 for reliable fixed detection
     #[wasm_bindgen(constructor)]
     pub fn new(threshold: f32) -> PostambleDetector {
         PostambleDetector {
