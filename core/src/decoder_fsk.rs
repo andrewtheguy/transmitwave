@@ -1213,4 +1213,185 @@ mod tests {
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
         assert_eq!(decoded, data, "Should decode with widely separated good blocks");
     }
+
+    #[test]
+    fn test_fountain_missing_first_blocks() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Test missing first blocks";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.0,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(20).collect();
+
+        // Skip the first 5 blocks and use the rest
+        let mut samples = Vec::new();
+        for block in blocks.iter().skip(5) {
+            samples.extend_from_slice(block);
+        }
+
+        // Should still decode successfully with fountain coding providing repair packets
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode even with first 5 blocks missing");
+    }
+
+    #[test]
+    fn test_fountain_missing_first_several_blocks() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Missing first several blocks test";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.5, // Extra repair overhead
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(25).collect();
+
+        // Skip the first 6 blocks (about 24% loss at start)
+        let mut samples = Vec::new();
+        for block in blocks.iter().skip(6) {
+            samples.extend_from_slice(block);
+        }
+
+        // Should decode with sufficient repair packets
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode with first 6 blocks missing");
+    }
+
+    #[test]
+    fn test_fountain_alternating_first_blocks_missing() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Alternating missing early blocks";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.0,
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(20).collect();
+
+        // Keep only even-indexed blocks in first 10 (skip odd blocks at start)
+        let mut samples = Vec::new();
+        for (i, block) in blocks.iter().enumerate() {
+            if i < 10 {
+                if i % 2 == 0 {
+                    samples.extend_from_slice(block);
+                }
+            } else {
+                // Keep all blocks after index 10
+                samples.extend_from_slice(block);
+            }
+        }
+
+        // Should decode with alternating blocks missing from the beginning
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode with alternating early blocks missing");
+    }
+
+    #[test]
+    fn test_fountain_first_half_blocks_missing() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"First half missing test data";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.5, // Need more redundancy
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(30).collect();
+
+        // Skip first half (first 15 blocks)
+        let mut samples = Vec::new();
+        for block in blocks.iter().skip(blocks.len() / 2) {
+            samples.extend_from_slice(block);
+        }
+
+        // Should decode with 50% of initial blocks missing
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode with first half of blocks missing");
+    }
+
+    #[test]
+    fn test_fountain_missing_first_blocks_small_data() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = b"Hi";
+
+        let config = FountainConfig {
+            timeout_secs: 20,
+            block_size: 32,
+            repair_blocks_ratio: 2.0, // Very high repair ratio for small data
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(15).collect();
+
+        // Skip first 3 blocks
+        let mut samples = Vec::new();
+        for block in blocks.iter().skip(3) {
+            samples.extend_from_slice(block);
+        }
+
+        // Should decode even with small data and missing initial blocks
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode small data with first 3 blocks missing");
+    }
+
+    #[test]
+    fn test_fountain_missing_first_blocks_large_data() {
+        use crate::fsk::FountainConfig;
+
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+        let data = vec![99u8; 120]; // Larger data payload (2x small data test)
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 32,
+            repair_blocks_ratio: 1.5, // Extra repair overhead
+        };
+
+        // Generate blocks
+        let stream = encoder.encode_fountain(&data, Some(config.clone())).unwrap();
+        let blocks: Vec<_> = stream.take(20).collect();
+
+        // Skip first 4 blocks (20% loss at start)
+        let mut samples = Vec::new();
+        for block in blocks.iter().skip(4) {
+            samples.extend_from_slice(block);
+        }
+
+        // Should decode larger data even with missing early blocks
+        let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
+        assert_eq!(decoded, data, "Should decode 120-byte data with first 4 blocks missing");
+    }
 }
