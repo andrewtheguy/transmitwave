@@ -42,7 +42,8 @@
       "Bash(rm:*)",
       "Bash(npx tsc:*)",
       "Bash(./target/release/transmitwave-cli:*)",
-      "Bash(./target/release/transmitwave:*)"
+      "Bash(./target/release/transmitwave:*)",
+      "Bash(gtimeout 30 cargo test:*)"
     ],
     "deny": [],
     "ask": []

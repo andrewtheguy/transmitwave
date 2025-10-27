@@ -168,13 +168,16 @@ impl EncoderFsk {
             desired.max(1)
         };
 
+        // Calculate max samples based on timeout_secs as audio duration
+        let sample_rate = 16000; // FSK sample rate
+        let max_samples = config.timeout_secs as usize * sample_rate;
+
         Ok(FountainStream {
             encoder,
             frame_length: frame_data.len(),
             symbol_size,
             fsk: FskModulator::new(),
             config,
-            start_time: Instant::now(),
             block_id: 0,
             source_packets,
             next_source_idx: 0,
@@ -182,6 +185,8 @@ impl EncoderFsk {
             repair_block_cursor: 0,
             repairs_per_cycle,
             repairs_sent_this_cycle: 0,
+            total_samples_generated: 0,
+            max_samples,
         })
     }
 }
@@ -193,7 +198,6 @@ pub struct FountainStream {
     symbol_size: u16,
     fsk: FskModulator,
     config: FountainConfig,
-    start_time: Instant,
     block_id: u32,
     source_packets: Vec<EncodingPacket>,
     next_source_idx: usize,
@@ -201,15 +205,16 @@ pub struct FountainStream {
     repair_block_cursor: usize,
     repairs_per_cycle: usize,
     repairs_sent_this_cycle: usize,
+    total_samples_generated: usize,
+    max_samples: usize,
 }
 
 impl Iterator for FountainStream {
     type Item = Vec<f32>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Check timeout
-        let elapsed = self.start_time.elapsed();
-        if elapsed >= Duration::from_secs(self.config.timeout_secs as u64) {
+        // Check if we've reached the audio duration limit
+        if self.total_samples_generated >= self.max_samples {
             return None;
         }
 
@@ -237,16 +242,16 @@ impl Iterator for FountainStream {
         }
         debug_assert_eq!(encoded_data.len() % crate::fsk::FSK_BYTES_PER_SYMBOL, 0);
 
-        // Generate audio: preamble + FSK data + postamble
+        // Generate audio: preamble + FSK data only (no postamble for fountain mode)
         let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);
         let mut samples = preamble;
 
         match self.fsk.modulate(&encoded_data) {
             Ok(fsk_samples) => {
                 samples.extend_from_slice(&fsk_samples);
-                let postamble = generate_postamble_signal(POSTAMBLE_SAMPLES, 0.5);
-                samples.extend_from_slice(&postamble);
+                // No postamble - fountain mode is open-ended with only preamble signaling
 
+                self.total_samples_generated += samples.len();
                 self.block_id += 1;
                 Some(samples)
             }

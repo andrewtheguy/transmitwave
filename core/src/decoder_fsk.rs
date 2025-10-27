@@ -3,7 +3,7 @@ use crate::fec::{FecDecoder, FecMode};
 use crate::framing::FrameDecoder;
 use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
 use crate::sync::{detect_postamble, detect_preamble};
-use crate::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
+use crate::PREAMBLE_SAMPLES;
 use raptorq::{Decoder, EncodingPacket};
 use std::time::{Duration, Instant};
 
@@ -310,8 +310,8 @@ impl DecoderFsk {
                 }
             }
 
-            let next_offset = data_end + POSTAMBLE_SAMPLES;
-            search_offset = next_offset.min(samples.len());
+            // No postamble in fountain mode - advance directly from data_end
+            search_offset = data_end;
         }
 
         Err(AudioModemError::FountainDecodeFailure)
@@ -502,7 +502,7 @@ mod tests {
         let data = b"Test with some packet loss";
 
         let config = FountainConfig {
-            timeout_secs: 5,
+            timeout_secs: 30, // Enough audio duration to generate 20 blocks
             block_size: 32,
             repair_blocks_ratio: 1.0, // More redundancy
         };
@@ -532,7 +532,7 @@ mod tests {
         let mut decoder = DecoderFsk::new().unwrap();
 
         let config = FountainConfig {
-            timeout_secs: 5,
+            timeout_secs: 20, // Enough audio duration to generate 15 blocks
             block_size: 32,
             repair_blocks_ratio: 0.5,
         };
