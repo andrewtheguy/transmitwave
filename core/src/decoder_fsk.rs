@@ -341,13 +341,33 @@ impl DecoderFsk {
                         continue;
                     }
 
-                    // Attempt to deserialize the packet; if deserialization fails, skip this packet and continue
+                    // Attempt to deserialize the packet. The raptorq library's EncodingPacket::deserialize
+                    // may panic if the input is malformed. We validate packet length and CRC above, but the
+                    // format may still be invalid if the packet structure itself is corrupted.
+                    // We use catch_unwind as a defensive measure. If the library ever provides a fallible
+                    // API (e.g., Result<EncodingPacket, Error>), prefer that over panic handling.
+                    // See: https://github.com/cberner/raptorq for library issues and fallible API tracking
+
+                    // Additional validation: check minimum packet length
+                    // RaptorQ encoding packets have a minimum structure size (typically 4+ bytes for header)
+                    if packet_bytes.len() < 4 {
+                        warn!(
+                            "EncodingPacket too short for deserialization (len={})",
+                            packet_bytes.len()
+                        );
+                        search_offset = data_end;
+                        continue;
+                    }
+
                     let packet = match catch_unwind(std::panic::AssertUnwindSafe(|| {
                         EncodingPacket::deserialize(packet_bytes)
                     })) {
                         Ok(result) => result,
                         Err(_) => {
                             // Panic caught during deserialization - log and skip this packet
+                            // This indicates the packet structure is invalid despite passing CRC and length checks.
+                            // This can happen if audio demodulation errors produce bytes that pass CRC by chance,
+                            // or if the serialization format is incompatible with this decoder version.
                             warn!(
                                 "EncodingPacket deserialization panic caught: malformed packet structure (len={})",
                                 packet_bytes.len()
@@ -394,10 +414,13 @@ impl DecoderFsk {
     }
 
     fn fountain_payload_samples(symbol_size: u16) -> usize {
-        // Fixed metadata: frame_len(4) + symbol_size(2) + packet_len(2) = 8 bytes
-        // Variable: RaptorQ packet (may be larger than symbol_size due to encoding overhead)
-        // Add CRC-16 (2 bytes) + extra buffer for serialization overhead
         // Conservative estimate: symbol_size + 14 bytes accounting for all overhead and CRC
+        // Breakdown: 8 bytes metadata + 2 bytes CRC + 4 bytes serialization overhead
+        //   - Metadata: frame_len(4) + symbol_size(2) + packet_len(2) = 8 bytes
+        //   - CRC-16: 2 bytes for corruption detection
+        //   - Serialization overhead: 4 bytes (RaptorQ packet encoding, alignment padding, or protocol fields)
+        // If the serialization format changes (e.g., bincode header size, RaptorQ encoding changes),
+        // adjust the 4-byte serialization overhead component accordingly.
         let packet_bytes = symbol_size as usize + 14;
         let symbols = (packet_bytes + FSK_BYTES_PER_SYMBOL - 1) / FSK_BYTES_PER_SYMBOL;
         symbols * FSK_SYMBOL_SAMPLES

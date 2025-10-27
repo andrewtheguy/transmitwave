@@ -230,7 +230,6 @@ const FountainListenPage: React.FC = () => {
 
           // Send resampled chunk to preamble detection worker
           if (preambleWorkerRef.current && resampledChunk.length > 0) {
-            console.log(`Sending ${resampledChunk.length} samples to preamble worker`)
             preambleWorkerRef.current.postMessage({
               type: 'add_samples',
               samples: new Float32Array(resampledChunk)

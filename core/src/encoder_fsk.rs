@@ -98,6 +98,7 @@ impl EncoderFsk {
             let padding = crate::fsk::FSK_BYTES_PER_SYMBOL - remainder;
             encoded_data.resize(encoded_data.len() + padding, 0u8);
         }
+
         // Generate preamble signal for synchronization
         let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);
 
@@ -251,7 +252,13 @@ impl Iterator for FountainStream {
             let padding = crate::fsk::FSK_BYTES_PER_SYMBOL - remainder;
             encoded_data.resize(encoded_data.len() + padding, 0u8);
         }
-        debug_assert_eq!(encoded_data.len() % crate::fsk::FSK_BYTES_PER_SYMBOL, 0);
+        assert_eq!(
+            encoded_data.len() % crate::fsk::FSK_BYTES_PER_SYMBOL,
+            0,
+            "FSK symbol alignment invariant violated: encoded_data length ({}) is not a multiple of FSK_BYTES_PER_SYMBOL ({})",
+            encoded_data.len(),
+            crate::fsk::FSK_BYTES_PER_SYMBOL
+        );
 
         // Generate audio: preamble + FSK data only (no postamble for fountain mode)
         let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);

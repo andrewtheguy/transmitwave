@@ -23,6 +23,7 @@ type WorkerMessage = FeedChunkMessage | SetBlockSizeMessage | TryDecodeMessage |
 let sampleBuffer: Float32Array[] = []
 let blockSize = 64
 let wasmInitialized = false
+const MAX_BUFFER_SAMPLES = 80000 // ~5 seconds at 16kHz
 
 // No eager initialization - initialize on first use to avoid race conditions
 
@@ -51,7 +52,15 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       case 'feed_chunk': {
         const { samples } = event.data as FeedChunkMessage
         sampleBuffer.push(samples)
-        self.postMessage({ type: 'chunk_fed', sampleCount: sampleBuffer.reduce((sum, s) => sum + s.length, 0) })
+
+        // Prevent unbounded buffer growth
+        const totalSamples = sampleBuffer.reduce((sum, s) => sum + s.length, 0)
+        if (totalSamples > MAX_BUFFER_SAMPLES) {
+          console.warn(`Buffer overflow: ${totalSamples} > ${MAX_BUFFER_SAMPLES}, clearing buffer`)
+          sampleBuffer.length = 0
+        }
+
+        self.postMessage({ type: 'chunk_fed', sampleCount: totalSamples > MAX_BUFFER_SAMPLES ? 0 : totalSamples })
         break
       }
 

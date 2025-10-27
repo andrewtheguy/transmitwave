@@ -291,6 +291,9 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
 /// Uses sliding windows to find the strongest signal region, which helps identify
 /// signal bursts and avoids being skewed by long silences or unrelated background noise.
 ///
+/// Window size: `ADAPTIVE_RMS_WINDOW_LENGTH` = 2048 samples (~41 ms at 48 kHz sample rate)
+/// This window size balances responsiveness to signal changes with stability against short-term noise.
+///
 /// # Tradeoffs:
 /// - **Benefit**: More robust detection by focusing on the strongest signal region
 /// - **Benefit**: Ignores long silence periods or unrelated noise that spans the entire buffer
@@ -301,8 +304,9 @@ fn compute_max_rms_from_windows(samples: &[f32]) -> f32 {
         return 0.0;
     }
 
+    // Use ADAPTIVE_RMS_WINDOW_LENGTH (2048 samples) or the full buffer if smaller
     let window_len = ADAPTIVE_RMS_WINDOW_LENGTH.min(samples.len());
-    let mut max_rms = 0.0;
+    let mut max_rms: f32 = 0.0;
 
     for i in 0..=samples.len().saturating_sub(window_len) {
         let window = &samples[i..i + window_len];

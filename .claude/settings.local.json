@@ -44,7 +44,8 @@
       "Bash(./target/release/transmitwave-cli:*)",
       "Bash(./target/release/transmitwave:*)",
       "Bash(gtimeout 30 cargo test:*)",
-      "Bash(timeout 5 cargo run:*)"
+      "Bash(timeout 5 cargo run:*)",
+      "Bash(gtimeout 60 cargo test:*)"
     ],
     "deny": [],
     "ask": []
