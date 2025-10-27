@@ -9,7 +9,7 @@ import { getMicProcessorUrl } from '../utils/mic-processor-inline'
 const TARGET_SAMPLE_RATE = 16000
 const TIMEOUT_SECS = 30
 const BLOCK_SIZE = 64
-const DETECTION_THRESHOLD = 0.4
+const DEFAULT_DETECTION_THRESHOLD = 0.4
 const MAX_BUFFER_SAMPLES = 80000
 
 const FountainListenPage: React.FC = () => {
@@ -25,6 +25,7 @@ const FountainListenPage: React.FC = () => {
   const [isDecoding, setIsDecoding] = useState(false)
   const [sampleCount, setSampleCount] = useState(0)
   const [decodeAttempts, setDecodeAttempts] = useState(0)
+  const [detectionThreshold, setDetectionThreshold] = useState(DEFAULT_DETECTION_THRESHOLD)
 
   const processorRef = useRef<AudioWorkletNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -98,7 +99,7 @@ const FountainListenPage: React.FC = () => {
       }
 
       // Initialize preamble detector with threshold
-      preambleWorker.postMessage({ type: 'init', threshold: DETECTION_THRESHOLD })
+      preambleWorker.postMessage({ type: 'init', threshold: detectionThreshold })
 
       // Initialize the decoder worker
       const worker = new Worker(new URL('../workers/fountainDecoderWorker.ts', import.meta.url), {
@@ -651,11 +652,30 @@ const FountainListenPage: React.FC = () => {
 
         <div className="mt-4" style={{ padding: '1rem', background: '#f7fafc', borderRadius: '0.5rem', fontSize: '0.9rem' }}>
           <p><strong>Configuration:</strong></p>
-          <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem' }}>
+          <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem', marginBottom: '1rem' }}>
             <li>Duration: {TIMEOUT_SECS} seconds</li>
             <li>Block size: {BLOCK_SIZE} bytes</li>
-            <li>Detection threshold: {DETECTION_THRESHOLD}</li>
           </ul>
+
+          <div style={{ marginTop: '1rem' }}>
+            <label htmlFor="threshold-slider" style={{ display: 'block', marginBottom: '0.5rem' }}>
+              <strong>Preamble Detection Threshold:</strong> {detectionThreshold.toFixed(2)}
+            </label>
+            <input
+              id="threshold-slider"
+              type="range"
+              min="0.1"
+              max="1.0"
+              step="0.05"
+              value={detectionThreshold}
+              onChange={(e) => setDetectionThreshold(parseFloat(e.target.value))}
+              disabled={isListening || isRecording}
+              style={{ width: '100%', cursor: isListening || isRecording ? 'not-allowed' : 'pointer' }}
+            />
+            <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.25rem' }}>
+              Lower = more sensitive (easier preamble detection), Higher = less sensitive (fewer false positives)
+            </div>
+          </div>
         </div>
       </div>
 
