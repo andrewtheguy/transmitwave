@@ -11,7 +11,8 @@ type DetectionMode = 'preamble' | 'postamble'
 const AmplePage: React.FC = () => {
   const navigate = useNavigate()
   const [mode, setMode] = useState<DetectionMode>('preamble')
-  const [threshold, setThreshold] = useState(0.4)
+  const [isAdaptive, setIsAdaptive] = useState(true) // true = adaptive, false = use fixedValue
+  const [fixedValue, setFixedValue] = useState(0.1)
   const [isListening, setIsListening] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [statusType, setStatusType] = useState<'success' | 'error' | 'info' | 'warning'>('info')
@@ -36,8 +37,8 @@ const AmplePage: React.FC = () => {
     try {
       // Create appropriate detector based on mode
       const detector = mode === 'preamble'
-        ? new PreambleDetector(threshold)
-        : new PostambleDetector(threshold)
+        ? new PreambleDetector(isAdaptive, fixedValue)
+        : new PostambleDetector(isAdaptive, fixedValue)
       detectorRef.current = detector
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -299,18 +300,28 @@ const AmplePage: React.FC = () => {
         <div className="mt-4">
           <label><strong>Detection Threshold</strong></label>
           <div className="flex items-center gap-3 mt-2">
-            <input
-              type="range"
-              min="0.1"
-              max="0.9"
-              step="0.1"
-              value={threshold}
-              onChange={(e) => setThreshold(parseFloat(e.target.value))}
+            <select
+              value={isAdaptive ? 'adaptive' : 'fixed'}
+              onChange={(e) => setIsAdaptive(e.target.value === 'adaptive')}
               disabled={isListening}
-            />
-            <span>{threshold.toFixed(1)}</span>
+              style={{ flex: 1 }}
+            >
+              <option value="adaptive">Adaptive (auto-adjust based on signal)</option>
+              <option value="fixed">Fixed threshold</option>
+            </select>
+            {!isAdaptive && (
+              <select
+                value={fixedValue.toString()}
+                onChange={(e) => setFixedValue(parseFloat(e.target.value))}
+                disabled={isListening}
+              >
+                {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].map(v => (
+                  <option key={v} value={v}>{v.toFixed(1)}</option>
+                ))}
+              </select>
+            )}
           </div>
-          <small>Higher values require stronger detection. Recommended: 0.4</small>
+          <small>Adaptive: automatically adjusts based on signal strength | Fixed: use specific threshold value</small>
         </div>
 
         <div className="mt-4">

@@ -5,6 +5,8 @@
 import init, {
     WasmEncoder,
     WasmDecoder,
+    WasmFountainEncoder,
+    WasmFountainDecoder,
     PreambleDetector,
     PostambleDetector,
 } from 'transmitwave-wasm';
@@ -73,6 +75,8 @@ export function isWasmInitialized(): boolean {
 export {
     WasmEncoder,
     WasmDecoder,
+    WasmFountainEncoder,
+    WasmFountainDecoder,
     PreambleDetector,
     PostambleDetector,
 };
@@ -87,6 +91,11 @@ export interface EncoderOptions {
 
 export interface DecoderOptions {
     // FSK is the only supported mode for over-the-air audio transmission
+    // Detection threshold configuration
+    preambleAdaptive?: boolean; // true = adaptive (auto-adjust), false = use preambleThreshold
+    preambleThreshold?: number;
+    postambleAdaptive?: boolean; // true = adaptive (auto-adjust), false = use postambleThreshold
+    postambleThreshold?: number;
 }
 
 /**
@@ -108,5 +117,55 @@ export async function createDecoder(
     options: DecoderOptions = {}
 ): Promise<WasmDecoder> {
     await initWasm();
-    return new WasmDecoder();
+    const decoder = new WasmDecoder();
+
+    // Set preamble threshold if provided
+    if (options.preambleAdaptive !== undefined || options.preambleThreshold !== undefined) {
+        const isAdaptive = options.preambleAdaptive ?? true; // Default to adaptive
+        const threshold = options.preambleThreshold ?? 0.1; // Default fixed value if not specified
+        decoder.set_preamble_threshold(isAdaptive, threshold);
+    }
+
+    // Set postamble threshold if provided
+    if (options.postambleAdaptive !== undefined || options.postambleThreshold !== undefined) {
+        const isAdaptive = options.postambleAdaptive ?? true; // Default to adaptive
+        const threshold = options.postambleThreshold ?? 0.1; // Default fixed value if not specified
+        decoder.set_postamble_threshold(isAdaptive, threshold);
+    }
+
+    return decoder;
+}
+
+/**
+ * Factory function to create a fountain encoder
+ */
+export async function createFountainEncoder(): Promise<WasmFountainEncoder> {
+    await initWasm();
+    return new WasmFountainEncoder();
+}
+
+/**
+ * Factory function to create a fountain decoder
+ */
+export async function createFountainDecoder(
+    options: DecoderOptions = {}
+): Promise<WasmFountainDecoder> {
+    await initWasm();
+    const decoder = new WasmFountainDecoder();
+
+    // Set preamble threshold if provided
+    if (options.preambleAdaptive !== undefined || options.preambleThreshold !== undefined) {
+        const isAdaptive = options.preambleAdaptive ?? true; // Default to adaptive
+        const threshold = options.preambleThreshold ?? 0.1; // Default fixed value if not specified
+        decoder.set_preamble_threshold(isAdaptive, threshold);
+    }
+
+    // Set postamble threshold if provided
+    if (options.postambleAdaptive !== undefined || options.postambleThreshold !== undefined) {
+        const isAdaptive = options.postambleAdaptive ?? true; // Default to adaptive
+        const threshold = options.postambleThreshold ?? 0.1; // Default fixed value if not specified
+        decoder.set_postamble_threshold(isAdaptive, threshold);
+    }
+
+    return decoder;
 }

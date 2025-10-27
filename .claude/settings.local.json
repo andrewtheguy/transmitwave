@@ -40,7 +40,12 @@
       "mcp__context7__get-library-docs",
       "Bash(RUST_BACKTRACE=1 cargo test:*)",
       "Bash(rm:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(./target/release/transmitwave-cli:*)",
+      "Bash(./target/release/transmitwave:*)",
+      "Bash(gtimeout 30 cargo test:*)",
+      "Bash(timeout 5 cargo run:*)",
+      "Bash(gtimeout 60 cargo test:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,14 +1,4 @@
 [workspace]
 members = ["core", "cli", "wasm"]
 resolver = "2"
-
-[package]
-name = "transmitwave"
-version = "0.1.0"
-edition = "2021"
-
-[[bin]]
-name = "transmitwave-root"
-path = "src/main.rs"
-
-[dependencies]
+default-members = ["cli"]
