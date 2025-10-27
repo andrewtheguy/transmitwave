@@ -5,6 +5,8 @@ use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBO
 use crate::sync::{detect_postamble, detect_preamble, DetectionThreshold};
 use crate::PREAMBLE_SAMPLES;
 use raptorq::{Decoder, EncodingPacket};
+use std::panic::catch_unwind;
+use log::warn;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
@@ -340,7 +342,20 @@ impl DecoderFsk {
                     }
 
                     // Attempt to deserialize the packet; if deserialization fails, skip this packet and continue
-                    let packet = EncodingPacket::deserialize(packet_bytes);
+                    let packet = match catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        EncodingPacket::deserialize(packet_bytes)
+                    })) {
+                        Ok(result) => result,
+                        Err(_) => {
+                            // Panic caught during deserialization - log and skip this packet
+                            warn!(
+                                "EncodingPacket deserialization panic caught: malformed packet structure (len={})",
+                                packet_bytes.len()
+                            );
+                            search_offset = data_end;
+                            continue;
+                        }
+                    };
 
                     // Initialize decoder on first packet with matching OTI
                     if decoder.is_none() && frame_length.is_some() && symbol_size.is_some() {

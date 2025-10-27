@@ -1,5 +1,6 @@
 use crate::{fft_correlate_1d, Mode, SAMPLE_RATE};
 use std::f32::consts::PI;
+use log::warn;
 
 // ============================================================================
 // DETECTION THRESHOLD TYPE
@@ -324,7 +325,7 @@ pub fn detect_preamble(samples: &[f32], threshold: DetectionThreshold) -> Option
     let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
         Ok(corr) => corr,
         Err(e) => {
-            eprintln!(
+            warn!(
                 "FFT correlation failed during preamble detection: {} (samples={}, template={}, mode=Full)",
                 e,
                 samples.len(),
@@ -404,7 +405,7 @@ pub fn detect_postamble(samples: &[f32], threshold: DetectionThreshold) -> Optio
     let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
         Ok(corr) => corr,
         Err(e) => {
-            eprintln!(
+            warn!(
                 "FFT correlation failed during postamble detection: {} (samples={}, template={}, mode=Full)",
                 e,
                 samples.len(),

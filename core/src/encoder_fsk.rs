@@ -6,6 +6,7 @@ use crate::sync::{generate_preamble, generate_postamble_signal};
 use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
 use raptorq::{Encoder, EncodingPacket};
 use std::time::{Duration, Instant};
+use log::info;
 
 /// Encoder using Multi-tone FSK with Reed-Solomon FEC
 ///
@@ -460,7 +461,7 @@ mod tests {
 
         // Should generate some blocks but eventually stop
         assert!(block_count > 0);
-        println!("Generated {} blocks in 1 second", block_count);
+        info!("Generated {} blocks in 1 second", block_count);
     }
 
     #[test]

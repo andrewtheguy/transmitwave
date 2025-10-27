@@ -1130,6 +1130,8 @@ dependencies = [
 name = "transmitwave-core"
 version = "0.1.0"
 dependencies = [
+ "env_logger",
+ "log",
  "rand",
  "rand_distr",
  "raptorq",
