@@ -100,9 +100,7 @@ export interface DecoderOptions {
  * Factory function to create an FSK encoder
  * FSK-only mode ensures maximum reliability for over-the-air audio transmission
  */
-export async function createEncoder(
-    options: EncoderOptions = {}
-): Promise<WasmEncoder> {
+export async function createEncoder(): Promise<WasmEncoder> {
     await initWasm();
     return new WasmEncoder();
 }
@@ -138,20 +136,16 @@ export async function createFountainEncoder(): Promise<WasmFountainEncoder> {
 
 /**
  * Factory function to create a fountain decoder
- * Uses Fixed(0.4) threshold by default for both preamble and postamble detection
+ * Supports preamble threshold configuration only (fountain mode has no postamble)
  */
 export async function createFountainDecoder(
-    options: DecoderOptions = {}
+    preambleThreshold: number = 0.4
 ): Promise<WasmFountainDecoder> {
     await initWasm();
     const decoder = new WasmFountainDecoder();
 
-    // Set thresholds with 0.4 as default
-    const preambleThreshold = options.preambleThreshold ?? 0.4;
-    const postambleThreshold = options.postambleThreshold ?? 0.4;
-
-    decoder.set_preamble_threshold(preambleThreshold);
-    decoder.set_postamble_threshold(postambleThreshold);
+    // Set preamble threshold (clamped to valid range)
+    decoder.set_preamble_threshold(Math.max(0.1, Math.min(0.9, preambleThreshold)));
 
     return decoder;
 }

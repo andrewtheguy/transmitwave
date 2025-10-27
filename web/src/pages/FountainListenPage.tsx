@@ -27,7 +27,6 @@ const FountainListenPage: React.FC = () => {
   const [micVolume, setMicVolume] = useState(0)
   const [volumeGain, setVolumeGain] = useState(1)
   const [preambleThreshold, setPreambleThreshold] = useState(0.4)
-  const [postambleThreshold, setPostambleThreshold] = useState(0.4)
 
   const processorRef = useRef<AudioWorkletNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -449,10 +448,7 @@ const FountainListenPage: React.FC = () => {
         hasInfinity: samples.some(s => !isFinite(s))
       })
 
-      const decoder = await createFountainDecoder({
-        preambleThreshold,
-        postambleThreshold,
-      })
+      const decoder = await createFountainDecoder(preambleThreshold)
       const data = decoder.decode_fountain(
         samples,
         TIMEOUT_SECS,
@@ -719,7 +715,7 @@ const FountainListenPage: React.FC = () => {
               <input
                 type="range"
                 min="0.5"
-                max="3"
+                max="10"
                 step="0.1"
                 value={volumeGain}
                 onChange={(e) => {
@@ -733,7 +729,7 @@ const FountainListenPage: React.FC = () => {
               />
               <span>{volumeGain.toFixed(1)}x</span>
             </div>
-            <small>Amplify microphone input (0.5x to 3x). Recommended: 1.0x</small>
+            <small>Amplify microphone input (0.5x to 10x). Recommended: 1.0x</small>
           </div>
 
           <div style={{ marginTop: '1rem' }}>
@@ -749,23 +745,6 @@ const FountainListenPage: React.FC = () => {
                 disabled={isListening}
               />
               <span>{preambleThreshold.toFixed(2)}</span>
-            </div>
-            <small>Lower values = more sensitive. Default: 0.4</small>
-          </div>
-
-          <div style={{ marginTop: '1rem' }}>
-            <label><strong>Postamble Detection Threshold</strong></label>
-            <div className="flex items-center gap-3 mt-2">
-              <input
-                type="range"
-                min="0.1"
-                max="0.9"
-                step="0.05"
-                value={postambleThreshold}
-                onChange={(e) => setPostambleThreshold(parseFloat(e.target.value))}
-                disabled={isListening}
-              />
-              <span>{postambleThreshold.toFixed(2)}</span>
             </div>
             <small>Lower values = more sensitive. Default: 0.4</small>
           </div>
