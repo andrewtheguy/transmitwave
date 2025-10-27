@@ -1024,10 +1024,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "transmitwave"
-version = "0.1.0"
-
-[[package]]
 name = "transmitwave-cli"
 version = "0.1.0"
 dependencies = [
