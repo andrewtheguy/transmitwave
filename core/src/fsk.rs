@@ -2,16 +2,16 @@ use crate::error::{AudioModemError, Result};
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
-// Multi-tone FSK configuration optimized for over-the-air audio transfer
+// Multi-tone FSK configuration optimized for mobile phone speakers
 //
 // Frequency band design:
 // - Uses 96 frequency bins with 20 Hz spacing
-// - Base frequency: 400 Hz (sub-bass range)
-// - Maximum frequency: 2300 Hz (400 + 95*20)
-// - Optimized for excellent room acoustics and speaker compatibility
+// - Base frequency: 800 Hz (optimal for mobile speakers)
+// - Maximum frequency: 2700 Hz (800 + 95*20)
+// - Optimized for excellent mobile speaker compatibility (iPhone, Android)
 //
 // Symbol parameters (at 16kHz sample rate):
-// - 3072 samples = 192ms per symbol (robust low-frequency detection)
+// - 3072 samples = 192ms per symbol (robust detection)
 //
 // Data encoding:
 // - Transmits 3 bytes (6 nibbles) per symbol
@@ -19,8 +19,8 @@ use std::f32::consts::PI;
 // - Uses Reed-Solomon FEC for error correction
 // - Includes preamble/postamble for frame synchronization
 
-/// Base frequency in Hz (sub-bass range for optimal room acoustics)
-const FSK_BASE_FREQ: f32 = 400.0;
+/// Base frequency in Hz (optimal range for mobile phone speakers)
+const FSK_BASE_FREQ: f32 = 800.0;
 
 /// Frequency spacing in Hz between adjacent bins
 const FSK_FREQ_DELTA: f32 = 20.0;
