@@ -465,7 +465,13 @@ const FountainListenPage: React.FC = () => {
       )
       const text = new TextDecoder().decode(data)
 
+      // Capture block statistics from decoder
+      const decodedBlocksCount = decoder.get_decoded_blocks()
+      const failedBlocksCount = decoder.get_failed_blocks()
+
       setDecodedText(text)
+      setDecodedBlocks(decodedBlocksCount)
+      setFailedBlocks(failedBlocksCount)
       setStatus(`Decoded successfully: "${text}"`)
       setStatusType('success')
     } catch (error) {

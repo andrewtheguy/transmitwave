@@ -49,7 +49,8 @@
       "Bash(timeout 60 cargo test:*)",
       "Bash(__NEW_LINE__ for test in test_fountain_single_block_crc_corruption test_fountain_multiple_blocks_crc_corruption test_fountain_crc_rejects_invalid_packets test_fountain_crc_detects_bit_flips test_fountain_crc_with_packet_loss_and_corruption test_fountain_integration_alternating_good_bad_blocks test_fountain_integration_burst_corruption test_fountain_integration_sparse_good_blocks test_fountain_integration_progressive_degradation)",
       "Bash(do echo \"Testing $test...\" gtimeout 30 cargo test --lib decoder_fsk::tests::$test --release)",
-      "Bash(gtimeout 180 cargo test:*)"
+      "Bash(gtimeout 180 cargo test:*)",
+      "Bash(git -C /Users/it3/codes/andrew/transmitwave log --oneline)"
     ],
     "deny": [],
     "ask": []

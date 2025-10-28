@@ -29,8 +29,9 @@ pub const SAMPLES_PER_SYMBOL: usize = (SAMPLE_RATE * SYMBOL_DURATION_MS) / 1000;
 
 // FSK configuration (multi-tone for robustness)
 // Uses 96 frequency bins with 6 simultaneous tones for non-coherent detection
-pub const FSK_MIN_FREQUENCY: f32 = 400.0; // Hz (base frequency)
-pub const FSK_MAX_FREQUENCY: f32 = 2300.0; // Hz (max frequency)
+// Optimized for mobile phone speakers (800-2700 Hz range)
+pub const FSK_MIN_FREQUENCY: f32 = 800.0; // Hz (base frequency)
+pub const FSK_MAX_FREQUENCY: f32 = 2700.0; // Hz (max frequency)
 pub const NUM_FSK_TONES: usize = 6; // 6 simultaneous frequencies per symbol (3 bytes)
 
 // Preamble/Postamble sync signal

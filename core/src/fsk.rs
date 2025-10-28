@@ -2,18 +2,16 @@ use crate::error::{AudioModemError, Result};
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
-// Multi-tone FSK configuration optimized for over-the-air audio transfer
+// Multi-tone FSK configuration optimized for mobile phone speakers
 //
 // Frequency band design:
 // - Uses 96 frequency bins with 20 Hz spacing
-// - Base frequency: 400 Hz (sub-bass range)
-// - Maximum frequency: 2300 Hz (400 + 95*20)
-// - Optimized for excellent room acoustics and speaker compatibility
+// - Base frequency: 800 Hz (optimal for mobile speakers)
+// - Maximum frequency: 2700 Hz (800 + 95*20)
+// - Optimized for excellent mobile speaker compatibility (iPhone, Android)
 //
 // Symbol parameters (at 16kHz sample rate):
-// - Normal:  3072 samples = 192ms per symbol (robust low-frequency detection)
-// - Fast:    1536 samples = 96ms per symbol
-// - Fastest: 768 samples = 48ms per symbol
+// - 3072 samples = 192ms per symbol (robust detection)
 //
 // Data encoding:
 // - Transmits 3 bytes (6 nibbles) per symbol
@@ -21,8 +19,8 @@ use std::f32::consts::PI;
 // - Uses Reed-Solomon FEC for error correction
 // - Includes preamble/postamble for frame synchronization
 
-/// Base frequency in Hz (sub-bass range for optimal room acoustics)
-const FSK_BASE_FREQ: f32 = 400.0;
+/// Base frequency in Hz (optimal range for mobile phone speakers)
+const FSK_BASE_FREQ: f32 = 800.0;
 
 /// Frequency spacing in Hz between adjacent bins
 const FSK_FREQ_DELTA: f32 = 20.0;
@@ -36,16 +34,6 @@ pub const FSK_NIBBLES_PER_SYMBOL: usize = 6;
 /// Number of bytes transmitted per symbol
 pub const FSK_BYTES_PER_SYMBOL: usize = 3;
 
-/// Speed mode variants for FSK transmission
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FskSpeed {
-    /// Normal: 192ms per symbol (robust for low-frequency detection)
-    Normal,
-    /// Fast: 96ms per symbol (balanced speed and reliability)
-    Fast,
-    /// Fastest: 48ms per symbol (maximum speed, less robust)
-    Fastest,
-}
 
 /// Configuration for fountain mode streaming
 #[derive(Debug, Clone)]
@@ -68,24 +56,8 @@ impl Default for FountainConfig {
     }
 }
 
-impl FskSpeed {
-    /// Get symbol duration in samples for this speed at 16kHz sample rate
-    pub fn samples_per_symbol(&self) -> usize {
-        match self {
-            FskSpeed::Normal => 3072,    // 192ms at 16kHz
-            FskSpeed::Fast => 1536,      // 96ms at 16kHz
-            FskSpeed::Fastest => 768,    // 48ms at 16kHz
-        }
-    }
 
-    /// Get approximate data rate in bytes/second
-    pub fn bytes_per_second(&self) -> f32 {
-        let symbol_duration_sec = self.samples_per_symbol() as f32 / 16000.0;
-        FSK_BYTES_PER_SYMBOL as f32 / symbol_duration_sec
-    }
-}
-
-/// Default FSK symbol duration (Normal speed: 192ms at 16kHz)
+/// FSK symbol duration (192ms at 16kHz sample rate)
 pub const FSK_SYMBOL_SAMPLES: usize = 3072;
 
 /// Apply a smooth envelope to reduce spectral splatter near symbol edges.
@@ -165,33 +137,13 @@ fn raised_cosine_window(len: usize, taper_len: usize) -> Vec<f32> {
 /// The 6 frequencies are transmitted simultaneously in the same time slot.
 pub struct FskModulator {
     sample_rate: f32,
-    speed: FskSpeed,
 }
 
 impl FskModulator {
     pub fn new() -> Self {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
-            speed: FskSpeed::Normal,
         }
-    }
-
-    /// Create a new modulator with specific speed
-    pub fn with_speed(speed: FskSpeed) -> Self {
-        Self {
-            sample_rate: crate::SAMPLE_RATE as f32,
-            speed,
-        }
-    }
-
-    /// Get current speed mode
-    pub fn speed(&self) -> FskSpeed {
-        self.speed
-    }
-
-    /// Set speed mode
-    pub fn set_speed(&mut self, speed: FskSpeed) {
-        self.speed = speed;
     }
 
     /// Modulate 3 bytes into a multi-tone FSK symbol
@@ -206,13 +158,12 @@ impl FskModulator {
     /// - Nibble 5 (byte[2] low):  bins 80-95
     ///
     /// All 6 tones are generated simultaneously and superimposed.
-    /// Symbol duration depends on the configured speed mode.
     pub fn modulate_symbol(&mut self, bytes: &[u8]) -> Result<Vec<f32>> {
         if bytes.len() != FSK_BYTES_PER_SYMBOL {
             return Err(AudioModemError::InvalidInputSize);
         }
 
-        let symbol_samples = self.speed.samples_per_symbol();
+        let symbol_samples = FSK_SYMBOL_SAMPLES;
         let mut samples = vec![0.0f32; symbol_samples];
 
         // Extract 6 nibbles from 3 bytes
@@ -304,36 +255,15 @@ impl FskModulator {
 /// FSK demodulator - detects multiple simultaneous frequencies using FFT
 ///
 /// Analyzes the spectrum to find 6 simultaneous tones, each representing a nibble.
-/// Supports multiple speed modes matching ggwave's protocol speeds.
 pub struct FskDemodulator {
     sample_rate: f32,
-    speed: FskSpeed,
 }
 
 impl FskDemodulator {
     pub fn new() -> Self {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
-            speed: FskSpeed::Normal,
         }
-    }
-
-    /// Create a new demodulator with specific speed
-    pub fn with_speed(speed: FskSpeed) -> Self {
-        Self {
-            sample_rate: crate::SAMPLE_RATE as f32,
-            speed,
-        }
-    }
-
-    /// Get current speed mode
-    pub fn speed(&self) -> FskSpeed {
-        self.speed
-    }
-
-    /// Set speed mode
-    pub fn set_speed(&mut self, speed: FskSpeed) {
-        self.speed = speed;
     }
 
     /// Compute power spectrum using simple DFT for our specific frequency bins
@@ -375,10 +305,8 @@ impl FskDemodulator {
     ///
     /// Detects 6 simultaneous tones, one from each band of 16 frequencies.
     /// Returns the 3 bytes encoded in the symbol.
-    /// Symbol duration depends on the configured speed mode.
     pub fn demodulate_symbol(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
-        let expected_samples = self.speed.samples_per_symbol();
-        if samples.len() != expected_samples {
+        if samples.len() != FSK_SYMBOL_SAMPLES {
             return Err(AudioModemError::InvalidInputSize);
         }
 
@@ -418,15 +346,14 @@ impl FskDemodulator {
     }
 
     /// Demodulate a sequence of multi-tone FSK symbols
-    /// samples.len() must be a multiple of the configured speed's samples_per_symbol
+    /// samples.len() must be a multiple of FSK_SYMBOL_SAMPLES
     pub fn demodulate(&self, samples: &[f32]) -> Result<Vec<u8>> {
-        let symbol_samples = self.speed.samples_per_symbol();
-        if samples.len() % symbol_samples != 0 {
+        if samples.len() % FSK_SYMBOL_SAMPLES != 0 {
             return Err(AudioModemError::InvalidInputSize);
         }
 
         let mut bytes = Vec::new();
-        for chunk in samples.chunks(symbol_samples) {
+        for chunk in samples.chunks(FSK_SYMBOL_SAMPLES) {
             let symbol_bytes = self.demodulate_symbol(chunk)?;
             bytes.extend_from_slice(&symbol_bytes);
         }
