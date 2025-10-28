@@ -1,6 +1,41 @@
 use wasm_bindgen::prelude::*;
 use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, detect_preamble, detect_postamble};
+use transmitwave_core::decoder_fsk::DecodeStats;
 use transmitwave_core::sync::DetectionThreshold;
+
+// ============================================================================
+// DECODE STATISTICS
+// ============================================================================
+
+/// Decode statistics exposed to JavaScript
+#[wasm_bindgen]
+pub struct WasmDecodeStats {
+    /// Number of successfully decoded blocks (passed CRC)
+    pub decoded_blocks: u32,
+    /// Number of blocks that failed CRC check (corrupted)
+    pub failed_blocks: u32,
+}
+
+#[wasm_bindgen]
+impl WasmDecodeStats {
+    /// Create a new decode statistics object
+    #[wasm_bindgen(constructor)]
+    pub fn new(decoded_blocks: u32, failed_blocks: u32) -> WasmDecodeStats {
+        WasmDecodeStats {
+            decoded_blocks,
+            failed_blocks,
+        }
+    }
+}
+
+impl From<DecodeStats> for WasmDecodeStats {
+    fn from(stats: DecodeStats) -> Self {
+        WasmDecodeStats {
+            decoded_blocks: stats.decoded_blocks,
+            failed_blocks: stats.failed_blocks,
+        }
+    }
+}
 
 // ============================================================================
 // DEFAULT ENCODER/DECODER CONFIGURATION
@@ -448,6 +483,24 @@ impl WasmFountainDecoder {
                 self.inner = decoder;
             })
             .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Get the number of successfully decoded blocks
+    #[wasm_bindgen]
+    pub fn get_decoded_blocks(&self) -> u32 {
+        self.inner.stats.decoded_blocks
+    }
+
+    /// Get the number of blocks that failed CRC check
+    #[wasm_bindgen]
+    pub fn get_failed_blocks(&self) -> u32 {
+        self.inner.stats.failed_blocks
+    }
+
+    /// Get all decode statistics as a WasmDecodeStats object
+    #[wasm_bindgen]
+    pub fn get_stats(&self) -> WasmDecodeStats {
+        WasmDecodeStats::from(self.inner.stats.clone())
     }
 
     /// Decode fountain-coded audio stream back to data (non-streaming mode)

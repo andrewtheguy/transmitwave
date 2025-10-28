@@ -11,6 +11,15 @@ use log::warn;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
+/// Statistics about fountain code decoding
+#[derive(Debug, Clone, Default)]
+pub struct DecodeStats {
+    /// Number of successfully decoded blocks (passed CRC)
+    pub decoded_blocks: u32,
+    /// Number of blocks that failed CRC check (corrupted)
+    pub failed_blocks: u32,
+}
+
 /// Decoder using Multi-tone FSK with Reed-Solomon FEC
 ///
 /// Demodulates multi-tone FSK symbols (6 simultaneous frequencies) using non-coherent
@@ -21,6 +30,7 @@ pub struct DecoderFsk {
     fec: FecDecoder,
     preamble_threshold: DetectionThreshold,
     postamble_threshold: DetectionThreshold,
+    pub stats: DecodeStats,
 }
 
 impl DecoderFsk {
@@ -30,6 +40,7 @@ impl DecoderFsk {
             fec: FecDecoder::new()?,
             preamble_threshold: DetectionThreshold::Adaptive, // Default: use adaptive threshold
             postamble_threshold: DetectionThreshold::Adaptive, // Default: use adaptive threshold
+            stats: DecodeStats::default(),
         })
     }
 
@@ -337,9 +348,13 @@ impl DecoderFsk {
 
                     if received_crc != computed_crc {
                         // Packet corrupted - skip it and continue
+                        self.stats.failed_blocks += 1;
                         search_offset = data_end;
                         continue;
                     }
+
+                    // CRC passed - count as successfully decoded block
+                    self.stats.decoded_blocks += 1;
 
                     // Attempt to deserialize the packet. The raptorq library's EncodingPacket::deserialize
                     // may panic if the input is malformed. We validate packet length and CRC above, but the

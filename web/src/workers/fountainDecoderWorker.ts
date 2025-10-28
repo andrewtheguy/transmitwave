@@ -85,10 +85,41 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
           const data = decoder.try_decode()
           const text = new TextDecoder().decode(data)
           const totalSamples = sampleBuffer.reduce((sum, s) => sum + s.length, 0)
-          self.postMessage({ type: 'decode_success', text, sampleCount: totalSamples })
+          const decodedBlocks = decoder.get_decoded_blocks()
+          const failedBlocks = decoder.get_failed_blocks()
+          self.postMessage({
+            type: 'decode_success',
+            text,
+            sampleCount: totalSamples,
+            decodedBlocks,
+            failedBlocks
+          })
         } catch (error) {
           const totalSamples = sampleBuffer.reduce((sum, s) => sum + s.length, 0)
-          self.postMessage({ type: 'decode_failed', error: String(error), sampleCount: totalSamples })
+          // Still get stats even on decode failure
+          try {
+            const decoder = await createNewDecoder()
+            for (const chunk of sampleBuffer) {
+              decoder.feed_chunk(chunk)
+            }
+            const decodedBlocks = decoder.get_decoded_blocks()
+            const failedBlocks = decoder.get_failed_blocks()
+            self.postMessage({
+              type: 'decode_failed',
+              error: String(error),
+              sampleCount: totalSamples,
+              decodedBlocks,
+              failedBlocks
+            })
+          } catch {
+            self.postMessage({
+              type: 'decode_failed',
+              error: String(error),
+              sampleCount: totalSamples,
+              decodedBlocks: 0,
+              failedBlocks: 0
+            })
+          }
         }
         break
       }

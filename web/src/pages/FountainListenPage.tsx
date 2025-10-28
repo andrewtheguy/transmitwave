@@ -27,6 +27,8 @@ const FountainListenPage: React.FC = () => {
   const [micVolume, setMicVolume] = useState(0)
   const [volumeGain, setVolumeGain] = useState(1)
   const [preambleThreshold, setPreambleThreshold] = useState(0.4)
+  const [decodedBlocks, setDecodedBlocks] = useState(0)
+  const [failedBlocks, setFailedBlocks] = useState(0)
 
   const processorRef = useRef<AudioWorkletNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -116,13 +118,18 @@ const FountainListenPage: React.FC = () => {
         const { type } = event.data
 
         if (type === 'decode_success') {
-          const { text } = event.data
+          const { text, decodedBlocks, failedBlocks } = event.data
           setDecodedText(text)
+          setDecodedBlocks(decodedBlocks || 0)
+          setFailedBlocks(failedBlocks || 0)
           setStatus(`Decoded successfully: "${text}"`)
           setStatusType('success')
           console.log('Decode succeeded via worker!')
           stopRecording().catch(err => console.warn('Error in stopRecording:', err))
         } else if (type === 'decode_failed') {
+          const { decodedBlocks, failedBlocks } = event.data
+          setDecodedBlocks(decodedBlocks || 0)
+          setFailedBlocks(failedBlocks || 0)
           console.log(`Decode attempt failed via worker:`, event.data.error)
         } else if (type === 'chunk_fed') {
           setSampleCount(event.data.sampleCount)
@@ -202,6 +209,8 @@ const FountainListenPage: React.FC = () => {
       setElapsed(0)
       setSampleCount(0)
       setDecodeAttempts(0)
+      setDecodedBlocks(0)
+      setFailedBlocks(0)
 
       processor.port.onmessage = (event: MessageEvent<Float32Array>) => {
         const samples: number[] = Array.from(event.data)
@@ -698,6 +707,20 @@ const FountainListenPage: React.FC = () => {
             <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
               <div>Samples accumulated: {sampleCount.toLocaleString()}</div>
               <div>Decode attempts: {decodeAttempts}</div>
+              <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #cbd5e0' }}>
+                <div>Successfully decoded blocks: {decodedBlocks}</div>
+                <div>Failed blocks (CRC): {failedBlocks}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!isRecording && (decodedBlocks > 0 || failedBlocks > 0) && (
+          <div className="mt-4" style={{ fontSize: '0.9rem', color: '#64748b', padding: '0.75rem', background: '#f0fdf4', borderRadius: '0.375rem', borderLeft: '3px solid #22c55e' }}>
+            <div><strong>Decode Statistics:</strong></div>
+            <div style={{ marginTop: '0.5rem' }}>
+              <div>Successfully decoded blocks: {decodedBlocks}</div>
+              <div>Failed blocks (CRC): {failedBlocks}</div>
             </div>
           </div>
         )}
