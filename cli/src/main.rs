@@ -142,8 +142,8 @@ enum Commands {
         #[arg(short, long, default_value = "30")]
         timeout: u32,
 
-        /// Block size in bytes (default: 64)
-        #[arg(short, long, default_value = "64")]
+        /// Block size in bytes (default: 16)
+        #[arg(short, long, default_value = "16")]
         block_size: usize,
 
         /// Repair blocks ratio (default: 0.5)
@@ -165,8 +165,8 @@ enum Commands {
         #[arg(short, long, default_value = "30")]
         timeout: u32,
 
-        /// Block size in bytes (default: 64)
-        #[arg(short, long, default_value = "64")]
+        /// Block size in bytes (default: 16)
+        #[arg(short, long, default_value = "16")]
         block_size: usize,
 
         /// Use adaptive threshold for both preamble and postamble

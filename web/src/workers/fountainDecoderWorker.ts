@@ -21,7 +21,7 @@ interface ResetMessage {
 type WorkerMessage = FeedChunkMessage | SetBlockSizeMessage | TryDecodeMessage | ResetMessage
 
 let sampleBuffer: Float32Array[] = []
-let blockSize = 64
+let blockSize = 16
 let wasmInitialized = false
 const MAX_BUFFER_SAMPLES = 80000 // ~5 seconds at 16kHz
 
