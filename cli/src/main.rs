@@ -471,9 +471,14 @@ fn fountain_decode_command(
     let data = decoder.decode_fountain(&samples, Some(config))?;
     println!("Successfully decoded {} bytes using fountain mode", data.len());
 
+    // Display decode statistics
+    println!("\nDecode Statistics:");
+    println!("  Successfully decoded blocks: {}", decoder.stats.decoded_blocks);
+    println!("  Failed blocks (CRC): {}", decoder.stats.failed_blocks);
+
     // Write binary file
     std::fs::write(output_path, &data)?;
-    println!("Wrote {} to {}", data.len(), output_path.display());
+    println!("\nWrote {} bytes to {}", data.len(), output_path.display());
 
     Ok(())
 }
