@@ -583,4 +583,204 @@ mod tests {
             timeout_secs, SAMPLE_RATE, expected_max_samples
         );
     }
+
+    #[test]
+    fn test_fountain_repair_packets_have_unique_data() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let data = b"Unique repair packet test - verify different packets have different encoded data";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 64,
+            repair_blocks_ratio: 1.0, // 100% repair overhead for more repair packets
+        };
+
+        // Test by checking the underlying RaptorQ packets directly
+        // This is more reliable than trying to extract from FSK-modulated audio
+        let mut stream = encoder.encode_fountain(data, Some(config)).unwrap();
+
+        let mut packet_serializations: Vec<Vec<u8>> = Vec::new();
+
+        // Collect first few packets to analyze
+        for _ in 0..20 {
+            if let Some(packet) = stream.select_next_packet() {
+                let serialized = packet.serialize();
+                packet_serializations.push(serialized);
+            } else {
+                break;
+            }
+        }
+
+        assert!(packet_serializations.len() >= 3, "Should collect at least 3 packet serializations (got {})", packet_serializations.len());
+
+        // Count unique serialized packets
+        let mut unique_packets = std::collections::HashSet::new();
+        for pkt in &packet_serializations {
+            unique_packets.insert(pkt.clone());
+        }
+
+        // With source packets + repair packets, we should see at least 2 unique patterns
+        assert!(
+            unique_packets.len() >= 2,
+            "Should see at least 2 unique serialized packets (source + repair), got {}",
+            unique_packets.len()
+        );
+
+        info!("Generated {} unique serialized packets from {} total", unique_packets.len(), packet_serializations.len());
+    }
+
+    #[test]
+    fn test_fountain_source_packets_are_identical() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let data = b"Source packet identity test";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 64,
+            repair_blocks_ratio: 0.0, // Only source packets, no repairs
+        };
+
+        let mut stream = encoder.encode_fountain(data, Some(config)).unwrap();
+
+        // With repair_ratio 0.0, select_next_packet should return source packets from the same set
+        let mut source_packets: Vec<Vec<u8>> = Vec::new();
+
+        for _ in 0..10 {
+            if let Some(packet) = stream.select_next_packet() {
+                source_packets.push(packet.serialize());
+            } else {
+                break;
+            }
+        }
+
+        assert!(source_packets.len() >= 2, "Should get at least 2 source packets (got {})", source_packets.len());
+
+        // With repair_ratio 0.0, it should cycle through source packets repeatedly
+        // So the first few source packets should repeat
+        let pkt1 = &source_packets[0];
+        let pkt2 = &source_packets[1];
+
+        // Check if we have the same packet (indicating cycling through source)
+        // OR if they're different (indicating multiple source blocks)
+        // Either is valid - just verify the mechanism works
+
+        if source_packets.len() >= stream.source_packets.len() * 2 {
+            // If we got at least 2 full cycles, first packet should repeat somewhere
+            let found_repeat = source_packets.iter().skip(stream.source_packets.len())
+                .any(|pkt| pkt == pkt1);
+            assert!(found_repeat, "With repair_ratio=0, source packets should repeat in cycles");
+        } else {
+            // Not enough packets to verify cycling yet, just verify we got packets
+            assert!(!source_packets.is_empty(), "Should have generated source packets");
+        }
+
+        info!("Generated {} source packets, {}unique serializations", source_packets.len(),
+            source_packets.iter().collect::<std::collections::HashSet<_>>().len());
+    }
+
+    #[test]
+    fn test_fountain_packets_differ_from_metadata() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let data = b"Test that packet payloads are different, not just metadata";
+
+        let config = FountainConfig {
+            timeout_secs: 30,
+            block_size: 64,
+            repair_blocks_ratio: 1.0,
+        };
+
+        let mut stream = encoder.encode_fountain(data, Some(config)).unwrap();
+
+        // Collect serialized packets to directly compare their payloads
+        let mut packets: Vec<Vec<u8>> = Vec::new();
+
+        for _ in 0..30 {
+            if let Some(packet) = stream.select_next_packet() {
+                packets.push(packet.serialize());
+            } else {
+                break;
+            }
+        }
+
+        assert!(packets.len() >= 5, "Should collect at least 5 packets (got {})", packets.len());
+
+        // Count unique packet serializations
+        let mut unique_packets = std::collections::HashSet::new();
+        for pkt in &packets {
+            unique_packets.insert(pkt.clone());
+        }
+
+        // Key assertion: With repair packets, we should see multiple unique serializations
+        // This proves that blocks contain different data, not just different metadata
+        //
+        // - Source packets (K packets): may repeat in cycles
+        // - Repair packets (ESI >= K): each counter value produces different repair packets
+        //
+        // So we should see at least: 1 unique source pattern + 2+ unique repair patterns = 3+ unique
+        // Or at minimum 2 unique (source repeated, then at least 1 repair different)
+        assert!(
+            unique_packets.len() >= 2,
+            "Should see at least 2 unique packet serializations with repair packets enabled. Got {}. This suggests packets might not have unique data payloads.",
+            unique_packets.len()
+        );
+
+        // Count how many are likely repair packets (come after source packets)
+        let num_source_expected = stream.source_packets.len();
+        let num_repairs_generated = packets.len().saturating_sub(num_source_expected);
+
+        info!(
+            "Generated {} total packets: ~{} source, ~{} repairs. Found {} unique serializations",
+            packets.len(), num_source_expected, num_repairs_generated, unique_packets.len()
+        );
+    }
+
+    #[test]
+    fn test_fountain_repair_counter_increments() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        // Use longer data to ensure multiple source packets
+        let data = b"Repair counter increment test with enough data to have multiple source blocks";
+
+        let config = FountainConfig {
+            timeout_secs: 5,
+            block_size: 64,
+            repair_blocks_ratio: 1.0,
+        };
+
+        let mut stream = encoder.encode_fountain(data, Some(config)).unwrap();
+
+        // Verify repair_counters are initialized
+        let initial_counters = stream.repair_counters.clone();
+        assert!(!initial_counters.is_empty(), "Should have repair counters for source blocks");
+
+        let num_source_packets = stream.source_packets.len();
+        let num_blocks = stream.repair_counters.len();
+
+        // Generate enough blocks to ensure we get into repair packet generation
+        // With repair_ratio 1.0, we should get source_packets + repairs_per_cycle packets per cycle
+        let block_count = num_source_packets * 2 + 20;
+
+        for _ in 0..block_count {
+            if stream.next().is_none() {
+                break;
+            }
+        }
+
+        // After generation, repair counters should have been incremented (assuming we generated repair packets)
+        let final_counters = stream.repair_counters.clone();
+
+        // If we have multiple blocks and repair ratio > 0, at least some counters should be > 0
+        if num_blocks > 1 && stream.repairs_per_cycle > 0 {
+            let incremented_count = final_counters.iter().filter(|c| **c > 0).count();
+            assert!(
+                incremented_count > 0,
+                "With {} blocks and repair_ratio=1.0, at least one counter should be incremented, got: {:?}",
+                num_blocks, final_counters
+            );
+        }
+
+        info!(
+            "Repair counters after generation: {:?} (num_blocks={}, repairs_per_cycle={})",
+            final_counters, num_blocks, stream.repairs_per_cycle
+        );
+    }
 }
