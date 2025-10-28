@@ -1,12 +1,12 @@
 use crate::error::Result;
 use crate::fec::{FecEncoder, FecMode};
-use crate::framing::{Frame, FrameEncoder, crc16};
-use crate::fsk::{FskModulator, FountainConfig};
-use crate::sync::{generate_preamble, generate_postamble_signal};
-use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
+use crate::framing::{crc16, Frame, FrameEncoder};
+use crate::fsk::{FountainConfig, FskModulator};
+use crate::sync::{generate_postamble_signal, generate_preamble};
+use crate::{MAX_PAYLOAD_SIZE, POSTAMBLE_SAMPLES, PREAMBLE_SAMPLES};
+use log::info;
 use raptorq::{Encoder, EncodingPacket};
 use std::time::{Duration, Instant};
-use log::info;
 
 /// Encoder using Multi-tone FSK with Reed-Solomon FEC
 ///
@@ -121,7 +121,11 @@ impl EncoderFsk {
     ///
     /// Each yielded Vec<f32> is a complete audio chunk with:
     /// preamble + fountain_block + postamble
-    pub fn encode_fountain(&mut self, data: &[u8], config: Option<FountainConfig>) -> Result<FountainStream> {
+    pub fn encode_fountain(
+        &mut self,
+        data: &[u8],
+        config: Option<FountainConfig>,
+    ) -> Result<FountainStream> {
         if data.len() > MAX_PAYLOAD_SIZE {
             return Err(crate::error::AudioModemError::InvalidInputSize);
         }
@@ -141,15 +145,18 @@ impl EncoderFsk {
         let frame_data = FrameEncoder::encode(&frame)?;
 
         // Validate block_size before casting to u16
-        let symbol_size = u16::try_from(config.block_size)
-            .map_err(|_| crate::error::AudioModemError::InvalidConfig(
-                format!("block_size {} exceeds maximum u16 value ({})", config.block_size, u16::MAX)
-            ))?;
+        let symbol_size = u16::try_from(config.block_size).map_err(|_| {
+            crate::error::AudioModemError::InvalidConfig(format!(
+                "block_size {} exceeds maximum u16 value ({})",
+                config.block_size,
+                u16::MAX
+            ))
+        })?;
 
         // Create RaptorQ encoder using with_defaults for proper parameter handling
         let oti = raptorq::ObjectTransmissionInformation::with_defaults(
             frame_data.len() as u64,
-            symbol_size
+            symbol_size,
         );
 
         let encoder = Encoder::new(&frame_data, oti);
@@ -171,7 +178,8 @@ impl EncoderFsk {
         let repairs_per_cycle = if config.repair_blocks_ratio <= 0.0 {
             0
         } else {
-            let desired = (source_packets.len() as f32 * config.repair_blocks_ratio).ceil() as usize;
+            let desired =
+                (source_packets.len() as f32 * config.repair_blocks_ratio).ceil() as usize;
             desired.max(1)
         };
 
@@ -499,9 +507,7 @@ mod tests {
 
         // Generate all blocks and verify total doesn't greatly exceed max_samples
         // Note: May exceed by one block since we emit complete blocks without truncation
-        let total: usize = stream
-            .map(|block| block.len())
-            .sum();
+        let total: usize = stream.map(|block| block.len()).sum();
 
         // Allow some overshoot - one additional block beyond max_samples is acceptable
         // since we emit complete blocks and never truncate mid-block
@@ -587,7 +593,8 @@ mod tests {
     #[test]
     fn test_fountain_repair_packets_have_unique_data() {
         let mut encoder = EncoderFsk::new().unwrap();
-        let data = b"Unique repair packet test - verify different packets have different encoded data";
+        let data =
+            b"Unique repair packet test - verify different packets have different encoded data";
 
         let config = FountainConfig {
             timeout_secs: 30,
@@ -611,7 +618,11 @@ mod tests {
             }
         }
 
-        assert!(packet_serializations.len() >= 3, "Should collect at least 3 packet serializations (got {})", packet_serializations.len());
+        assert!(
+            packet_serializations.len() >= 3,
+            "Should collect at least 3 packet serializations (got {})",
+            packet_serializations.len()
+        );
 
         // Count unique serialized packets
         let mut unique_packets = std::collections::HashSet::new();
@@ -626,7 +637,11 @@ mod tests {
             unique_packets.len()
         );
 
-        info!("Generated {} unique serialized packets from {} total", unique_packets.len(), packet_serializations.len());
+        info!(
+            "Generated {} unique serialized packets from {} total",
+            unique_packets.len(),
+            packet_serializations.len()
+        );
     }
 
     #[test]
@@ -653,7 +668,11 @@ mod tests {
             }
         }
 
-        assert!(source_packets.len() >= 2, "Should get at least 2 source packets (got {})", source_packets.len());
+        assert!(
+            source_packets.len() >= 2,
+            "Should get at least 2 source packets (got {})",
+            source_packets.len()
+        );
 
         // With repair_ratio 0.0, it should cycle through source packets repeatedly
         // So the first few source packets should repeat
@@ -666,16 +685,30 @@ mod tests {
 
         if source_packets.len() >= stream.source_packets.len() * 2 {
             // If we got at least 2 full cycles, first packet should repeat somewhere
-            let found_repeat = source_packets.iter().skip(stream.source_packets.len())
+            let found_repeat = source_packets
+                .iter()
+                .skip(stream.source_packets.len())
                 .any(|pkt| pkt == pkt1);
-            assert!(found_repeat, "With repair_ratio=0, source packets should repeat in cycles");
+            assert!(
+                found_repeat,
+                "With repair_ratio=0, source packets should repeat in cycles"
+            );
         } else {
             // Not enough packets to verify cycling yet, just verify we got packets
-            assert!(!source_packets.is_empty(), "Should have generated source packets");
+            assert!(
+                !source_packets.is_empty(),
+                "Should have generated source packets"
+            );
         }
 
-        info!("Generated {} source packets, {}unique serializations", source_packets.len(),
-            source_packets.iter().collect::<std::collections::HashSet<_>>().len());
+        info!(
+            "Generated {} source packets, {}unique serializations",
+            source_packets.len(),
+            source_packets
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+        );
     }
 
     #[test]
@@ -702,7 +735,11 @@ mod tests {
             }
         }
 
-        assert!(packets.len() >= 5, "Should collect at least 5 packets (got {})", packets.len());
+        assert!(
+            packets.len() >= 5,
+            "Should collect at least 5 packets (got {})",
+            packets.len()
+        );
 
         // Count unique packet serializations
         let mut unique_packets = std::collections::HashSet::new();
@@ -730,7 +767,10 @@ mod tests {
 
         info!(
             "Generated {} total packets: ~{} source, ~{} repairs. Found {} unique serializations",
-            packets.len(), num_source_expected, num_repairs_generated, unique_packets.len()
+            packets.len(),
+            num_source_expected,
+            num_repairs_generated,
+            unique_packets.len()
         );
     }
 
@@ -750,7 +790,10 @@ mod tests {
 
         // Verify repair_counters are initialized
         let initial_counters = stream.repair_counters.clone();
-        assert!(!initial_counters.is_empty(), "Should have repair counters for source blocks");
+        assert!(
+            !initial_counters.is_empty(),
+            "Should have repair counters for source blocks"
+        );
 
         let num_source_packets = stream.source_packets.len();
         let num_blocks = stream.repair_counters.len();

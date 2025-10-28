@@ -1,12 +1,12 @@
 use crate::error::{AudioModemError, Result};
 use crate::fec::{FecDecoder, FecMode};
-use crate::framing::{FrameDecoder, crc16};
-use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
+use crate::framing::{crc16, FrameDecoder};
+use crate::fsk::{FountainConfig, FskDemodulator, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
 use crate::sync::{detect_postamble, detect_preamble, DetectionThreshold};
 use crate::PREAMBLE_SAMPLES;
+use log::warn;
 use raptorq::{Decoder, EncodingPacket};
 use std::panic::catch_unwind;
-use log::warn;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
@@ -48,7 +48,9 @@ impl DecoderFsk {
     pub fn set_preamble_threshold(&mut self, threshold: DetectionThreshold) {
         self.preamble_threshold = match threshold {
             DetectionThreshold::Adaptive => DetectionThreshold::Adaptive,
-            DetectionThreshold::Fixed(value) => DetectionThreshold::Fixed(value.max(0.001).min(1.0)),
+            DetectionThreshold::Fixed(value) => {
+                DetectionThreshold::Fixed(value.max(0.001).min(1.0))
+            }
         };
     }
 
@@ -61,7 +63,9 @@ impl DecoderFsk {
     pub fn set_postamble_threshold(&mut self, threshold: DetectionThreshold) {
         self.postamble_threshold = match threshold {
             DetectionThreshold::Adaptive => DetectionThreshold::Adaptive,
-            DetectionThreshold::Fixed(value) => DetectionThreshold::Fixed(value.max(0.001).min(1.0)),
+            DetectionThreshold::Fixed(value) => {
+                DetectionThreshold::Fixed(value.max(0.001).min(1.0))
+            }
         };
     }
 
@@ -156,11 +160,13 @@ impl DecoderFsk {
                     // Check if this produces a valid header
                     let decoded_data = &decoded_chunk[padding_needed_first..];
                     if decoded_data.len() >= 8 {
-                        if let Ok((_, _, fec_mode_byte)) = FrameDecoder::decode_header(decoded_data) {
+                        if let Ok((_, _, fec_mode_byte)) = FrameDecoder::decode_header(decoded_data)
+                        {
                             if let Ok(parsed_mode) = FecMode::from_u8(fec_mode_byte) {
                                 if parsed_mode == mode {
                                     // Found the correct FEC mode!
-                                    decoded_first_block = Some((decoded_data.to_vec(), encoded_len));
+                                    decoded_first_block =
+                                        Some((decoded_data.to_vec(), encoded_len));
                                     detected_fec_mode = mode;
                                     break;
                                 }
@@ -171,8 +177,8 @@ impl DecoderFsk {
             }
         }
 
-        let (first_decoded, first_encoded_len) = decoded_first_block
-            .ok_or(AudioModemError::FecDecodeFailure)?;
+        let (first_decoded, first_encoded_len) =
+            decoded_first_block.ok_or(AudioModemError::FecDecodeFailure)?;
 
         // Now decode remaining blocks using the detected FEC mode
         let mut decoded_data = first_decoded;
@@ -234,7 +240,11 @@ impl DecoderFsk {
     /// to decode the original data. Continues until successful decode or timeout.
     ///
     /// Returns the decoded payload or an error if decoding fails or timeout occurs.
-    pub fn decode_fountain(&mut self, samples: &[f32], config: Option<FountainConfig>) -> Result<Vec<u8>> {
+    pub fn decode_fountain(
+        &mut self,
+        samples: &[f32],
+        config: Option<FountainConfig>,
+    ) -> Result<Vec<u8>> {
         let config = config.unwrap_or_default();
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -343,7 +353,8 @@ impl DecoderFsk {
 
                     let packet_bytes = &slice[..packet_len];
                     // Extract and validate packet CRC-16 for early corruption detection
-                    let received_crc = u16::from_be_bytes([slice[packet_len], slice[packet_len + 1]]);
+                    let received_crc =
+                        u16::from_be_bytes([slice[packet_len], slice[packet_len + 1]]);
                     let computed_crc = crc16(packet_bytes);
 
                     if received_crc != computed_crc {
@@ -396,7 +407,7 @@ impl DecoderFsk {
                     if decoder.is_none() && frame_length.is_some() && symbol_size.is_some() {
                         let oti = raptorq::ObjectTransmissionInformation::with_defaults(
                             frame_length.unwrap() as u64,
-                            symbol_size.unwrap()
+                            symbol_size.unwrap(),
                         );
                         decoder = Some(Decoder::new(oti));
                     }
@@ -569,10 +580,10 @@ mod tests {
 
         // Test with repeating byte patterns
         let patterns = vec![
-            vec![0x00; 20],      // All zeros
-            vec![0xFF; 20],      // All ones
-            vec![0xAA; 20],      // Alternating bits
-            vec![0x55; 20],      // Alternating bits (inverse)
+            vec![0x00; 20], // All zeros
+            vec![0xFF; 20], // All ones
+            vec![0xAA; 20], // Alternating bits
+            vec![0x55; 20], // Alternating bits (inverse)
         ];
 
         for data in patterns {
@@ -632,7 +643,8 @@ mod tests {
         // Simulate packet loss by dropping every 3rd block
         let mut samples = Vec::new();
         for (i, block) in blocks.iter().enumerate() {
-            if i % 3 != 0 {  // Drop every 3rd block
+            if i % 3 != 0 {
+                // Drop every 3rd block
                 samples.extend_from_slice(block);
             }
         }
@@ -663,14 +675,18 @@ mod tests {
         ];
 
         for data in test_cases {
-            let stream = encoder.encode_fountain(&data, Some(config.clone())).unwrap();
+            let stream = encoder
+                .encode_fountain(&data, Some(config.clone()))
+                .unwrap();
             let blocks: Vec<_> = stream.take(15).collect();
             let mut samples = Vec::new();
             for block in blocks {
                 samples.extend_from_slice(&block);
             }
 
-            let decoded = decoder.decode_fountain(&samples, Some(config.clone())).unwrap();
+            let decoded = decoder
+                .decode_fountain(&samples, Some(config.clone()))
+                .unwrap();
             assert_eq!(decoded, data, "Failed for data length {}", data.len());
         }
     }
@@ -712,7 +728,10 @@ mod tests {
 
         // Decoding should still succeed with remaining good blocks
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should recover despite first block corruption");
+        assert_eq!(
+            decoded, data,
+            "Should recover despite first block corruption"
+        );
     }
 
     #[test]
@@ -743,7 +762,7 @@ mod tests {
                 let corruption_end = (corruption_start + 25).min(block.len());
                 for i in corruption_start..corruption_end {
                     // Flip bits to simulate data corruption without destroying entire block
-                    let bits = block[i].to_bits() ^ 0x80000000u32;  // Flip sign bit
+                    let bits = block[i].to_bits() ^ 0x80000000u32; // Flip sign bit
                     block[i] = f32::from_bits(bits);
                 }
             }
@@ -757,7 +776,10 @@ mod tests {
 
         // Should still succeed with sufficient redundancy
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should recover with multiple block corruptions");
+        assert_eq!(
+            decoded, data,
+            "Should recover with multiple block corruptions"
+        );
     }
 
     #[test]
@@ -786,7 +808,7 @@ mod tests {
             for i in 0..block.len().min(80) {
                 // Flip bits at every 3rd position to create detectable corruption
                 if i % 3 == 0 {
-                    let bits = block[i].to_bits() ^ 0x80000000u32;  // Flip sign bit
+                    let bits = block[i].to_bits() ^ 0x80000000u32; // Flip sign bit
                     block[i] = f32::from_bits(bits);
                 }
             }
@@ -961,7 +983,10 @@ mod tests {
 
         // Should successfully decode despite every other block being bad
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should decode with alternating good/bad blocks");
+        assert_eq!(
+            decoded, data,
+            "Should decode with alternating good/bad blocks"
+        );
     }
 
     #[test]
@@ -1005,7 +1030,10 @@ mod tests {
 
         // Should recover despite burst of 5 consecutive bad blocks
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should recover from burst corruption with good blocks before/after");
+        assert_eq!(
+            decoded, data,
+            "Should recover from burst corruption with good blocks before/after"
+        );
     }
 
     #[test]
@@ -1127,7 +1155,10 @@ mod tests {
 
         // Should decode because repair blocks arrive later
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should decode with repair blocks after bad source blocks");
+        assert_eq!(
+            decoded, data,
+            "Should decode with repair blocks after bad source blocks"
+        );
     }
 
     #[test]
@@ -1213,7 +1244,10 @@ mod tests {
 
         // Should still decode despite progressive quality loss
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should decode despite progressive degradation");
+        assert_eq!(
+            decoded, data,
+            "Should decode despite progressive degradation"
+        );
     }
 
     #[test]
@@ -1254,7 +1288,10 @@ mod tests {
 
         // Should decode with isolated good blocks spread apart
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should decode with widely separated good blocks");
+        assert_eq!(
+            decoded, data,
+            "Should decode with widely separated good blocks"
+        );
     }
 
     #[test]
@@ -1283,7 +1320,10 @@ mod tests {
 
         // Should still decode successfully with fountain coding providing repair packets
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should decode even with first 5 blocks missing");
+        assert_eq!(
+            decoded, data,
+            "Should decode even with first 5 blocks missing"
+        );
     }
 
     #[test]
@@ -1348,7 +1388,10 @@ mod tests {
 
         // Should decode with alternating blocks missing from the beginning
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should decode with alternating early blocks missing");
+        assert_eq!(
+            decoded, data,
+            "Should decode with alternating early blocks missing"
+        );
     }
 
     #[test]
@@ -1377,7 +1420,10 @@ mod tests {
 
         // Should decode with 50% of initial blocks missing
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should decode with first half of blocks missing");
+        assert_eq!(
+            decoded, data,
+            "Should decode with first half of blocks missing"
+        );
     }
 
     #[test]
@@ -1406,7 +1452,10 @@ mod tests {
 
         // Should decode even with small data and missing initial blocks
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should decode small data with first 3 blocks missing");
+        assert_eq!(
+            decoded, data,
+            "Should decode small data with first 3 blocks missing"
+        );
     }
 
     #[test]
@@ -1424,7 +1473,9 @@ mod tests {
         };
 
         // Generate blocks
-        let stream = encoder.encode_fountain(&data, Some(config.clone())).unwrap();
+        let stream = encoder
+            .encode_fountain(&data, Some(config.clone()))
+            .unwrap();
         let blocks: Vec<_> = stream.take(20).collect();
 
         // Skip first 4 blocks (20% loss at start)
@@ -1435,6 +1486,9 @@ mod tests {
 
         // Should decode larger data even with missing early blocks
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
-        assert_eq!(decoded, data, "Should decode 120-byte data with first 4 blocks missing");
+        assert_eq!(
+            decoded, data,
+            "Should decode 120-byte data with first 4 blocks missing"
+        );
     }
 }

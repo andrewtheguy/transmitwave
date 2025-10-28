@@ -3,14 +3,17 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use base64::Engine;
 use clap::{Parser, Subcommand};
 use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE, DetectionThreshold};
 use tower_http::cors::CorsLayer;
-use base64::Engine;
+use transmitwave_core::{
+    resample_audio, stereo_to_mono, DecoderFsk, DetectionThreshold, EncoderFsk, FountainConfig,
+    SAMPLE_RATE,
+};
 
 // ============================================================================
 // ENCODER/DECODER CONFIGURATION
@@ -206,21 +209,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
-            Commands::Encode { input, output } => {
-                encode_fsk_command(&input, &output)?
-            }
-            Commands::Decode { input, output, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
-                decode_fsk_command(&input, &output, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
-            }
+            Commands::Encode { input, output } => encode_fsk_command(&input, &output)?,
+            Commands::Decode {
+                input,
+                output,
+                adaptive,
+                threshold,
+                preamble_adaptive,
+                preamble_threshold,
+                postamble_adaptive,
+                postamble_threshold,
+            } => decode_fsk_command(
+                &input,
+                &output,
+                adaptive,
+                threshold,
+                preamble_adaptive,
+                preamble_threshold,
+                postamble_adaptive,
+                postamble_threshold,
+            )?,
             Commands::Server { port } => {
                 return start_web_server(port);
             }
-            Commands::FountainEncode { input, output, timeout, block_size, repair_ratio } => {
-                fountain_encode_command(&input, &output, timeout, block_size, repair_ratio)?
-            }
-            Commands::FountainDecode { input, output, timeout, block_size, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
-                fountain_decode_command(&input, &output, timeout, block_size, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
-            }
+            Commands::FountainEncode {
+                input,
+                output,
+                timeout,
+                block_size,
+                repair_ratio,
+            } => fountain_encode_command(&input, &output, timeout, block_size, repair_ratio)?,
+            Commands::FountainDecode {
+                input,
+                output,
+                timeout,
+                block_size,
+                adaptive,
+                threshold,
+                preamble_adaptive,
+                preamble_threshold,
+                postamble_adaptive,
+                postamble_threshold,
+            } => fountain_decode_command(
+                &input,
+                &output,
+                timeout,
+                block_size,
+                adaptive,
+                threshold,
+                preamble_adaptive,
+                preamble_threshold,
+                postamble_adaptive,
+                postamble_threshold,
+            )?,
         }
         return Ok(());
     }
@@ -323,7 +364,10 @@ fn fountain_encode_command(
     let stream = encoder.encode_fountain(&data, Some(config))?;
 
     // Collect all blocks generated within timeout
-    println!("Generating fountain blocks (this will take up to {} seconds)...", timeout);
+    println!(
+        "Generating fountain blocks (this will take up to {} seconds)...",
+        timeout
+    );
     let mut all_samples = Vec::new();
     let mut block_count = 0;
 
@@ -337,7 +381,11 @@ fn fountain_encode_command(
         }
     }
     println!();
-    println!("Generated {} fountain blocks ({} total samples)", block_count, all_samples.len());
+    println!(
+        "Generated {} fountain blocks ({} total samples)",
+        block_count,
+        all_samples.len()
+    );
 
     // Write WAV file (16-bit PCM)
     let spec = WavSpec {
@@ -359,7 +407,10 @@ fn fountain_encode_command(
     writer.finalize()?;
 
     println!("Wrote fountain-encoded audio to {}", output_path.display());
-    println!("Duration: {:.2}s", all_samples.len() as f32 / SAMPLE_RATE as f32);
+    println!(
+        "Duration: {:.2}s",
+        all_samples.len() as f32 / SAMPLE_RATE as f32
+    );
     Ok(())
 }
 
@@ -414,7 +465,10 @@ fn fountain_decode_command(
 
     // Resample to 16kHz if needed
     if spec.sample_rate != SAMPLE_RATE as u32 {
-        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
+        println!(
+            "Resampling from {} Hz to {} Hz...",
+            spec.sample_rate, SAMPLE_RATE
+        );
         samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
         println!("Resampled to {} samples", samples.len());
     }
@@ -469,11 +523,17 @@ fn fountain_decode_command(
     }
 
     let data = decoder.decode_fountain(&samples, Some(config))?;
-    println!("Successfully decoded {} bytes using fountain mode", data.len());
+    println!(
+        "Successfully decoded {} bytes using fountain mode",
+        data.len()
+    );
 
     // Display decode statistics
     println!("\nDecode Statistics:");
-    println!("  Successfully decoded blocks: {}", decoder.stats.decoded_blocks);
+    println!(
+        "  Successfully decoded blocks: {}",
+        decoder.stats.decoded_blocks
+    );
     println!("  Failed blocks (CRC): {}", decoder.stats.failed_blocks);
 
     // Write binary file
@@ -534,7 +594,10 @@ fn decode_fsk_command(
 
     // Resample to 16kHz if needed
     if spec.sample_rate != SAMPLE_RATE as u32 {
-        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
+        println!(
+            "Resampling from {} Hz to {} Hz...",
+            spec.sample_rate, SAMPLE_RATE
+        );
         samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
         println!("Resampled to {} samples", samples.len());
     }
@@ -607,7 +670,8 @@ async fn start_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handler_status() -> String {
-    "transmitwave server with multi-tone FSK (ggwave-compatible) encoding/decoding - Ready".to_string()
+    "transmitwave server with multi-tone FSK (ggwave-compatible) encoding/decoding - Ready"
+        .to_string()
 }
 
 async fn handler_encode(
@@ -640,10 +704,7 @@ async fn handler_encode(
     // Use FSK encoder (default for maximum reliability)
     let encode_result = EncoderFsk::new()
         .map_err(|e| e.to_string())
-        .and_then(|mut encoder| {
-            encoder.encode(&data)
-                .map_err(|e| e.to_string())
-        });
+        .and_then(|mut encoder| encoder.encode(&data).map_err(|e| e.to_string()));
 
     match encode_result {
         Ok(samples) => {
@@ -756,36 +817,32 @@ async fn handler_decode(
         Ok(mut reader) => {
             let spec = reader.spec();
             let samples: Vec<f32> = match spec.bits_per_sample {
-                16 => {
-                    match reader.samples::<i16>().collect::<Result<Vec<_>, _>>() {
-                        Ok(int_samples) => int_samples.iter().map(|s| *s as f32 / 32768.0).collect(),
-                        Err(e) => {
-                            return Err((
-                                StatusCode::BAD_REQUEST,
-                                Json(DecodeResponse {
-                                    success: false,
-                                    message: format!("Failed to read i16 samples: {}", e),
-                                    data: None,
-                                }),
-                            ));
-                        }
+                16 => match reader.samples::<i16>().collect::<Result<Vec<_>, _>>() {
+                    Ok(int_samples) => int_samples.iter().map(|s| *s as f32 / 32768.0).collect(),
+                    Err(e) => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(DecodeResponse {
+                                success: false,
+                                message: format!("Failed to read i16 samples: {}", e),
+                                data: None,
+                            }),
+                        ));
                     }
-                }
-                32 => {
-                    match reader.samples::<f32>().collect::<Result<Vec<_>, _>>() {
-                        Ok(samples) => samples,
-                        Err(e) => {
-                            return Err((
-                                StatusCode::BAD_REQUEST,
-                                Json(DecodeResponse {
-                                    success: false,
-                                    message: format!("Failed to read f32 samples: {}", e),
-                                    data: None,
-                                }),
-                            ));
-                        }
+                },
+                32 => match reader.samples::<f32>().collect::<Result<Vec<_>, _>>() {
+                    Ok(samples) => samples,
+                    Err(e) => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(DecodeResponse {
+                                success: false,
+                                message: format!("Failed to read f32 samples: {}", e),
+                                data: None,
+                            }),
+                        ));
                     }
-                }
+                },
                 _ => {
                     return Err((
                         StatusCode::BAD_REQUEST,
@@ -801,20 +858,15 @@ async fn handler_decode(
             // Use FSK decoder (default for maximum reliability)
             let decode_result = DecoderFsk::new()
                 .map_err(|e| e.to_string())
-                .and_then(|mut decoder| {
-                    decoder.decode(&samples)
-                        .map_err(|e| e.to_string())
-                });
+                .and_then(|mut decoder| decoder.decode(&samples).map_err(|e| e.to_string()));
 
             match decode_result {
                 Ok(decoded_data) => {
-                    let data_base64 = base64::engine::general_purpose::STANDARD.encode(&decoded_data);
+                    let data_base64 =
+                        base64::engine::general_purpose::STANDARD.encode(&decoded_data);
                     Ok(Json(DecodeResponse {
                         success: true,
-                        message: format!(
-                            "Decoded {} bytes",
-                            decoded_data.len()
-                        ),
+                        message: format!("Decoded {} bytes", decoded_data.len()),
                         data: Some(data_base64),
                     }))
                 }
@@ -838,4 +890,3 @@ async fn handler_decode(
         )),
     }
 }
-

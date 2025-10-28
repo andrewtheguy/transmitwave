@@ -126,7 +126,11 @@ mod tests {
 
         // Check that resampled values stay within reasonable range
         for sample in resampled {
-            assert!(sample >= -1.1 && sample <= 1.1, "Sample out of range: {}", sample);
+            assert!(
+                sample >= -1.1 && sample <= 1.1,
+                "Sample out of range: {}",
+                sample
+            );
         }
     }
 }

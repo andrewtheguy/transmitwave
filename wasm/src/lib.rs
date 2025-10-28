@@ -1,7 +1,9 @@
-use wasm_bindgen::prelude::*;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, detect_preamble, detect_postamble};
 use transmitwave_core::decoder_fsk::DecodeStats;
 use transmitwave_core::sync::DetectionThreshold;
+use transmitwave_core::{
+    detect_postamble, detect_preamble, DecoderFsk, EncoderFsk, FountainConfig,
+};
+use wasm_bindgen::prelude::*;
 
 // ============================================================================
 // DECODE STATISTICS
@@ -53,9 +55,7 @@ impl WasmEncoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmEncoder, JsValue> {
         EncoderFsk::new()
-            .map(|encoder| WasmEncoder {
-                inner: encoder,
-            })
+            .map(|encoder| WasmEncoder { inner: encoder })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -80,9 +80,7 @@ impl WasmDecoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmDecoder, JsValue> {
         DecoderFsk::new()
-            .map(|decoder| WasmDecoder {
-                inner: decoder,
-            })
+            .map(|decoder| WasmDecoder { inner: decoder })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -105,7 +103,9 @@ impl WasmDecoder {
     pub fn get_preamble_threshold(&self) -> f32 {
         match self.inner.get_preamble_threshold() {
             DetectionThreshold::Fixed(value) => value,
-            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
+            DetectionThreshold::Adaptive => {
+                panic!("WASM should only use Fixed threshold, not Adaptive")
+            }
         }
     }
 
@@ -121,7 +121,9 @@ impl WasmDecoder {
     pub fn get_postamble_threshold(&self) -> f32 {
         match self.inner.get_postamble_threshold() {
             DetectionThreshold::Fixed(value) => value,
-            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
+            DetectionThreshold::Adaptive => {
+                panic!("WASM should only use Fixed threshold, not Adaptive")
+            }
         }
     }
 
@@ -134,7 +136,6 @@ impl WasmDecoder {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
-
 
 // ============================================================================
 // SIGNAL DETECTION (PREAMBLE & POSTAMBLE)
@@ -191,7 +192,9 @@ where
     fn threshold(&self) -> f32 {
         match self.threshold {
             DetectionThreshold::Fixed(v) => v,
-            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
+            DetectionThreshold::Adaptive => {
+                panic!("WASM should only use Fixed threshold, not Adaptive")
+            }
         }
     }
 
@@ -213,7 +216,11 @@ impl PreambleDetector {
     pub fn new(fixed_value: f32) -> PreambleDetector {
         let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         PreambleDetector {
-            detector: SignalDetector::new(threshold, transmitwave_core::PREAMBLE_SAMPLES, detect_preamble),
+            detector: SignalDetector::new(
+                threshold,
+                transmitwave_core::PREAMBLE_SAMPLES,
+                detect_preamble,
+            ),
         }
     }
 
@@ -269,7 +276,11 @@ impl PostambleDetector {
     pub fn new(fixed_value: f32) -> PostambleDetector {
         let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
         PostambleDetector {
-            detector: SignalDetector::new(threshold, transmitwave_core::POSTAMBLE_SAMPLES, detect_postamble),
+            detector: SignalDetector::new(
+                threshold,
+                transmitwave_core::POSTAMBLE_SAMPLES,
+                detect_postamble,
+            ),
         }
     }
 
@@ -312,7 +323,6 @@ impl PostambleDetector {
     }
 }
 
-
 // ============================================================================
 // FOUNTAIN CODE ENCODER/DECODER
 // Continuous streaming mode using RaptorQ fountain codes (RFC 6330)
@@ -330,9 +340,7 @@ impl WasmFountainEncoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmFountainEncoder, JsValue> {
         EncoderFsk::new()
-            .map(|encoder| WasmFountainEncoder {
-                inner: encoder,
-            })
+            .map(|encoder| WasmFountainEncoder { inner: encoder })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -358,14 +366,13 @@ impl WasmFountainEncoder {
             repair_blocks_ratio: repair_ratio,
         };
 
-        let stream = self.inner
+        let stream = self
+            .inner
             .encode_fountain(data, Some(config))
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         // Collect all blocks and concatenate into single audio buffer
-        let all_samples: Vec<f32> = stream
-            .flat_map(|block| block)
-            .collect();
+        let all_samples: Vec<f32> = stream.flat_map(|block| block).collect();
 
         Ok(all_samples)
     }
@@ -418,7 +425,9 @@ impl WasmFountainDecoder {
     pub fn get_preamble_threshold(&self) -> f32 {
         match self.inner.get_preamble_threshold() {
             DetectionThreshold::Fixed(value) => value,
-            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
+            DetectionThreshold::Adaptive => {
+                panic!("WASM should only use Fixed threshold, not Adaptive")
+            }
         }
     }
 
@@ -434,7 +443,9 @@ impl WasmFountainDecoder {
     pub fn get_postamble_threshold(&self) -> f32 {
         match self.inner.get_postamble_threshold() {
             DetectionThreshold::Fixed(value) => value,
-            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
+            DetectionThreshold::Adaptive => {
+                panic!("WASM should only use Fixed threshold, not Adaptive")
+            }
         }
     }
 
@@ -527,7 +538,6 @@ impl WasmFountainDecoder {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
-
 
 #[wasm_bindgen(start)]
 pub fn init() {

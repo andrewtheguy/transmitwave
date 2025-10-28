@@ -1,6 +1,6 @@
 use crate::error::{AudioModemError, Result};
 use std::cmp::Ordering;
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 
 // Multi-tone FSK configuration optimized for mobile phone speakers
 //
@@ -34,7 +34,6 @@ pub const FSK_NIBBLES_PER_SYMBOL: usize = 6;
 /// Number of bytes transmitted per symbol
 pub const FSK_BYTES_PER_SYMBOL: usize = 3;
 
-
 /// Configuration for fountain mode streaming
 #[derive(Debug, Clone)]
 pub struct FountainConfig {
@@ -55,7 +54,6 @@ impl Default for FountainConfig {
         }
     }
 }
-
 
 /// FSK symbol duration (192ms at 16kHz sample rate)
 pub const FSK_SYMBOL_SAMPLES: usize = 3072;
@@ -86,6 +84,15 @@ const FSK_NOISE_FLOOR_EPSILON: f32 = 1e-3;
 
 /// Hard lower bound for the estimated noise floor.
 const FSK_MIN_NOISE_FLOOR: f32 = 1e-6;
+
+/// Margin applied to the adaptive per-bin noise estimate when suppressing noise.
+const FSK_NOISE_SUPPRESSION_MARGIN: f32 = 1.25;
+
+/// How quickly the adaptive noise estimate follows falling energy.
+const FSK_NOISE_EMA_DECAY: f32 = 0.25;
+
+/// How quickly the adaptive noise estimate follows modest rises in energy.
+const FSK_NOISE_EMA_RISE: f32 = 0.05;
 
 /// Calculate frequency for a given bin index
 /// freq_hz = FSK_BASE_FREQ + bin_index * FSK_FREQ_DELTA
@@ -137,12 +144,20 @@ fn raised_cosine_window(len: usize, taper_len: usize) -> Vec<f32> {
 /// The 6 frequencies are transmitted simultaneously in the same time slot.
 pub struct FskModulator {
     sample_rate: f32,
+    phase_accumulators: [f32; FSK_NUM_BINS],
+    window_cache: Vec<f32>,
+    window_cache_len: usize,
+    window_gain: f32,
 }
 
 impl FskModulator {
     pub fn new() -> Self {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
+            phase_accumulators: [0.0; FSK_NUM_BINS],
+            window_cache: Vec::new(),
+            window_cache_len: 0,
+            window_gain: 1.0,
         }
     }
 
@@ -168,12 +183,12 @@ impl FskModulator {
 
         // Extract 6 nibbles from 3 bytes
         let nibbles = [
-            (bytes[0] >> 4) & 0x0F,  // High nibble of byte 0
-            bytes[0] & 0x0F,         // Low nibble of byte 0
-            (bytes[1] >> 4) & 0x0F,  // High nibble of byte 1
-            bytes[1] & 0x0F,         // Low nibble of byte 1
-            (bytes[2] >> 4) & 0x0F,  // High nibble of byte 2
-            bytes[2] & 0x0F,         // Low nibble of byte 2
+            (bytes[0] >> 4) & 0x0F, // High nibble of byte 0
+            bytes[0] & 0x0F,        // Low nibble of byte 0
+            (bytes[1] >> 4) & 0x0F, // High nibble of byte 1
+            bytes[1] & 0x0F,        // Low nibble of byte 1
+            (bytes[2] >> 4) & 0x0F, // High nibble of byte 2
+            bytes[2] & 0x0F,        // Low nibble of byte 2
         ];
 
         // Generate and superimpose all 6 tones
@@ -189,10 +204,18 @@ impl FskModulator {
             let frequency = bin_to_freq(bin);
             let angular_freq = 2.0 * PI * frequency / self.sample_rate;
 
-            // Add this tone to the output
-            for i in 0..symbol_samples {
-                samples[i] += (angular_freq * i as f32).sin();
+            // Maintain continuous phase per bin to avoid audible discontinuities.
+            let mut phase = self.phase_accumulators[bin];
+
+            for sample in samples.iter_mut() {
+                *sample += phase.sin();
+                phase += angular_freq;
+                if phase >= TAU {
+                    phase -= TAU;
+                }
             }
+
+            self.phase_accumulators[bin] = phase;
         }
 
         self.apply_edge_taper(&mut samples);
@@ -224,8 +247,7 @@ impl FskModulator {
     }
 
     fn taper_length(&self, symbol_samples: usize) -> usize {
-        let mut taper =
-            ((symbol_samples as f32) * FSK_EDGE_TAPER_RATIO).round() as usize;
+        let mut taper = ((symbol_samples as f32) * FSK_EDGE_TAPER_RATIO).round() as usize;
         if taper < FSK_MIN_TAPER_SAMPLES {
             taper = FSK_MIN_TAPER_SAMPLES;
         }
@@ -236,18 +258,30 @@ impl FskModulator {
         taper
     }
 
-    fn apply_edge_taper(&self, samples: &mut [f32]) {
-        let taper_len = self.taper_length(samples.len());
-        if taper_len == 0 {
+    fn ensure_window(&mut self, len: usize) {
+        if len == 0 || self.window_cache_len == len {
             return;
         }
 
-        let window = raised_cosine_window(samples.len(), taper_len);
-        let avg = window.iter().sum::<f32>() / samples.len() as f32;
-        let normalization = if avg > 0.0 { 1.0 / avg } else { 1.0 };
+        let taper_len = self.taper_length(len);
+        self.window_cache = raised_cosine_window(len, taper_len);
+        self.window_cache_len = len;
+        let avg = self.window_cache.iter().sum::<f32>() / len as f32;
+        self.window_gain = if avg > 0.0 { 1.0 / avg } else { 1.0 };
+    }
 
-        for (sample, &weight) in samples.iter_mut().zip(window.iter()) {
-            *sample *= weight * normalization;
+    fn apply_edge_taper(&mut self, samples: &mut [f32]) {
+        if samples.is_empty() {
+            return;
+        }
+
+        self.ensure_window(samples.len());
+        if self.window_cache_len == 0 {
+            return;
+        }
+
+        for (sample, &weight) in samples.iter_mut().zip(self.window_cache.iter()) {
+            *sample *= weight * self.window_gain;
         }
     }
 }
@@ -257,12 +291,14 @@ impl FskModulator {
 /// Analyzes the spectrum to find 6 simultaneous tones, each representing a nibble.
 pub struct FskDemodulator {
     sample_rate: f32,
+    noise_estimate: [f32; FSK_NUM_BINS],
 }
 
 impl FskDemodulator {
     pub fn new() -> Self {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
+            noise_estimate: [FSK_MIN_NOISE_FLOOR; FSK_NUM_BINS],
         }
     }
 
@@ -270,7 +306,7 @@ impl FskDemodulator {
     ///
     /// This is more efficient than full FFT since we only need 96 specific bins.
     /// For each bin, we compute the magnitude using Goertzel-like approach.
-    fn compute_spectrum(&self, samples: &[f32]) -> Vec<f32> {
+    fn compute_spectrum(&mut self, samples: &[f32]) -> Vec<f32> {
         let conditioned = self.preprocess_symbol(samples);
         let n = conditioned.len();
         let mut spectrum = vec![0.0f32; FSK_NUM_BINS];
@@ -305,7 +341,7 @@ impl FskDemodulator {
     ///
     /// Detects 6 simultaneous tones, one from each band of 16 frequencies.
     /// Returns the 3 bytes encoded in the symbol.
-    pub fn demodulate_symbol(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
+    pub fn demodulate_symbol(&mut self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
         if samples.len() != FSK_SYMBOL_SAMPLES {
             return Err(AudioModemError::InvalidInputSize);
         }
@@ -337,9 +373,9 @@ impl FskDemodulator {
 
         // Reconstruct 3 bytes from 6 nibbles
         let bytes = [
-            (nibbles[0] << 4) | nibbles[1],  // Byte 0
-            (nibbles[2] << 4) | nibbles[3],  // Byte 1
-            (nibbles[4] << 4) | nibbles[5],  // Byte 2
+            (nibbles[0] << 4) | nibbles[1], // Byte 0
+            (nibbles[2] << 4) | nibbles[3], // Byte 1
+            (nibbles[4] << 4) | nibbles[5], // Byte 2
         ];
 
         Ok(bytes)
@@ -347,7 +383,7 @@ impl FskDemodulator {
 
     /// Demodulate a sequence of multi-tone FSK symbols
     /// samples.len() must be a multiple of FSK_SYMBOL_SAMPLES
-    pub fn demodulate(&self, samples: &[f32]) -> Result<Vec<u8>> {
+    pub fn demodulate(&mut self, samples: &[f32]) -> Result<Vec<u8>> {
         if samples.len() % FSK_SYMBOL_SAMPLES != 0 {
             return Err(AudioModemError::InvalidInputSize);
         }
@@ -408,7 +444,7 @@ impl FskDemodulator {
         taper
     }
 
-    fn suppress_band_noise(&self, spectrum: &mut [f32]) {
+    fn suppress_band_noise(&mut self, spectrum: &mut [f32]) {
         for band_start in (0..FSK_NUM_BINS).step_by(FSK_BINS_PER_BAND) {
             let band_end = band_start + FSK_BINS_PER_BAND;
             let band_slice = &mut spectrum[band_start..band_end];
@@ -416,10 +452,23 @@ impl FskDemodulator {
             let mut sorted = band_slice.to_vec();
             sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
             let median = sorted[sorted.len() / 2];
-            let floor = (median + FSK_NOISE_FLOOR_EPSILON).max(FSK_MIN_NOISE_FLOOR);
+            let base_floor = (median + FSK_NOISE_FLOOR_EPSILON).max(FSK_MIN_NOISE_FLOOR);
 
-            for value in band_slice.iter_mut() {
-                *value = (*value - floor).max(0.0);
+            for (offset, value) in band_slice.iter_mut().enumerate() {
+                let idx = band_start + offset;
+                let estimate = &mut self.noise_estimate[idx];
+                let alpha = if base_floor < *estimate {
+                    FSK_NOISE_EMA_DECAY
+                } else {
+                    FSK_NOISE_EMA_RISE
+                };
+                *estimate += alpha * (base_floor - *estimate);
+                if *estimate < FSK_MIN_NOISE_FLOOR {
+                    *estimate = FSK_MIN_NOISE_FLOOR;
+                }
+
+                let adaptive_floor = ((*estimate) * FSK_NOISE_SUPPRESSION_MARGIN).max(base_floor);
+                *value = (*value - adaptive_floor).max(0.0);
             }
         }
     }
@@ -477,12 +526,8 @@ mod tests {
         assert!(samples[samples.len() - 1].abs() < 1e-4);
 
         // Average energy near the center should be higher than at the edges
-        let edge_energy: f32 = samples
-            .iter()
-            .take(taper_len)
-            .map(|s| s.abs())
-            .sum::<f32>()
-            / taper_len as f32;
+        let edge_energy: f32 =
+            samples.iter().take(taper_len).map(|s| s.abs()).sum::<f32>() / taper_len as f32;
         let mid_start = samples.len() / 2 - taper_len / 2;
         let mid_energy: f32 = samples
             .iter()
@@ -506,12 +551,14 @@ mod tests {
         // Wrong number of bytes
         assert!(modulator.modulate_symbol(&[0xAB]).is_err());
         assert!(modulator.modulate_symbol(&[0xAB, 0xCD]).is_err());
-        assert!(modulator.modulate_symbol(&[0xAB, 0xCD, 0xEF, 0x12]).is_err());
+        assert!(modulator
+            .modulate_symbol(&[0xAB, 0xCD, 0xEF, 0x12])
+            .is_err());
     }
 
     #[test]
     fn test_fsk_demodulator_symbol_length() {
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
         let samples = vec![0.0; FSK_SYMBOL_SAMPLES];
         assert!(demodulator.demodulate_symbol(&samples).is_ok());
     }
@@ -519,7 +566,7 @@ mod tests {
     #[test]
     fn test_fsk_roundtrip_single_symbol() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         let test_cases = vec![
             [0x00, 0x00, 0x00], // All zeros
@@ -532,18 +579,14 @@ mod tests {
         for bytes in test_cases {
             let samples = modulator.modulate_symbol(&bytes).unwrap();
             let decoded = demodulator.demodulate_symbol(&samples).unwrap();
-            assert_eq!(
-                decoded, bytes,
-                "Failed roundtrip for {:02X?}",
-                bytes
-            );
+            assert_eq!(decoded, bytes, "Failed roundtrip for {:02X?}", bytes);
         }
     }
 
     #[test]
     fn test_fsk_roundtrip_multiple_symbols() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         // Test sequence: 2 symbols = 6 bytes
         let bytes = vec![
@@ -562,7 +605,7 @@ mod tests {
     #[test]
     fn test_fsk_with_noise() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         // Encode a symbol
         let bytes = [0xAB, 0xCD, 0xEF];
@@ -580,7 +623,7 @@ mod tests {
 
     #[test]
     fn test_spectrum_computation() {
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
         let mut modulator = FskModulator::new();
 
         // Generate a known signal with specific frequencies
@@ -618,13 +661,13 @@ mod tests {
     #[test]
     fn test_fsk_byte_patterns() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         let patterns = vec![
-            vec![0x00; 6],       // All zeros
-            vec![0xFF; 6],       // All ones
-            vec![0xAA; 6],       // Alternating bits
-            vec![0x55; 6],       // Alternating bits (inverse)
+            vec![0x00; 6],                            // All zeros
+            vec![0xFF; 6],                            // All ones
+            vec![0xAA; 6],                            // Alternating bits
+            vec![0x55; 6],                            // Alternating bits (inverse)
             vec![0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF], // Alternating bytes
         ];
 
@@ -653,7 +696,7 @@ mod tests {
 
     #[test]
     fn test_demodulate_length_validation() {
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         // Valid length
         let samples_valid = vec![0.0; FSK_SYMBOL_SAMPLES];
@@ -670,7 +713,7 @@ mod tests {
     #[test]
     fn test_fsk_demodulator_gain_invariance() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
         let bytes = [0x5A, 0xC3, 0x9F];
         let samples = modulator.modulate_symbol(&bytes).unwrap();
 
@@ -684,7 +727,7 @@ mod tests {
     #[test]
     fn test_fsk_demodulator_dc_rejection() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
         let bytes = [0x42, 0x01, 0x9C];
         let base = modulator.modulate_symbol(&bytes).unwrap();
 
