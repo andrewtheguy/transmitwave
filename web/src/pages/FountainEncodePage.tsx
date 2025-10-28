@@ -15,7 +15,7 @@ const FountainEncodePage: React.FC = () => {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
 
   const TIMEOUT_SECS = 30
-  const BLOCK_SIZE = 64
+  const BLOCK_SIZE = 16
   const REPAIR_RATIO = 0.5
 
   useEffect(() => {

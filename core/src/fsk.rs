@@ -62,7 +62,7 @@ impl Default for FountainConfig {
     fn default() -> Self {
         Self {
             timeout_secs: 30,
-            block_size: 64,
+            block_size: 16,
             repair_blocks_ratio: 0.5,
         }
     }

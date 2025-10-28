@@ -8,7 +8,7 @@ import { getMicProcessorUrl } from '../utils/mic-processor-inline'
 
 const TARGET_SAMPLE_RATE = 16000
 const TIMEOUT_SECS = 30
-const BLOCK_SIZE = 64
+const BLOCK_SIZE = 16
 const MAX_BUFFER_SAMPLES = 80000
 
 const FountainListenPage: React.FC = () => {
