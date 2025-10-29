@@ -34,7 +34,7 @@ impl EncoderFsk {
     }
 
     /// Encode binary data into audio samples using multi-tone FSK modulation
-    /// Returns: preamble + (FSK symbols) + postamble
+    /// Returns: silence + preamble + silence + FSK data + silence + postamble + silence
     ///
     /// Each symbol encodes 3 bytes (24 bits) using 6 simultaneous frequencies.
     ///
@@ -102,8 +102,14 @@ impl EncoderFsk {
         // Generate preamble signal for synchronization
         let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);
 
-        // Build frame: preamble → silence → FSK payload → silence → postamble
-        let mut samples = preamble;
+        // Build frame: silence → preamble → silence → FSK payload → silence → postamble → silence
+        let mut samples = Vec::new();
+
+        // Add silence before preamble for clean frame start
+        samples.extend_from_slice(&vec![0.0f32; SYNC_SILENCE_SAMPLES]);
+
+        // Add preamble for synchronization
+        samples.extend_from_slice(&preamble);
 
         // Add silence after preamble for symmetry and clear frame boundaries
         samples.extend_from_slice(&vec![0.0f32; SYNC_SILENCE_SAMPLES]);
@@ -118,6 +124,9 @@ impl EncoderFsk {
         // Generate postamble signal for frame boundary detection
         let postamble = generate_postamble_signal(POSTAMBLE_SAMPLES, 0.5);
         samples.extend_from_slice(&postamble);
+
+        // Add silence after postamble for clean frame end
+        samples.extend_from_slice(&vec![0.0f32; SYNC_SILENCE_SAMPLES]);
 
         Ok(samples)
     }

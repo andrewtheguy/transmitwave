@@ -1,6 +1,5 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { PreambleDetector, PostambleDetector, createDecoder } from '../utils/wasm'
 import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
 import { getMicProcessorUrl } from '../utils/mic-processor-inline'
@@ -65,8 +64,12 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const playbackSourceRef = useRef<AudioBufferSourceNode | null>(null)
 
+  // Worker refs
+  const preambleWorkerRef = useRef<Worker | null>(null)
+  const postambleWorkerRef = useRef<Worker | null>(null)
+  const decoderWorkerRef = useRef<Worker | null>(null)
+
   // Detection refs
-  const detectorRef = useRef<PreambleDetector | null>(null)
   const resampleBufferRef = useRef<number[]>([])
   const allResampledSamplesRef = useRef<number[]>([]) // Keep all resampled samples for recording
   const samplesProcessedRef = useRef<number>(0)
@@ -76,7 +79,6 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const recordedSamplesRef = useRef<number[]>([])
   const recordingStartTimeRef = useRef<number>(0)
   const recordingDurationIntervalRef = useRef<number>(0)
-  const postambleDetectorRef = useRef<PostambleDetector | null>(null)
   const postambleSearchStartRef = useRef<number>(0)
   const recordingResampleBufferRef = useRef<number[]>([])
   const isRecordingRef = useRef<boolean>(false)
@@ -84,8 +86,27 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const preamblePosInRecordingRef = useRef<number>(0)
   const autoGainAdjustmentRef = useRef<number>(1.0) // Persistent ref for gain adjustment
 
+  // Cleanup workers on unmount
+  useEffect(() => {
+    return () => {
+      if (preambleWorkerRef.current) {
+        preambleWorkerRef.current.terminate()
+        preambleWorkerRef.current = null
+      }
+      if (postambleWorkerRef.current) {
+        postambleWorkerRef.current.terminate()
+        postambleWorkerRef.current = null
+      }
+      if (decoderWorkerRef.current) {
+        decoderWorkerRef.current.terminate()
+        decoderWorkerRef.current = null
+      }
+    }
+  }, [])
+
   // UI refs
   const [micVolume, setMicVolume] = useState(0)
+  const [enableAutoGain, setEnableAutoGain] = useState(true)
   const [targetAmplitude, setTargetAmplitude] = useState(0.5)
   const [autoGainAdjustment, setAutoGainAdjustment] = useState(1.0)
 
@@ -95,9 +116,111 @@ const PreamblePostambleRecordPage: React.FC = () => {
 
   const startListening = async () => {
     try {
-      // Create preamble detector with configurable threshold
-      const detector = new PreambleDetector(preambleThreshold)
-      detectorRef.current = detector
+      // Terminate old workers if they exist
+      if (preambleWorkerRef.current) {
+        preambleWorkerRef.current.terminate()
+        preambleWorkerRef.current = null
+      }
+      if (postambleWorkerRef.current) {
+        postambleWorkerRef.current.terminate()
+        postambleWorkerRef.current = null
+      }
+      if (decoderWorkerRef.current) {
+        decoderWorkerRef.current.terminate()
+        decoderWorkerRef.current = null
+      }
+
+      // Initialize preamble detection worker
+      const preambleWorker = new Worker(new URL('../workers/preambleDetectorWorker.ts', import.meta.url), {
+        type: 'module'
+      })
+      preambleWorkerRef.current = preambleWorker
+
+      let preambleWorkerReady = false
+      preambleWorker.onmessage = (event) => {
+        const { type } = event.data
+        if (type === 'init_done' && !preambleWorkerReady) {
+          preambleWorkerReady = true
+          console.log('Preamble worker initialized')
+        } else if (type === 'preamble_detected') {
+          // Preamble detected in worker, trigger recording start
+          if (!preambleDetectedRef.current && isRecordingRef.current === false) {
+            console.log('Preamble detected from worker!')
+            handlePreambleDetected()
+          }
+        } else if (type === 'error') {
+          console.error('Preamble worker error:', event.data.error)
+        }
+      }
+
+      // Initialize preamble detector with configurable threshold
+      preambleWorker.postMessage({ type: 'init', threshold: preambleThreshold })
+
+      // Initialize postamble detection worker
+      const postambleWorker = new Worker(new URL('../workers/postambleDetectorWorker.ts', import.meta.url), {
+        type: 'module'
+      })
+      postambleWorkerRef.current = postambleWorker
+
+      let postambleWorkerReady = false
+      postambleWorker.onmessage = (event) => {
+        const { type } = event.data
+        if (type === 'init_done' && !postambleWorkerReady) {
+          postambleWorkerReady = true
+          console.log('Postamble worker initialized')
+        } else if (type === 'postamble_detected') {
+          // Postamble detected in worker, stop recording
+          if (isRecordingRef.current && !postambleDetected) {
+            console.log('Postamble detected from worker!')
+            isRecordingRef.current = false
+            setPostambleDetected(true)
+            stopRecording('Recording stopped (postamble detected)')
+            // Trigger auto-decode after a brief delay
+            setTimeout(() => {
+              decodeRecordedAudio()
+            }, 100)
+          }
+        } else if (type === 'error') {
+          console.error('Postamble worker error:', event.data.error)
+        }
+      }
+
+      // Initialize postamble detector with configurable threshold
+      postambleWorker.postMessage({ type: 'init', threshold: postambleThreshold })
+
+      // Initialize decoder worker
+      const decoderWorker = new Worker(new URL('../workers/decoderWorker.ts', import.meta.url), {
+        type: 'module'
+      })
+      decoderWorkerRef.current = decoderWorker
+
+      decoderWorker.onmessage = (event) => {
+        const { type } = event.data
+        if (type === 'init_done') {
+          console.log('Decoder worker initialized')
+        } else if (type === 'decode_success') {
+          const { text } = event.data
+          setDecodedText(text)
+          setRecordingStatus(`Decoded successfully: "${text}"`)
+          setRecordingStatusType('success')
+          setIsDetecting(false)
+          console.log('Decode succeeded via worker!')
+        } else if (type === 'decode_failed') {
+          const { error } = event.data
+          setRecordingStatus(`Decode failed: ${error}`)
+          setRecordingStatusType('error')
+          setIsDetecting(false)
+          console.log('Decode failed:', error)
+        } else if (type === 'error') {
+          console.error('Decoder worker error:', event.data.error)
+          setRecordingStatus(`Worker error: ${event.data.error}`)
+          setRecordingStatusType('error')
+          setIsDetecting(false)
+        }
+      }
+
+      // Initialize decoder with thresholds
+      decoderWorker.postMessage({ type: 'init', preambleThreshold, postambleThreshold })
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -140,8 +263,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
       isRecordingRef.current = false
       preambleDetectedRef.current = false
       preamblePosInRecordingRef.current = 0
-      postambleDetectorRef.current = null
-      detectorRef.current = new PreambleDetector(preambleThreshold)
+      postambleSearchStartRef.current = 0
 
       // Connect audio graph
       source.connect(analyser)
@@ -201,80 +323,24 @@ const PreamblePostambleRecordPage: React.FC = () => {
 
           // Keep track of ALL resampled samples for later recording
           allResampledSamplesRef.current.push(...resampledChunk)
-
-          const position = detector.add_samples(new Float32Array(resampledChunk))
           samplesProcessedRef.current += resampledChunk.length
+
+          // Send to preamble worker for detection (async)
+          if (preambleWorkerRef.current) {
+            preambleWorkerRef.current.postMessage({
+              type: 'add_samples',
+              samples: new Float32Array(resampledChunk)
+            })
+          }
 
           // Periodically clear buffer to prevent unbounded growth
           if (samplesProcessedRef.current > MAX_BUFFER_SAMPLES) {
-            detector.clear()
+            if (preambleWorkerRef.current) {
+              preambleWorkerRef.current.postMessage({ type: 'clear' })
+            }
             samplesProcessedRef.current = 0
             resampleBufferRef.current = [] // Clear the raw sample buffer too
             allResampledSamplesRef.current = [] // Clear resampled samples too
-          }
-
-          // Preamble detected - start recording
-          if (position >= 0) {
-            preambleDetectedRef.current = true
-            isRecordingRef.current = true
-            setPreambleDetected(true)
-            setDetectionStatus('Preamble detected! Recording...')
-            setDetectionStatusType('success')
-            setIsRecording(true)
-            recordingStartTimeRef.current = Date.now()
-
-            // Trim buffer to include just a small pre-roll before preamble so we don't
-            // dilute the RMS calculation with long stretches of silence.
-            const preambleWindow = Math.min(PREAMBLE_SAMPLES, allResampledSamplesRef.current.length)
-            const preambleStart = Math.max(0, allResampledSamplesRef.current.length - preambleWindow)
-            const trimmedStart = Math.max(0, preambleStart - PRE_ROLL_SAMPLES)
-            const allResampled = allResampledSamplesRef.current.slice(trimmedStart)
-            const preambleSamples = allResampledSamplesRef.current.slice(preambleStart)
-            allResampledSamplesRef.current = [] // Clear for next phase
-            resampleBufferRef.current = [] // Clear the raw buffer too
-
-            // Calculate preamble amplitude (RMS of detected preamble only)
-            const preambleAmplitude = calculateRMS(preambleSamples)
-
-            // Calculate gain adjustment to reach target amplitude
-            // If preamble is 0.2 and target is 0.5, we need to apply 0.5/0.2 = 2.5x gain
-            let gainAdjustment = 1.0
-            if (preambleAmplitude > 0) {
-              gainAdjustment = targetAmplitude / preambleAmplitude
-              // Clamp gain adjustment to reasonable range
-              gainAdjustment = clampGain(gainAdjustment)
-            }
-            // Store in both ref (for consistent use in callbacks) and state (for UI display)
-            autoGainAdjustmentRef.current = gainAdjustment
-            setAutoGainAdjustment(gainAdjustment)
-
-            // Normalize the accumulated resampled samples with gain adjustment
-            const normalizedAccumulated = allResampled.map((sample) => applyAutoGain(sample, gainAdjustment))
-
-            // Start recording with the preamble and everything before it
-            recordedSamplesRef.current = normalizedAccumulated
-            preamblePosInRecordingRef.current = normalizedAccumulated.length
-            setRecordingDuration(0)
-            setRecordingSamples(recordedSamplesRef.current.length)
-
-            // Initialize postamble detector for later with configurable threshold
-            postambleDetectorRef.current = new PostambleDetector(postambleThreshold)
-            postambleSearchStartRef.current = 0
-
-            // Start recording duration timer
-            recordingDurationIntervalRef.current = window.setInterval(() => {
-              const elapsed = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000)
-              setRecordingDuration(elapsed)
-
-              // Auto-stop at MAX_RECORDING_DURATION
-              if (elapsed >= MAX_RECORDING_DURATION) {
-                stopRecording(`Recording stopped (max ${MAX_RECORDING_DURATION}s reached)`)
-              }
-            }, 100)
-
-            // Clear detector for memory efficiency
-            detector.clear()
-            samplesProcessedRef.current = 0
           }
         } else if (isRecordingRef.current) {
           // Recording phase - process and save audio samples
@@ -290,22 +356,24 @@ const PreamblePostambleRecordPage: React.FC = () => {
           }
 
           // Dynamically refine gain so we keep hugging the target amplitude even if the
-          // speaker volume shifts mid-frame.
-          const inputRms = calculateRMS(resampledChunk)
-          if (inputRms > 0 && targetAmplitude > 0) {
-            const estimatedOutput = inputRms * autoGainAdjustmentRef.current
-            const errorRatio = Math.abs(estimatedOutput - targetAmplitude) / targetAmplitude
-            if (errorRatio > AUTO_GAIN_TOLERANCE) {
-              const desiredGain = clampGain(targetAmplitude / inputRms)
-              const blendedGain =
-                autoGainAdjustmentRef.current +
-                (desiredGain - autoGainAdjustmentRef.current) * AUTO_GAIN_SMOOTHING
-              const clampedGain = clampGain(blendedGain)
-              if (Math.abs(clampedGain - autoGainAdjustmentRef.current) > 0.01) {
-                autoGainAdjustmentRef.current = clampedGain
-                setAutoGainAdjustment(clampedGain)
-              } else {
-                autoGainAdjustmentRef.current = clampedGain
+          // speaker volume shifts mid-frame (only if auto-gain is enabled)
+          if (enableAutoGain) {
+            const inputRms = calculateRMS(resampledChunk)
+            if (inputRms > 0 && targetAmplitude > 0) {
+              const estimatedOutput = inputRms * autoGainAdjustmentRef.current
+              const errorRatio = Math.abs(estimatedOutput - targetAmplitude) / targetAmplitude
+              if (errorRatio > AUTO_GAIN_TOLERANCE) {
+                const desiredGain = clampGain(targetAmplitude / inputRms)
+                const blendedGain =
+                  autoGainAdjustmentRef.current +
+                  (desiredGain - autoGainAdjustmentRef.current) * AUTO_GAIN_SMOOTHING
+                const clampedGain = clampGain(blendedGain)
+                if (Math.abs(clampedGain - autoGainAdjustmentRef.current) > 0.01) {
+                  autoGainAdjustmentRef.current = clampedGain
+                  setAutoGainAdjustment(clampedGain)
+                } else {
+                  autoGainAdjustmentRef.current = clampedGain
+                }
               }
             }
           }
@@ -320,35 +388,30 @@ const PreamblePostambleRecordPage: React.FC = () => {
           // Check if recording buffer exceeds safety limit
           if (recordedSamplesRef.current.length > MAX_RECORDING_SAMPLES) {
             isRecordingRef.current = false
-            stopRecording('Recording stopped (buffer limit reached)')
+            stopRecording('Recording stopped (buffer limit reached, attempting decode)')
+            // Attempt to decode the recorded audio
+            setTimeout(() => {
+              decodeRecordedAudio()
+            }, 100)
             return
           }
 
           // Try to detect postamble after we have enough samples
           // Skip the first 8000 samples (preamble + some data)
-          if (postambleDetectorRef.current && recordedSamplesRef.current.length > 8000) {
+          if (postambleWorkerRef.current && recordedSamplesRef.current.length > 8000) {
             // Initialize search start if not already done
             if (postambleSearchStartRef.current === 0 && recordedSamplesRef.current.length >= 8000) {
               postambleSearchStartRef.current = 8000
             }
 
-            // Feed only new samples since last check to detector
+            // Feed only new samples since last check to worker (async)
             if (postambleSearchStartRef.current < recordedSamplesRef.current.length) {
               const newSamples = recordedSamplesRef.current.slice(postambleSearchStartRef.current)
-              const postamblePos = postambleDetectorRef.current.add_samples(new Float32Array(newSamples))
+              postambleWorkerRef.current.postMessage({
+                type: 'add_samples',
+                samples: new Float32Array(newSamples)
+              })
               postambleSearchStartRef.current = recordedSamplesRef.current.length
-
-              if (postamblePos >= 0) {
-                // Postamble detected - stop recording and auto-decode
-                isRecordingRef.current = false
-                setPostambleDetected(true)
-                stopRecording('Recording stopped (postamble detected)')
-
-                // Trigger auto-decode after a brief delay to ensure state is updated
-                setTimeout(() => {
-                  decodeRecordedAudio()
-                }, 100)
-              }
             }
           }
         }
@@ -358,6 +421,75 @@ const PreamblePostambleRecordPage: React.FC = () => {
       setDetectionStatus(`Error: ${message}`)
       setDetectionStatusType('error')
     }
+  }
+
+  const handlePreambleDetected = () => {
+    if (preambleDetectedRef.current || isRecordingRef.current) return
+
+    preambleDetectedRef.current = true
+    isRecordingRef.current = true
+    setPreambleDetected(true)
+    setDetectionStatus('Preamble detected! Recording...')
+    setDetectionStatusType('success')
+    setIsRecording(true)
+    recordingStartTimeRef.current = Date.now()
+
+    // Trim buffer to include just a small pre-roll before preamble
+    const PREAMBLE_DURATION_MS = 250
+    const PREAMBLE_SAMPLES = (TARGET_SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000
+    const PRE_ROLL_MS = 100
+    const PRE_ROLL_SAMPLES = (TARGET_SAMPLE_RATE * PRE_ROLL_MS) / 1000
+
+    const preambleWindow = Math.min(PREAMBLE_SAMPLES, allResampledSamplesRef.current.length)
+    const preambleStart = Math.max(0, allResampledSamplesRef.current.length - preambleWindow)
+    const trimmedStart = Math.max(0, preambleStart - PRE_ROLL_SAMPLES)
+    const allResampled = allResampledSamplesRef.current.slice(trimmedStart)
+    const preambleSamples = allResampledSamplesRef.current.slice(preambleStart)
+    allResampledSamplesRef.current = []
+    resampleBufferRef.current = []
+
+    // Calculate preamble amplitude (RMS of detected preamble only)
+    const preambleAmplitude = calculateRMS(preambleSamples)
+
+    // Calculate gain adjustment to reach target amplitude (only if auto-gain is enabled)
+    let gainAdjustment = 1.0
+    if (enableAutoGain && preambleAmplitude > 0) {
+      gainAdjustment = targetAmplitude / preambleAmplitude
+      gainAdjustment = clampGain(gainAdjustment)
+    }
+    autoGainAdjustmentRef.current = gainAdjustment
+    setAutoGainAdjustment(gainAdjustment)
+
+    // Normalize the accumulated resampled samples with gain adjustment
+    const normalizedAccumulated = allResampled.map((sample) => applyAutoGain(sample, gainAdjustment))
+
+    // Start recording with the preamble and everything before it
+    recordedSamplesRef.current = normalizedAccumulated
+    preamblePosInRecordingRef.current = normalizedAccumulated.length
+    setRecordingDuration(0)
+    setRecordingSamples(recordedSamplesRef.current.length)
+
+    // Start recording duration timer
+    recordingDurationIntervalRef.current = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000)
+      setRecordingDuration(elapsed)
+
+      // Auto-stop at MAX_RECORDING_DURATION and attempt to decode
+      if (elapsed >= MAX_RECORDING_DURATION) {
+        isRecordingRef.current = false
+        stopRecording(`Recording stopped (max ${MAX_RECORDING_DURATION}s reached, attempting decode)`)
+        // Attempt to decode the recorded audio
+        setTimeout(() => {
+          decodeRecordedAudio()
+        }, 100)
+      }
+    }, 100)
+
+    // Clear preamble worker buffer for memory efficiency
+    if (preambleWorkerRef.current) {
+      preambleWorkerRef.current.postMessage({ type: 'clear' })
+    }
+    samplesProcessedRef.current = 0
   }
 
   const stopListening = () => {
@@ -465,47 +597,31 @@ const PreamblePostambleRecordPage: React.FC = () => {
     }
   }
 
-  const decodeRecordedAudio = async () => {
+  const decodeRecordedAudio = () => {
     if (recordedSamplesRef.current.length === 0) {
       setRecordingStatus('No audio recorded to decode')
       setRecordingStatusType('error')
       return
     }
 
-    try {
-      setIsDetecting(true)
-      setRecordingStatus('Decoding...')
-      setRecordingStatusType('info')
-
-      // recordedSamplesRef.current is already normalized and resampled to 16kHz
-      const resampledSamples = recordedSamplesRef.current
-
-      // Decode with configured thresholds
-      const decoder = await createDecoder({
-        preambleThreshold,
-        postambleThreshold,
-      })
-      const data = decoder.decode(new Float32Array(resampledSamples))
-      const text = new TextDecoder().decode(data)
-
-      setDecodedText(text)
-      setRecordingStatus(`Decoded successfully: "${text}"`)
-      setRecordingStatusType('success')
-    } catch (error) {
-      let message = 'Decode failed'
-      if (error instanceof Error) {
-        message = error.message
-      } else if (typeof error === 'string') {
-        message = error
-      }
-      console.error('Decode error:', error)
-      setRecordingStatus(message)
+    if (!decoderWorkerRef.current) {
+      setRecordingStatus('Decoder worker not initialized')
       setRecordingStatusType('error')
-      setDetectionStatus(`Decode error: ${message}`)
-      setDetectionStatusType('error')
-    } finally {
-      setIsDetecting(false)
+      return
     }
+
+    setIsDetecting(true)
+    setRecordingStatus('Decoding...')
+    setRecordingStatusType('info')
+
+    // recordedSamplesRef.current is already normalized and resampled to 16kHz
+    const resampledSamples = recordedSamplesRef.current
+
+    // Send to decoder worker for async decoding
+    decoderWorkerRef.current.postMessage({
+      type: 'decode',
+      samples: new Float32Array(resampledSamples)
+    })
   }
 
   const encodeWAV = (samples: number[], sampleRate: number): ArrayBuffer => {
@@ -553,7 +669,6 @@ const PreamblePostambleRecordPage: React.FC = () => {
     preamblePosInRecordingRef.current = 0
     recordedSamplesRef.current = []
     recordingResampleBufferRef.current = []
-    postambleDetectorRef.current = null
     autoGainAdjustmentRef.current = 1.0 // Reset auto-gain adjustment
 
     // Reset all state
@@ -640,26 +755,41 @@ const PreamblePostambleRecordPage: React.FC = () => {
         <h2>Listening & Recording Settings</h2>
 
         <div className="mt-4">
-          <label><strong>Target Preamble Amplitude</strong></label>
-          <div className="flex items-center gap-3 mt-2">
+          <label className="flex items-center gap-2">
             <input
-              type="range"
-              min="0.1"
-              max="0.9"
-              step="0.1"
-              value={targetAmplitude}
-              onChange={(e) => setTargetAmplitude(parseFloat(e.target.value))}
+              type="checkbox"
+              checked={enableAutoGain}
+              onChange={(e) => setEnableAutoGain(e.target.checked)}
               disabled={isListening}
             />
-            <span>{targetAmplitude.toFixed(1)}</span>
-          </div>
-          <small>Auto-adjust gain when preamble is detected to reach this amplitude. Recommended: 0.5</small>
-          {autoGainAdjustment !== 1.0 && !isListening && (
-            <div style={{ marginTop: '0.5rem', color: '#059669' }}>
-              Last adjustment: {autoGainAdjustment.toFixed(2)}x
-            </div>
-          )}
+            <strong>Enable Auto-Gain Adjustment</strong>
+          </label>
+          <small>Automatically adjust gain when preamble is detected to reach target amplitude</small>
         </div>
+
+        {enableAutoGain && (
+          <div className="mt-4">
+            <label><strong>Target Preamble Amplitude</strong></label>
+            <div className="flex items-center gap-3 mt-2">
+              <input
+                type="range"
+                min="0.1"
+                max="0.9"
+                step="0.1"
+                value={targetAmplitude}
+                onChange={(e) => setTargetAmplitude(parseFloat(e.target.value))}
+                disabled={isListening}
+              />
+              <span>{targetAmplitude.toFixed(1)}</span>
+            </div>
+            <small>Recommended: 0.5</small>
+            {autoGainAdjustment !== 1.0 && !isListening && (
+              <div style={{ marginTop: '0.5rem', color: '#059669' }}>
+                Last adjustment: {autoGainAdjustment.toFixed(2)}x
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-4">
           <label><strong>Preamble Detection Threshold</strong></label>
