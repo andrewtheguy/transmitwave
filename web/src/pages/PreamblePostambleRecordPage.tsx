@@ -399,19 +399,29 @@ const PreamblePostambleRecordPage: React.FC = () => {
           // Try to detect postamble after we have enough samples
           // Skip the first 8000 samples (preamble + some data)
           if (postambleWorkerRef.current && recordedSamplesRef.current.length > 8000) {
-            // Initialize search start if not already done
-            if (postambleSearchStartRef.current === 0 && recordedSamplesRef.current.length >= 8000) {
-              postambleSearchStartRef.current = 8000
+            // Use windowing with overlap for better detection
+            // Send a window of 4000 samples with 2000 sample overlap
+            const windowSize = 4000
+            const overlapSize = 2000
+            let windowStart = postambleSearchStartRef.current
+
+            // Initialize window start on first check
+            if (windowStart === 0) {
+              windowStart = 8000
             }
 
-            // Feed only new samples since last check to worker (async)
-            if (postambleSearchStartRef.current < recordedSamplesRef.current.length) {
-              const newSamples = recordedSamplesRef.current.slice(postambleSearchStartRef.current)
+            // Only send if we have new samples beyond our previous window
+            if (windowStart + windowSize <= recordedSamplesRef.current.length) {
+              const windowEnd = windowStart + windowSize
+              const windowSamples = recordedSamplesRef.current.slice(windowStart, windowEnd)
+
               postambleWorkerRef.current.postMessage({
                 type: 'add_samples',
-                samples: new Float32Array(newSamples)
+                samples: new Float32Array(windowSamples)
               })
-              postambleSearchStartRef.current = recordedSamplesRef.current.length
+
+              // Move window forward with overlap
+              postambleSearchStartRef.current = windowEnd - overlapSize
             }
           }
         }
