@@ -24,7 +24,9 @@ use std::f32::consts::PI;
 const FSK_BASE_FREQ: f32 = 1100.0;
 
 /// Frequency spacing in Hz between adjacent bins
-const FSK_FREQ_DELTA: f32 = 20.0;
+/// Increased from 20Hz to 40Hz to create more separation between bands
+/// This makes each of the 6 chirps distinctly audible as separate tones
+const FSK_FREQ_DELTA: f32 = 40.0;
 
 /// Total number of frequency bins (96 provides redundancy and flexibility)
 const FSK_NUM_BINS: usize = 96;
