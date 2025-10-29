@@ -28,7 +28,7 @@ pub enum DetectionThreshold {
 //
 // This controls what `generate_preamble()` and `generate_postamble_signal()`
 // actually generate, allowing easy comparison between signal types.
-const SIGNAL_TYPE: SignalType = SignalType::Chirp;
+const SIGNAL_TYPE: SignalType = SignalType::PrnNoise;
 
 /// Window length (in samples) for computing RMS in adaptive threshold mode.
 /// This controls the size of sliding windows used to find the maximum RMS,
@@ -251,9 +251,22 @@ pub fn generate_postamble_three_note(duration_samples: usize, amplitude: f32) ->
 pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match SIGNAL_TYPE {
         SignalType::PrnNoise => {
-            // PRN noise: Fixed seed 0xDEADBEEF for reproducibility
+            // Green noise preamble (1/f spectrum, pink noise-like characteristics)
+            // Uses seed 0xDEADBEEF for reproducibility
             const PREAMBLE_SEED: u32 = 0xDEADBEEF;
-            generate_prn_noise(PREAMBLE_SEED, duration_samples, amplitude)
+            let prn = generate_prn_noise(PREAMBLE_SEED, duration_samples, amplitude);
+
+            // Apply single-pole lowpass filter for green noise characteristics
+            // This creates a 1/f spectrum while preserving signal energy better than double integration
+            let mut filtered = vec![0.0; duration_samples];
+            let alpha = 0.3; // Filter coefficient (0.3 gives ~1/f characteristic)
+
+            filtered[0] = prn[0];
+            for i in 1..duration_samples {
+                filtered[i] = alpha * prn[i] + (1.0 - alpha) * filtered[i - 1];
+            }
+
+            filtered
         }
         SignalType::Chirp => {
             // Chirp: Linear frequency sweep from 200 Hz to 4000 Hz
@@ -271,9 +284,15 @@ pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
 pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match SIGNAL_TYPE {
         SignalType::PrnNoise => {
-            // PRN noise: Different seed 0xCAFEBABE (distinct from preamble)
+            // PRN noise: Completely different seed 0xCAFEBABE with inverse modulation
             const POSTAMBLE_SEED: u32 = 0xCAFEBABE;
-            generate_prn_noise(POSTAMBLE_SEED, duration_samples, amplitude)
+            let mut samples = generate_prn_noise(POSTAMBLE_SEED, duration_samples, amplitude);
+            // Add inverse frequency modulation to maximize uniqueness from preamble
+            for (i, sample) in samples.iter_mut().enumerate() {
+                let mod_factor = 1.0 - 0.05 * ((i as f32 * std::f32::consts::PI * 2.0) / duration_samples as f32).sin();
+                *sample *= mod_factor;
+            }
+            samples
         }
         SignalType::Chirp => {
             // Chirp: Reverse sweep from 4000 Hz to 200 Hz (mirror of preamble)

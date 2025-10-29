@@ -35,11 +35,11 @@ pub const FSK_MAX_FREQUENCY: f32 = 2700.0; // Hz (max frequency)
 pub const NUM_FSK_TONES: usize = 6; // 6 simultaneous frequencies per symbol (3 bytes)
 
 // Preamble/Postamble sync signal
-pub const SYNC_DURATION_MS: usize = 250; // Preamble/postamble duration (1/4 second)
+pub const SYNC_DURATION_MS: usize = 500; // Preamble/postamble duration (1 second)
 pub const PREAMBLE_DURATION_MS: usize = SYNC_DURATION_MS;
-pub const PREAMBLE_SAMPLES: usize = (SAMPLE_RATE * SYNC_DURATION_MS) / 1000; // 4000
+pub const PREAMBLE_SAMPLES: usize = (SAMPLE_RATE * SYNC_DURATION_MS) / 1000; // 16000
 pub const POSTAMBLE_DURATION_MS: usize = SYNC_DURATION_MS;
-pub const POSTAMBLE_SAMPLES: usize = (SAMPLE_RATE * SYNC_DURATION_MS) / 1000; // 4000
+pub const POSTAMBLE_SAMPLES: usize = (SAMPLE_RATE * SYNC_DURATION_MS) / 1000; // 16000
 
 // Brief silence gaps for better frame detection (1/16 second each)
 pub const SYNC_SILENCE_MS: usize = 63; // Silence before/after sync signals
