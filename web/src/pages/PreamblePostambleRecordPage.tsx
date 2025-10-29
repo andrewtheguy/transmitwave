@@ -674,12 +674,32 @@ const PreamblePostambleRecordPage: React.FC = () => {
     setRecordingStatusType('info')
 
     // recordedSamplesRef.current is already normalized and resampled to 16kHz
-    const resampledSamples = recordedSamplesRef.current
+    const allSamples = recordedSamplesRef.current
 
-    // Send to decoder worker for async decoding
+    // Extract FSK data without preamble/postamble to avoid double-detection
+    // The preamble is at the beginning, postamble is at the end
+    // We skip both and pass only the data region to avoid duplicate detection
+    const PREAMBLE_DURATION_MS = 250
+    const PREAMBLE_SAMPLES_SKIP = (TARGET_SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000 // 4000 samples
+    const SYNC_SILENCE_SAMPLES_SKIP = 800 // Skip silence after preamble
+
+    // Start after preamble and silence gap
+    const dataStart = Math.min(PREAMBLE_SAMPLES_SKIP + SYNC_SILENCE_SAMPLES_SKIP, allSamples.length)
+
+    // We assume postamble is at the end, so trim conservatively
+    // Postamble is typically 250ms = 4000 samples at 16kHz
+    const postambleEstimate = PREAMBLE_SAMPLES_SKIP
+    const dataEnd = Math.max(dataStart, allSamples.length - postambleEstimate)
+
+    // Extract only FSK data region (no preamble or postamble)
+    const fskDataOnly = allSamples.slice(dataStart, dataEnd)
+
+    console.log(`Decoding: extracted ${fskDataOnly.length} samples (from ${dataStart} to ${dataEnd}) without preamble/postamble`)
+
+    // Send to decoder worker for async decoding using the new no-sync method
     decoderWorkerRef.current.postMessage({
-      type: 'decode',
-      samples: new Float32Array(resampledSamples)
+      type: 'decode_without_sync',
+      samples: new Float32Array(fskDataOnly)
     })
   }
 

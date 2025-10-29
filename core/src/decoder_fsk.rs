@@ -228,6 +228,130 @@ impl DecoderFsk {
         Ok(frame.payload)
     }
 
+    /// Decode audio samples without preamble/postamble detection
+    ///
+    /// This method skips preamble and postamble detection and decodes the raw FSK data directly.
+    /// Useful when the audio clip has already been trimmed or when pre/post amble detection
+    /// would cause double-detection issues.
+    pub fn decode_without_preamble_postamble(&mut self, samples: &[f32]) -> Result<Vec<u8>> {
+        if samples.len() < FSK_SYMBOL_SAMPLES * 2 {
+            return Err(AudioModemError::InsufficientData);
+        }
+
+        // Ensure we have complete symbols
+        let symbol_count = samples.len() / FSK_SYMBOL_SAMPLES;
+        if symbol_count == 0 {
+            return Err(AudioModemError::InsufficientData);
+        }
+
+        let valid_samples = symbol_count * FSK_SYMBOL_SAMPLES;
+        let fsk_samples = &samples[..valid_samples];
+
+        // Demodulate multi-tone FSK symbols to bytes
+        let bytes = self.fsk.demodulate(fsk_samples)?;
+
+        if bytes.len() < 2 {
+            return Err(AudioModemError::InvalidFrameSize);
+        }
+
+        // Read 2-byte length prefix to determine frame data length
+        let frame_len = ((bytes[0] as u16) << 8) | (bytes[1] as u16);
+        let mut byte_idx = 2;
+
+        // First pass: decode the first block to get FEC mode from header
+        let first_chunk_len = (frame_len as usize).min(223);
+        let padding_needed_first = 223 - first_chunk_len;
+
+        // Try with different FEC modes to find the right one
+        let mut decoded_first_block = None;
+        let mut detected_fec_mode = FecMode::Light;
+
+        for mode in [FecMode::Light, FecMode::Medium, FecMode::Full] {
+            let parity_bytes = mode.parity_bytes();
+            let encoded_len = first_chunk_len + parity_bytes;
+
+            if byte_idx + encoded_len <= bytes.len() {
+                let shortened_block = &bytes[byte_idx..byte_idx + encoded_len];
+                let mut full_block = vec![0u8; padding_needed_first];
+                full_block.extend_from_slice(shortened_block);
+
+                // Try decoding with this FEC mode
+                if let Ok(decoded_chunk) = self.fec.decode_with_mode(&full_block, mode) {
+                    // Check if this produces a valid header
+                    let decoded_data = &decoded_chunk[padding_needed_first..];
+                    if decoded_data.len() >= 8 {
+                        if let Ok((_, _, fec_mode_byte)) = FrameDecoder::decode_header(decoded_data) {
+                            if let Ok(parsed_mode) = FecMode::from_u8(fec_mode_byte) {
+                                if parsed_mode == mode {
+                                    // Found the correct FEC mode!
+                                    decoded_first_block = Some((decoded_data.to_vec(), encoded_len));
+                                    detected_fec_mode = mode;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let (first_decoded, first_encoded_len) = decoded_first_block
+            .ok_or(AudioModemError::FecDecodeFailure)?;
+
+        // Now decode remaining blocks using the detected FEC mode
+        let mut decoded_data = first_decoded;
+        byte_idx += first_encoded_len;
+        let mut remaining_len = frame_len as usize - first_chunk_len;
+
+        while remaining_len > 0 {
+            let chunk_len = remaining_len.min(223);
+            let padding_needed = 223 - chunk_len;
+            let parity_bytes = detected_fec_mode.parity_bytes();
+            let encoded_len = chunk_len + parity_bytes;
+
+            // Check if we have enough bytes
+            if byte_idx + encoded_len > bytes.len() {
+                break;
+            }
+
+            // Extract the shortened RS block
+            let shortened_block = &bytes[byte_idx..byte_idx + encoded_len];
+            byte_idx += encoded_len;
+
+            // Restore to full RS block by prepending zeros
+            let mut full_block = vec![0u8; padding_needed];
+            full_block.extend_from_slice(shortened_block);
+
+            // Decode with RS using detected FEC mode
+            match self.fec.decode_with_mode(&full_block, detected_fec_mode) {
+                Ok(decoded_chunk) => {
+                    // Remove the prepended zeros (padding)
+                    decoded_data.extend_from_slice(&decoded_chunk[padding_needed..]);
+                }
+                Err(_) => {
+                    // FEC failed - might be corruption
+                    return Err(AudioModemError::FecDecodeFailure);
+                }
+            }
+
+            remaining_len -= chunk_len;
+        }
+
+        if decoded_data.is_empty() {
+            return Err(AudioModemError::FecDecodeFailure);
+        }
+
+        // Decode frame structure
+        let frame = FrameDecoder::decode(&decoded_data)?;
+
+        // Verify frame size is reasonable
+        if frame.payload_len as usize > decoded_data.len() {
+            return Err(AudioModemError::InvalidFrameSize);
+        }
+
+        Ok(frame.payload)
+    }
+
     /// Decode audio samples using fountain mode with continuous block accumulation
     ///
     /// Processes audio samples to extract fountain-encoded blocks and attempts
@@ -1436,5 +1560,331 @@ mod tests {
         // Should decode larger data even with missing early blocks
         let decoded = decoder.decode_fountain(&samples, Some(config)).unwrap();
         assert_eq!(decoded, data, "Should decode 120-byte data with first 4 blocks missing");
+    }
+
+    // ============================================================================
+    // TESTS FOR DECODE WITHOUT PREAMBLE/POSTAMBLE
+    // ============================================================================
+
+    #[test]
+    fn test_decode_without_preamble_postamble_basic() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        let data = b"Hello FSK!";
+        let samples = encoder.encode(data).unwrap();
+
+        // Extract only FSK data (skip preamble + silence + postamble)
+        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let postamble_samples = PREAMBLE_SAMPLES; // Typical postamble duration
+
+        // Ensure we have enough samples
+        if samples.len() > preamble_samples + postamble_samples {
+            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+            let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+            assert_eq!(decoded, data);
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_empty_data() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        let data = b"";
+        let samples = encoder.encode(data).unwrap();
+
+        // Extract only FSK data
+        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let postamble_samples = PREAMBLE_SAMPLES;
+
+        if samples.len() > preamble_samples + postamble_samples {
+            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+            let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+            assert_eq!(decoded, data);
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_various_lengths() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        let test_cases = vec![
+            b"A".to_vec(),
+            b"AB".to_vec(),
+            b"ABC".to_vec(),
+            b"The quick brown fox".to_vec(),
+            vec![0u8; 50],
+            vec![255u8; 30],
+        ];
+
+        for data in test_cases {
+            let samples = encoder.encode(&data).unwrap();
+
+            // Extract only FSK data
+            let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+            let postamble_samples = PREAMBLE_SAMPLES;
+
+            if samples.len() > preamble_samples + postamble_samples {
+                let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+                let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+                assert_eq!(decoded, data, "Failed for data length {}", data.len());
+            }
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_binary_data() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Test binary data (not just ASCII)
+        let data: Vec<u8> = (0..100).map(|i| i as u8).collect();
+        let samples = encoder.encode(&data).unwrap();
+
+        // Extract only FSK data
+        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let postamble_samples = PREAMBLE_SAMPLES;
+
+        if samples.len() > preamble_samples + postamble_samples {
+            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+            let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+            assert_eq!(decoded, data);
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_with_noise() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        let data = b"Noisy channel test";
+        let mut samples = encoder.encode(data).unwrap();
+
+        // Add small amount of noise (5% of signal)
+        for sample in samples.iter_mut() {
+            let noise = (*sample * 123.456).sin() * 0.05;
+            *sample += noise;
+        }
+
+        // Extract only FSK data
+        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let postamble_samples = PREAMBLE_SAMPLES;
+
+        if samples.len() > preamble_samples + postamble_samples {
+            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+            let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+            assert_eq!(decoded, data);
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_insufficient_data() {
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Too few samples
+        let samples = vec![0.0; 100];
+        let result = decoder.decode_without_preamble_postamble(&samples);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_large_payload() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Test with larger payload (near maximum)
+        let data = vec![42u8; 180];
+        let samples = encoder.encode(&data).unwrap();
+
+        // Extract only FSK data
+        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let postamble_samples = PREAMBLE_SAMPLES;
+
+        if samples.len() > preamble_samples + postamble_samples {
+            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+            let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+            assert_eq!(decoded, data);
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_repeating_patterns() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Test with repeating byte patterns
+        let patterns = vec![
+            vec![0x00; 20],      // All zeros
+            vec![0xFF; 20],      // All ones
+            vec![0xAA; 20],      // Alternating bits
+            vec![0x55; 20],      // Alternating bits (inverse)
+        ];
+
+        for data in patterns {
+            let samples = encoder.encode(&data).unwrap();
+
+            // Extract only FSK data
+            let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+            let postamble_samples = PREAMBLE_SAMPLES;
+
+            if samples.len() > preamble_samples + postamble_samples {
+                let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+                let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+                assert_eq!(decoded, data, "Failed for pattern {:02X}", data[0]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_vs_with_sync() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder_with_sync = DecoderFsk::new().unwrap();
+        let mut decoder_without_sync = DecoderFsk::new().unwrap();
+
+        let data = b"Compare decoding modes";
+        let full_samples = encoder.encode(data).unwrap();
+
+        // Decode with sync detection (traditional way)
+        let result_with_sync = decoder_with_sync.decode(&full_samples);
+
+        // Decode without sync (extract FSK data first)
+        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let postamble_samples = PREAMBLE_SAMPLES;
+
+        let result_without_sync = if full_samples.len() > preamble_samples + postamble_samples {
+            let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+            decoder_without_sync.decode_without_preamble_postamble(fsk_only)
+        } else {
+            Err(AudioModemError::InsufficientData)
+        };
+
+        // Both should succeed and produce the same result
+        assert!(result_with_sync.is_ok(), "Sync decode should succeed");
+        assert!(result_without_sync.is_ok(), "No-sync decode should succeed");
+
+        if let (Ok(with_sync), Ok(without_sync)) = (result_with_sync, result_without_sync) {
+            assert_eq!(with_sync, without_sync, "Both modes should decode to same data");
+            assert_eq!(with_sync, data);
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_trimmed_fsk_data() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        let data = b"Trimmed FSK data";
+        let full_samples = encoder.encode(data).unwrap();
+
+        // Simulate extracting just the FSK region conservatively
+        // This is what a real application would do after detecting preamble/postamble
+        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let postamble_estimate = PREAMBLE_SAMPLES; // Conservative estimate
+
+        if full_samples.len() > preamble_samples + postamble_estimate {
+            // Extract middle portion (FSK data only)
+            let fsk_data = &full_samples[preamble_samples..full_samples.len() - postamble_estimate];
+
+            // Should decode successfully without preamble/postamble detection
+            let decoded = decoder.decode_without_preamble_postamble(fsk_data).unwrap();
+            assert_eq!(decoded, data);
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_consecutive_messages() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Test that decoder can handle multiple messages when given clean FSK data
+        let messages = vec![
+            b"First message".to_vec(),
+            b"Second message".to_vec(),
+            b"Third message".to_vec(),
+        ];
+
+        for message in messages {
+            let full_samples = encoder.encode(&message).unwrap();
+
+            // Extract FSK data
+            let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+            let postamble_samples = PREAMBLE_SAMPLES;
+
+            if full_samples.len() > preamble_samples + postamble_samples {
+                let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+                let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+                assert_eq!(decoded, message);
+            }
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_short_payload() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Test single byte payload
+        let data = b"X";
+        let full_samples = encoder.encode(data).unwrap();
+
+        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let postamble_samples = PREAMBLE_SAMPLES;
+
+        if full_samples.len() > preamble_samples + postamble_samples {
+            let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+            let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+            assert_eq!(decoded, data);
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_mid_range_payload() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Test mid-range payload sizes
+        for size in [10, 50, 100, 150, 200].iter() {
+            let data = vec![*size as u8; *size];
+            let full_samples = encoder.encode(&data).unwrap();
+
+            let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+            let postamble_samples = PREAMBLE_SAMPLES;
+
+            if full_samples.len() > preamble_samples + postamble_samples {
+                let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+                let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+                assert_eq!(decoded, data, "Failed for size {}", size);
+            }
+        }
+    }
+
+    #[test]
+    fn test_decode_without_preamble_postamble_preserves_payload() {
+        let mut encoder = EncoderFsk::new().unwrap();
+        let mut decoder = DecoderFsk::new().unwrap();
+
+        // Test that exact payload is preserved (no corruption)
+        let data = vec![
+            0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x20, 0x57, 0x6F, 0x72, 0x6C, 0x64, // "Hello World"
+            0xFF, 0xFE, 0xFD, 0xFC, // Edge case bytes
+            0x00, 0x01, 0x02, 0x03, // Low values
+        ];
+
+        let full_samples = encoder.encode(&data).unwrap();
+
+        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let postamble_samples = PREAMBLE_SAMPLES;
+
+        if full_samples.len() > preamble_samples + postamble_samples {
+            let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+            let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
+            assert_eq!(decoded, data);
+            // Verify byte-by-byte
+            for (i, &byte) in data.iter().enumerate() {
+                assert_eq!(decoded[i], byte, "Byte mismatch at index {}", i);
+            }
+        }
     }
 }

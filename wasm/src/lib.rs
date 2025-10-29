@@ -133,6 +133,19 @@ impl WasmDecoder {
             .decode(samples)
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
+
+    /// Decode audio samples without preamble/postamble detection
+    ///
+    /// This method skips preamble and postamble detection and decodes the raw FSK data directly.
+    /// Useful when the audio clip has already been trimmed or when pre/post amble detection
+    /// would cause double-detection issues.
+    /// Takes a Float32Array and returns Uint8Array of decoded data
+    #[wasm_bindgen]
+    pub fn decode_without_preamble_postamble(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .decode_without_preamble_postamble(samples)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
 }
 
 

@@ -98,6 +98,10 @@ enum Commands {
         #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
 
+        /// Decode without preamble/postamble detection (for trimmed audio)
+        #[arg(long)]
+        no_sync: bool,
+
         /// Use adaptive threshold for both preamble and postamble
         #[arg(long)]
         adaptive: bool,
@@ -215,8 +219,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Encode { input, output } => {
                 encode_fsk_command(&input, &output)?
             }
-            Commands::Decode { input, output, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
-                decode_fsk_command(&input, &output, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
+            Commands::Decode { input, output, no_sync, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
+                decode_fsk_command(&input, &output, no_sync, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
             }
             Commands::Server { port } => {
                 return start_web_server(port);
@@ -248,7 +252,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if mode == "encode" || mode == "enc" {
             encode_fsk_command(&input, &output)?
         } else if mode == "decode" || mode == "dec" {
-            decode_fsk_command(&input, &output, false, None, false, None, false, None)?
+            decode_fsk_command(&input, &output, false, false, None, false, None, false, None)?
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
             std::process::exit(1);
@@ -492,6 +496,7 @@ fn fountain_decode_command(
 fn decode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
+    no_sync: bool,
     adaptive: bool,
     threshold: Option<f32>,
     preamble_adaptive: bool,
@@ -548,41 +553,46 @@ fn decode_fsk_command(
     // Decode with FSK
     let mut decoder = DecoderFsk::new()?;
 
-    // Set preamble threshold
-    if preamble_adaptive {
-        println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
-        decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
-    } else if let Some(thresh) = preamble_threshold {
-        println!("Using fixed preamble detection threshold: {:.3}", thresh);
-        decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
-    } else if adaptive {
-        println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
-        decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
-    } else if let Some(thresh) = threshold {
-        println!("Using fixed preamble detection threshold: {:.3}", thresh);
-        decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
+    let data = if no_sync {
+        println!("Decoding without preamble/postamble detection (trimmed audio mode)");
+        decoder.decode_without_preamble_postamble(&samples)?
     } else {
-        println!("Using default adaptive preamble detection threshold");
-    }
+        // Set preamble threshold
+        if preamble_adaptive {
+            println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
+            decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+        } else if let Some(thresh) = preamble_threshold {
+            println!("Using fixed preamble detection threshold: {:.3}", thresh);
+            decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
+        } else if adaptive {
+            println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
+            decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+        } else if let Some(thresh) = threshold {
+            println!("Using fixed preamble detection threshold: {:.3}", thresh);
+            decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
+        } else {
+            println!("Using default adaptive preamble detection threshold");
+        }
 
-    // Set postamble threshold
-    if postamble_adaptive {
-        println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
-        decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
-    } else if let Some(thresh) = postamble_threshold {
-        println!("Using fixed postamble detection threshold: {:.3}", thresh);
-        decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
-    } else if adaptive {
-        println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
-        decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
-    } else if let Some(thresh) = threshold {
-        println!("Using fixed postamble detection threshold: {:.3}", thresh);
-        decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
-    } else {
-        println!("Using default adaptive postamble detection threshold");
-    }
+        // Set postamble threshold
+        if postamble_adaptive {
+            println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+            decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
+        } else if let Some(thresh) = postamble_threshold {
+            println!("Using fixed postamble detection threshold: {:.3}", thresh);
+            decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
+        } else if adaptive {
+            println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+            decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
+        } else if let Some(thresh) = threshold {
+            println!("Using fixed postamble detection threshold: {:.3}", thresh);
+            decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
+        } else {
+            println!("Using default adaptive postamble detection threshold");
+        }
 
-    let data = decoder.decode(&samples)?;
+        decoder.decode(&samples)?
+    };
     println!("Decoded {} bytes with multi-tone FSK", data.len());
 
     // Write binary file
