@@ -1,5 +1,4 @@
 use crate::error::{AudioModemError, Result};
-use crate::fft_correlation::{fft_correlate_1d, Mode};
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 

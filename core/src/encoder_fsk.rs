@@ -5,8 +5,6 @@ use crate::fsk::{FskModulator, FountainConfig};
 use crate::sync::{generate_preamble, generate_postamble_signal};
 use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, SYNC_SILENCE_SAMPLES};
 use raptorq::{Encoder, EncodingPacket};
-use std::time::{Duration, Instant};
-use log::info;
 
 /// Encoder using Multi-tone FSK with Reed-Solomon FEC
 ///
