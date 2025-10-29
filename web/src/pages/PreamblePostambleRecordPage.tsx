@@ -106,6 +106,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
 
   // UI refs
   const [micVolume, setMicVolume] = useState(0)
+  const [enableAutoGain, setEnableAutoGain] = useState(true)
   const [targetAmplitude, setTargetAmplitude] = useState(0.5)
   const [autoGainAdjustment, setAutoGainAdjustment] = useState(1.0)
 
@@ -355,22 +356,24 @@ const PreamblePostambleRecordPage: React.FC = () => {
           }
 
           // Dynamically refine gain so we keep hugging the target amplitude even if the
-          // speaker volume shifts mid-frame.
-          const inputRms = calculateRMS(resampledChunk)
-          if (inputRms > 0 && targetAmplitude > 0) {
-            const estimatedOutput = inputRms * autoGainAdjustmentRef.current
-            const errorRatio = Math.abs(estimatedOutput - targetAmplitude) / targetAmplitude
-            if (errorRatio > AUTO_GAIN_TOLERANCE) {
-              const desiredGain = clampGain(targetAmplitude / inputRms)
-              const blendedGain =
-                autoGainAdjustmentRef.current +
-                (desiredGain - autoGainAdjustmentRef.current) * AUTO_GAIN_SMOOTHING
-              const clampedGain = clampGain(blendedGain)
-              if (Math.abs(clampedGain - autoGainAdjustmentRef.current) > 0.01) {
-                autoGainAdjustmentRef.current = clampedGain
-                setAutoGainAdjustment(clampedGain)
-              } else {
-                autoGainAdjustmentRef.current = clampedGain
+          // speaker volume shifts mid-frame (only if auto-gain is enabled)
+          if (enableAutoGain) {
+            const inputRms = calculateRMS(resampledChunk)
+            if (inputRms > 0 && targetAmplitude > 0) {
+              const estimatedOutput = inputRms * autoGainAdjustmentRef.current
+              const errorRatio = Math.abs(estimatedOutput - targetAmplitude) / targetAmplitude
+              if (errorRatio > AUTO_GAIN_TOLERANCE) {
+                const desiredGain = clampGain(targetAmplitude / inputRms)
+                const blendedGain =
+                  autoGainAdjustmentRef.current +
+                  (desiredGain - autoGainAdjustmentRef.current) * AUTO_GAIN_SMOOTHING
+                const clampedGain = clampGain(blendedGain)
+                if (Math.abs(clampedGain - autoGainAdjustmentRef.current) > 0.01) {
+                  autoGainAdjustmentRef.current = clampedGain
+                  setAutoGainAdjustment(clampedGain)
+                } else {
+                  autoGainAdjustmentRef.current = clampedGain
+                }
               }
             }
           }
@@ -385,7 +388,11 @@ const PreamblePostambleRecordPage: React.FC = () => {
           // Check if recording buffer exceeds safety limit
           if (recordedSamplesRef.current.length > MAX_RECORDING_SAMPLES) {
             isRecordingRef.current = false
-            stopRecording('Recording stopped (buffer limit reached)')
+            stopRecording('Recording stopped (buffer limit reached, attempting decode)')
+            // Attempt to decode the recorded audio
+            setTimeout(() => {
+              decodeRecordedAudio()
+            }, 100)
             return
           }
 
@@ -444,9 +451,9 @@ const PreamblePostambleRecordPage: React.FC = () => {
     // Calculate preamble amplitude (RMS of detected preamble only)
     const preambleAmplitude = calculateRMS(preambleSamples)
 
-    // Calculate gain adjustment to reach target amplitude
+    // Calculate gain adjustment to reach target amplitude (only if auto-gain is enabled)
     let gainAdjustment = 1.0
-    if (preambleAmplitude > 0) {
+    if (enableAutoGain && preambleAmplitude > 0) {
       gainAdjustment = targetAmplitude / preambleAmplitude
       gainAdjustment = clampGain(gainAdjustment)
     }
@@ -467,9 +474,14 @@ const PreamblePostambleRecordPage: React.FC = () => {
       const elapsed = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000)
       setRecordingDuration(elapsed)
 
-      // Auto-stop at MAX_RECORDING_DURATION
+      // Auto-stop at MAX_RECORDING_DURATION and attempt to decode
       if (elapsed >= MAX_RECORDING_DURATION) {
-        stopRecording(`Recording stopped (max ${MAX_RECORDING_DURATION}s reached)`)
+        isRecordingRef.current = false
+        stopRecording(`Recording stopped (max ${MAX_RECORDING_DURATION}s reached, attempting decode)`)
+        // Attempt to decode the recorded audio
+        setTimeout(() => {
+          decodeRecordedAudio()
+        }, 100)
       }
     }, 100)
 
@@ -657,7 +669,6 @@ const PreamblePostambleRecordPage: React.FC = () => {
     preamblePosInRecordingRef.current = 0
     recordedSamplesRef.current = []
     recordingResampleBufferRef.current = []
-    postambleDetectorRef.current = null
     autoGainAdjustmentRef.current = 1.0 // Reset auto-gain adjustment
 
     // Reset all state
@@ -744,26 +755,41 @@ const PreamblePostambleRecordPage: React.FC = () => {
         <h2>Listening & Recording Settings</h2>
 
         <div className="mt-4">
-          <label><strong>Target Preamble Amplitude</strong></label>
-          <div className="flex items-center gap-3 mt-2">
+          <label className="flex items-center gap-2">
             <input
-              type="range"
-              min="0.1"
-              max="0.9"
-              step="0.1"
-              value={targetAmplitude}
-              onChange={(e) => setTargetAmplitude(parseFloat(e.target.value))}
+              type="checkbox"
+              checked={enableAutoGain}
+              onChange={(e) => setEnableAutoGain(e.target.checked)}
               disabled={isListening}
             />
-            <span>{targetAmplitude.toFixed(1)}</span>
-          </div>
-          <small>Auto-adjust gain when preamble is detected to reach this amplitude. Recommended: 0.5</small>
-          {autoGainAdjustment !== 1.0 && !isListening && (
-            <div style={{ marginTop: '0.5rem', color: '#059669' }}>
-              Last adjustment: {autoGainAdjustment.toFixed(2)}x
-            </div>
-          )}
+            <strong>Enable Auto-Gain Adjustment</strong>
+          </label>
+          <small>Automatically adjust gain when preamble is detected to reach target amplitude</small>
         </div>
+
+        {enableAutoGain && (
+          <div className="mt-4">
+            <label><strong>Target Preamble Amplitude</strong></label>
+            <div className="flex items-center gap-3 mt-2">
+              <input
+                type="range"
+                min="0.1"
+                max="0.9"
+                step="0.1"
+                value={targetAmplitude}
+                onChange={(e) => setTargetAmplitude(parseFloat(e.target.value))}
+                disabled={isListening}
+              />
+              <span>{targetAmplitude.toFixed(1)}</span>
+            </div>
+            <small>Recommended: 0.5</small>
+            {autoGainAdjustment !== 1.0 && !isListening && (
+              <div style={{ marginTop: '0.5rem', color: '#059669' }}>
+                Last adjustment: {autoGainAdjustment.toFixed(2)}x
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-4">
           <label><strong>Preamble Detection Threshold</strong></label>
