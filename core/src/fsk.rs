@@ -128,13 +128,19 @@ fn generate_chirp(target_freq: f32, start_freq: f32, num_samples: usize, sample_
     let duration = num_samples as f32 / sample_rate;
     let mut samples = vec![0.0f32; num_samples];
 
-    // Linear frequency modulation: f(t) = start_freq + (target_freq - start_freq) * t / duration
-    let freq_sweep = (target_freq - start_freq) / duration;
+    // Logarithmic frequency modulation for smooth perceptual sweep
+    // Humans perceive pitch logarithmically, so log-sweep sounds smoother than linear sweep
+    // f(t) = start_freq * (target_freq / start_freq)^(t / duration)
+    let freq_ratio = target_freq / start_freq;
+    let ln_ratio = freq_ratio.ln();
 
-    // Phase accumulation: θ(t) = 2π * (start_freq * t + freq_sweep * t^2 / 2)
+    // Phase accumulation: θ(t) = 2π * start_freq * (duration / ln(ratio)) * [exp(ln(ratio) * t / duration) - 1]
+    let phase_scale = 2.0 * PI * start_freq * duration / ln_ratio;
+
     for i in 0..num_samples {
         let t = i as f32 / sample_rate;
-        let phase = 2.0 * PI * (start_freq * t + freq_sweep * t * t / 2.0);
+        let exp_term = (ln_ratio * t / duration).exp();
+        let phase = phase_scale * (exp_term - 1.0);
         samples[i] = phase.sin();
     }
 
