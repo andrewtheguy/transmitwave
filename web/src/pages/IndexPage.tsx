@@ -16,11 +16,23 @@ const IndexPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem', marginTop: '3rem' }}>
         <div
           className="card transition-all"
-          style={{ cursor: 'pointer', height: '100%' }}
+          style={{ cursor: 'pointer', height: '100%', border: '2px solid var(--primary-color)' }}
           onClick={() => navigate('/demo')}
         >
           <h3>📝 Main Demo</h3>
           <p>Encode text to audio and decode audio back to text with real-time WAV file generation.</p>
+          <div style={{ fontSize: '0.85rem', color: '#059669', marginBottom: '1rem', fontWeight: 'bold' }}>✓ Recommended (Reed-Solomon)</div>
+          <button className="btn-primary w-full">Open Demo</button>
+        </div>
+
+        <div
+          className="card transition-all"
+          style={{ cursor: 'pointer', height: '100%' }}
+          onClick={() => navigate('/preamble-postamble-record')}
+        >
+          <h3>🎙️ Preamble → Record → Postamble</h3>
+          <p>Listen for preamble to auto-start recording, auto-stop on postamble, then auto-decode message.</p>
+          <div style={{ fontSize: '0.85rem', color: '#059669', marginBottom: '1rem', fontWeight: 'bold' }}>✓ Recommended (Reed-Solomon)</div>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
 
@@ -36,31 +48,23 @@ const IndexPage: React.FC = () => {
 
         <div
           className="card transition-all"
-          style={{ cursor: 'pointer', height: '100%' }}
-          onClick={() => navigate('/preamble-postamble-record')}
-        >
-          <h3>🎙️ Preamble → Record → Postamble</h3>
-          <p>Listen for preamble to auto-start recording, auto-stop on postamble, then auto-decode message.</p>
-          <button className="btn-primary w-full">Open Demo</button>
-        </div>
-
-        <div
-          className="card transition-all"
-          style={{ cursor: 'pointer', height: '100%' }}
+          style={{ cursor: 'pointer', height: '100%', opacity: 0.8, borderLeft: '4px solid #f59e0b' }}
           onClick={() => navigate('/fountain-encode')}
         >
           <h3>⛲ Fountain Encode</h3>
           <p>Encode and continuously stream data for 30 seconds using RaptorQ fountain codes.</p>
+          <div style={{ fontSize: '0.85rem', color: '#f59e0b', marginBottom: '1rem', fontWeight: 'bold' }}>⚠️ Experimental - Not fully working</div>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
 
         <div
           className="card transition-all"
-          style={{ cursor: 'pointer', height: '100%' }}
+          style={{ cursor: 'pointer', height: '100%', opacity: 0.8, borderLeft: '4px solid #f59e0b' }}
           onClick={() => navigate('/fountain-listen')}
         >
           <h3>🎧 Fountain Listen</h3>
           <p>Listen for fountain-coded stream and decode data after 30 seconds of reception.</p>
+          <div style={{ fontSize: '0.85rem', color: '#f59e0b', marginBottom: '1rem', fontWeight: 'bold' }}>⚠️ Experimental - Not fully working</div>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
       </div>

@@ -75,7 +75,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Encode binary data to WAV audio file using multi-tone FSK
+    /// Encode binary data to WAV audio file using Reed-Solomon FEC (recommended)
+    /// Uses multi-tone FSK modulation with Reed-Solomon error correction for reliable transmission.
     Encode {
         /// Input binary file
         #[arg(value_name = "INPUT.BIN")]
@@ -86,7 +87,8 @@ enum Commands {
         output: PathBuf,
     },
 
-    /// Decode WAV file to binary data using multi-tone FSK
+    /// Decode WAV file to binary data using Reed-Solomon FEC (recommended)
+    /// Uses multi-tone FSK demodulation with Reed-Solomon error correction.
     Decode {
         /// Input WAV file
         #[arg(value_name = "INPUT.WAV")]
@@ -128,7 +130,9 @@ enum Commands {
         port: u16,
     },
 
-    /// Encode binary data to WAV using fountain mode (continuous streaming)
+    /// Encode binary data to WAV using fountain mode (continuous streaming) [EXPERIMENTAL]
+    /// Note: Fountain code implementation is experimental and not fully working yet.
+    /// Use the Encode/Decode commands for stable Reed-Solomon FEC mode.
     FountainEncode {
         /// Input binary file
         #[arg(value_name = "INPUT.BIN")]
@@ -151,7 +155,9 @@ enum Commands {
         repair_ratio: f32,
     },
 
-    /// Decode WAV file using fountain mode
+    /// Decode WAV file using fountain mode [EXPERIMENTAL]
+    /// Note: Fountain code implementation is experimental and not fully working yet.
+    /// Use the Encode/Decode commands for stable Reed-Solomon FEC mode.
     FountainDecode {
         /// Input WAV file
         #[arg(value_name = "INPUT.WAV")]
