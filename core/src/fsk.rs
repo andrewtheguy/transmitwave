@@ -57,8 +57,12 @@ impl Default for FountainConfig {
 }
 
 
-/// FSK symbol duration (384ms at 16kHz sample rate, 62.5 bits/sec throughput)
-pub const FSK_SYMBOL_SAMPLES: usize = 6144;
+/// FSK symbol duration (192ms at 16kHz sample rate)
+pub const FSK_SYMBOL_SAMPLES: usize = 3072;
+
+/// Chirp FSK symbol duration (384ms at 16kHz sample rate, 62.5 bits/sec throughput)
+/// Longer duration enables steeper, more prominent chirp sweep
+const CHIRP_SYMBOL_SAMPLES: usize = 6144;
 
 /// Apply a smooth envelope to reduce spectral splatter near symbol edges.
 const FSK_EDGE_TAPER_RATIO: f32 = 0.08; // 8% of the symbol on each side
@@ -288,7 +292,7 @@ impl FskModulator {
     /// Hybrid Chirp FSK modulation: Linear frequency-modulated (chirp) signals
     /// Each nibble encodes a target frequency as a chirp that sweeps to that frequency
     fn modulate_symbol_chirp(&mut self, bytes: &[u8]) -> Result<Vec<f32>> {
-        let symbol_samples = FSK_SYMBOL_SAMPLES;
+        let symbol_samples = CHIRP_SYMBOL_SAMPLES;
         let mut samples = vec![0.0f32; symbol_samples];
 
         // Extract 6 nibbles from 3 bytes
@@ -438,7 +442,14 @@ impl FskDemodulator {
     /// Detects 6 simultaneous tones, one from each band of 16 frequencies.
     /// Returns the 3 bytes encoded in the symbol.
     pub fn demodulate_symbol(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
-        if samples.len() != FSK_SYMBOL_SAMPLES {
+        // Check size based on mode
+        let expected_size = if self.use_chirp {
+            CHIRP_SYMBOL_SAMPLES
+        } else {
+            FSK_SYMBOL_SAMPLES
+        };
+
+        if samples.len() != expected_size {
             return Err(AudioModemError::InvalidInputSize);
         }
 
@@ -1011,7 +1022,8 @@ mod tests {
 
     #[test]
     fn test_chirp_vs_standard_fsk_throughput() {
-        // Both should have same throughput: 3 bytes per 192ms symbol
+        // Chirp: 3 bytes per 384ms symbol (62.5 bits/sec)
+        // Standard: 3 bytes per 192ms symbol (125 bits/sec)
         let mut chirp_mod = FskModulator::new_with_chirp();
         let mut standard_mod = FskModulator::new();
 
@@ -1019,9 +1031,10 @@ mod tests {
         let chirp_samples = chirp_mod.modulate_symbol(&bytes).unwrap();
         let standard_samples = standard_mod.modulate_symbol(&bytes).unwrap();
 
-        // Both produce same duration output
-        assert_eq!(chirp_samples.len(), standard_samples.len());
-        assert_eq!(chirp_samples.len(), FSK_SYMBOL_SAMPLES);
+        // Chirp is 2x longer for steeper, more prominent sweep
+        assert_eq!(chirp_samples.len(), CHIRP_SYMBOL_SAMPLES);
+        assert_eq!(standard_samples.len(), FSK_SYMBOL_SAMPLES);
+        assert_eq!(chirp_samples.len(), standard_samples.len() * 2);
     }
 
     #[test]
