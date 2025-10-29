@@ -1,9 +1,10 @@
-import { createDecoder, DetectionThreshold } from '../utils/wasm'
+import { createDecoder, createDecoderDtmf, DetectionThreshold } from '../utils/wasm'
 
 interface InitMessage {
   type: 'init'
   preambleThreshold: number
   postambleThreshold: number
+  mode?: 'fsk' | 'dtmf' // Default to 'fsk' for backward compatibility
 }
 
 interface DecodeMessage {
@@ -32,6 +33,7 @@ let decoder: any = null
 let isInitialized = false
 let preambleThreshold = 0.4
 let postambleThreshold = 0.4
+let mode: 'fsk' | 'dtmf' = 'fsk' // Default to FSK
 
 self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   try {
@@ -39,17 +41,25 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
     switch (type) {
       case 'init': {
-        const { preambleThreshold: pThresh, postambleThreshold: poThresh } = event.data as InitMessage
+        const { preambleThreshold: pThresh, postambleThreshold: poThresh, mode: msgMode } = event.data as InitMessage
         preambleThreshold = pThresh
         postambleThreshold = poThresh
+        mode = msgMode || 'fsk' // Default to FSK if not specified
 
         try {
-          decoder = await createDecoder({
-            preambleThreshold,
-            postambleThreshold,
-          })
+          if (mode === 'dtmf') {
+            decoder = await createDecoderDtmf({
+              preambleThreshold,
+              postambleThreshold,
+            })
+          } else {
+            decoder = await createDecoder({
+              preambleThreshold,
+              postambleThreshold,
+            })
+          }
           isInitialized = true
-          console.log(`Decoder worker initialized with preamble=${preambleThreshold}, postamble=${postambleThreshold}`)
+          console.log(`Decoder worker initialized with mode=${mode}, preamble=${preambleThreshold}, postamble=${postambleThreshold}`)
           self.postMessage({ type: 'init_done' })
         } catch (error) {
           console.error('Failed to initialize decoder:', error)
@@ -122,12 +132,19 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
         if (isInitialized && decoder) {
           try {
-            // Recreate decoder with new thresholds
-            decoder = await createDecoder({
-              preambleThreshold,
-              postambleThreshold,
-            })
-            console.log(`Decoder thresholds updated: preamble=${preambleThreshold}, postamble=${postambleThreshold}`)
+            // Recreate decoder with new thresholds using current mode
+            if (mode === 'dtmf') {
+              decoder = await createDecoderDtmf({
+                preambleThreshold,
+                postambleThreshold,
+              })
+            } else {
+              decoder = await createDecoder({
+                preambleThreshold,
+                postambleThreshold,
+              })
+            }
+            console.log(`Decoder thresholds updated: mode=${mode}, preamble=${preambleThreshold}, postamble=${postambleThreshold}`)
             self.postMessage({ type: 'threshold_updated' })
           } catch (error) {
             console.error('Error updating decoder thresholds:', error)
@@ -139,12 +156,19 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
       case 'reset': {
         try {
-          // Recreate decoder to reset state
-          decoder = await createDecoder({
-            preambleThreshold,
-            postambleThreshold,
-          })
-          console.log('Decoder reset')
+          // Recreate decoder to reset state using current mode
+          if (mode === 'dtmf') {
+            decoder = await createDecoderDtmf({
+              preambleThreshold,
+              postambleThreshold,
+            })
+          } else {
+            decoder = await createDecoder({
+              preambleThreshold,
+              postambleThreshold,
+            })
+          }
+          console.log(`Decoder reset with mode=${mode}`)
           self.postMessage({ type: 'reset_done' })
         } catch (error) {
           console.error('Error resetting decoder:', error)

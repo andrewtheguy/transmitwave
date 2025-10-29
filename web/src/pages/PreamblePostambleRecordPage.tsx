@@ -118,6 +118,9 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const [preambleThreshold, setPreambleThreshold] = useState(0.4)
   const [postambleThreshold, setPostambleThreshold] = useState(0.4)
 
+  // Mode selection (FSK or DTMF)
+  const [mode, setMode] = useState<'fsk' | 'dtmf'>('fsk')
+
   const scheduleInitialSamplesMerge = () => {
     if (initialMergeScheduledRef.current || !pendingInitialSamplesRef.current) {
       return
@@ -256,8 +259,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
         }
       }
 
-      // Initialize decoder with thresholds
-      decoderWorker.postMessage({ type: 'init', preambleThreshold, postambleThreshold })
+      // Initialize decoder with thresholds and mode
+      decoderWorker.postMessage({ type: 'init', preambleThreshold, postambleThreshold, mode })
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -834,6 +837,35 @@ const PreamblePostambleRecordPage: React.FC = () => {
 
       <div className="card">
         <h2>Listening & Recording Settings</h2>
+
+        <div className="mt-4">
+          <label><strong>Modulation Mode</strong></label>
+          <div className="flex items-center gap-3 mt-2">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="mode"
+                value="fsk"
+                checked={mode === 'fsk'}
+                onChange={(e) => setMode('fsk')}
+                disabled={isListening}
+              />
+              <span>FSK (Multi-tone)</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="mode"
+                value="dtmf"
+                checked={mode === 'dtmf'}
+                onChange={(e) => setMode('dtmf')}
+                disabled={isListening}
+              />
+              <span>DTMF (Dual-tone)</span>
+            </label>
+          </div>
+          <small>{mode === 'fsk' ? 'Multi-tone FSK with 96 symbols (faster)' : 'Extended DTMF with 48 symbols (more robust)'}</small>
+        </div>
 
         <div className="mt-4">
           <label className="flex items-center gap-2">
