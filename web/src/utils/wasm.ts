@@ -108,24 +108,11 @@ export async function createEncoder(options: EncoderOptions = {}): Promise<WasmE
     await initWasm();
     const useChirp = options.useChirp ?? false;
 
-    try {
-        let encoder: WasmEncoder;
-
-        if (useChirp) {
-            // Call the static newWithChirp method
-            const EncoderClass = WasmEncoder as any;
-            encoder = EncoderClass.newWithChirp();
-            console.log('Created chirp-enabled encoder via newWithChirp()');
-        } else {
-            // Call the regular constructor
-            encoder = new WasmEncoder();
-            console.log('Created standard FSK encoder via constructor');
-        }
-
-        return encoder;
-    } catch (err) {
-        console.error('Encoder creation failed:', err);
-        throw new Error(`Failed to create encoder: ${err}`);
+    if (useChirp) {
+        const EncoderClass = WasmEncoder as any;
+        return EncoderClass.newWithChirp();
+    } else {
+        return new WasmEncoder();
     }
 }
 
@@ -140,40 +127,23 @@ export async function createDecoder(
     await initWasm();
     const useChirp = options.useChirp ?? false;
 
-    try {
-        console.log('[createDecoder] Starting decoder creation with useChirp=' + useChirp);
+    let decoder: WasmDecoder;
 
-        let decoder: WasmDecoder;
-
-        if (useChirp) {
-            console.log('[createDecoder] Attempting newWithChirp()...');
-            const DecoderClass = WasmDecoder as any;
-            console.log('[createDecoder] DecoderClass.newWithChirp:', typeof DecoderClass.newWithChirp);
-            decoder = DecoderClass.newWithChirp();
-            console.log('✓ Created chirp-enabled decoder via newWithChirp()');
-        } else {
-            console.log('[createDecoder] Attempting standard constructor...');
-            decoder = new WasmDecoder();
-            console.log('✓ Created standard FSK decoder via constructor');
-        }
-
-        // Set thresholds with 0.4 as default
-        const preambleThreshold = options.preambleThreshold ?? 0.4;
-        const postambleThreshold = options.postambleThreshold ?? 0.4;
-
-        console.log('[createDecoder] Setting thresholds...');
-        decoder.set_preamble_threshold(preambleThreshold);
-        decoder.set_postamble_threshold(postambleThreshold);
-
-        return decoder;
-    } catch (err) {
-        console.error('❌ Decoder creation FAILED:', err);
-        if (err instanceof Error) {
-            console.error('Error message:', err.message);
-            console.error('Stack:', err.stack);
-        }
-        throw err;
+    if (useChirp) {
+        const DecoderClass = WasmDecoder as any;
+        decoder = DecoderClass.newWithChirp();
+    } else {
+        decoder = new WasmDecoder();
     }
+
+    // Set thresholds with 0.4 as default
+    const preambleThreshold = options.preambleThreshold ?? 0.4;
+    const postambleThreshold = options.postambleThreshold ?? 0.4;
+
+    decoder.set_preamble_threshold(preambleThreshold);
+    decoder.set_postamble_threshold(postambleThreshold);
+
+    return decoder;
 }
 
 /**
@@ -183,20 +153,11 @@ export async function createFountainEncoder(options: EncoderOptions = {}): Promi
     await initWasm();
     const useChirp = options.useChirp ?? false;
 
-    try {
-        if (useChirp) {
-            const EncoderClass = WasmFountainEncoder as any;
-            const encoder = EncoderClass.newWithChirp();
-            console.log('Created chirp-enabled fountain encoder');
-            return encoder;
-        } else {
-            const encoder = new WasmFountainEncoder();
-            console.log('Created standard fountain encoder');
-            return encoder;
-        }
-    } catch (err) {
-        console.error('Fountain encoder creation failed:', err);
-        throw new Error(`Failed to create fountain encoder: ${err}`);
+    if (useChirp) {
+        const EncoderClass = WasmFountainEncoder as any;
+        return EncoderClass.newWithChirp();
+    } else {
+        return new WasmFountainEncoder();
     }
 }
 
@@ -211,25 +172,17 @@ export async function createFountainDecoder(
     const useChirp = options.useChirp ?? false;
     const preambleThreshold = options.preambleThreshold ?? 0.4;
 
-    try {
-        // Create decoder with appropriate mode (chirp or standard)
-        let decoder: WasmFountainDecoder;
+    let decoder: WasmFountainDecoder;
 
-        if (useChirp) {
-            const DecoderClass = WasmFountainDecoder as any;
-            decoder = DecoderClass.newWithChirp();
-            console.log('Created chirp-enabled fountain decoder');
-        } else {
-            decoder = new WasmFountainDecoder();
-            console.log('Created standard fountain decoder');
-        }
-
-        // Set preamble threshold (clamped to valid range)
-        decoder.set_preamble_threshold(Math.max(0.1, Math.min(0.9, preambleThreshold)));
-
-        return decoder;
-    } catch (err) {
-        console.error('Fountain decoder creation failed:', err);
-        throw new Error(`Failed to create fountain decoder: ${err}`);
+    if (useChirp) {
+        const DecoderClass = WasmFountainDecoder as any;
+        decoder = DecoderClass.newWithChirp();
+    } else {
+        decoder = new WasmFountainDecoder();
     }
+
+    // Set preamble threshold (clamped to valid range)
+    decoder.set_preamble_threshold(Math.max(0.1, Math.min(0.9, preambleThreshold)));
+
+    return decoder;
 }

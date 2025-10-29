@@ -5,6 +5,7 @@ import { parseWavFile, stereoToMono, resampleAudio } from '../utils/audio'
 interface UseDecoderResult {
   decode: (file: File, options?: DecoderOptions) => Promise<string | null>
   decodeWithoutSync: (file: File, options?: DecoderOptions) => Promise<string | null>
+  decodeWithSync: (file: File, options?: DecoderOptions) => Promise<string | null>
   isDecoding: boolean
   error: string | null
 }
@@ -61,8 +62,8 @@ export const useDecoder = (): UseDecoderResult => {
     }
   }, [])
 
-  // Alternative decoder using full decode() with automatic preamble/postamble detection
-  // Useful for debugging timing issues with chirp mode
+  // Decoder using full decode() with automatic preamble/postamble detection
+  // Used for chirp mode since it has different latency characteristics than standard FSK
   const decodeWithSync = useCallback(async (file: File, options?: DecoderOptions): Promise<string | null> => {
     setIsDecoding(true)
     setError(null)
@@ -78,11 +79,8 @@ export const useDecoder = (): UseDecoderResult => {
         samples = resampleAudio(samples, audioData.sampleRate, 16000)
       }
 
-      console.log('useDecoder: decodeWithSync called with options:', options)
       const decoder = await createDecoder(options)
-      console.log('useDecoder: decoder created for decodeWithSync')
       const data = decoder.decode(samples)
-      console.log('useDecoder: decoded with sync:', data.length, 'bytes')
       const text = new TextDecoder().decode(data)
 
       return text
@@ -146,11 +144,8 @@ export const useDecoder = (): UseDecoderResult => {
         throw new Error('Unable to extract FSK data from audio file')
       }
 
-      console.log('useDecoder: decodeWithoutSync called with options:', options)
       const decoder = await createDecoder(options)
-      console.log('useDecoder: decoder created, type:', decoder.constructor.name)
       const data = decoder.decode_without_preamble_postamble(fskDataOnly)
-      console.log('useDecoder: decoded', fskDataOnly.length, 'samples to', data.length, 'bytes')
       const text = new TextDecoder().decode(data)
 
       return text
