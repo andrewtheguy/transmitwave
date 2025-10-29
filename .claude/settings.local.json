@@ -54,7 +54,12 @@
       "Bash(bash:*)",
       "Bash(git hash-object:*)",
       "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave encode:*)",
-      "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave decode:*)"
+      "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave decode:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_snapshot"
     ],
     "deny": [],
     "ask": []

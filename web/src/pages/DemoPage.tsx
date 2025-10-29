@@ -7,7 +7,7 @@ import Status from '../components/Status'
 const DemoPage: React.FC = () => {
   const navigate = useNavigate()
   const { encode, isEncoding, error: encodeError } = useEncoder()
-  const { decode, decodeWithoutSync, decodeWithSync, isDecoding, error: decodeError } = useDecoder()
+  const { decode, isDecoding, error: decodeError } = useDecoder()
 
   const [encodeText, setEncodeText] = useState('Hello World')
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
@@ -39,11 +39,9 @@ const DemoPage: React.FC = () => {
     setDecodeStatusType('info')
 
     try {
-      // For chirp mode, use automatic preamble/postamble detection (decodeWithSync)
-      // Manual extraction doesn't work well with chirp's matched filtering latency
-      const text = useChirp
-        ? await decodeWithSync(decodeFile, { useChirp })
-        : await decodeWithoutSync(decodeFile, { useChirp })
+      // Demo page encodes and immediately decodes clean audio
+      // Use automatic sync detection which handles both with and without postamble
+      const text = await decode(decodeFile, { useChirp })
 
       if (text !== null) {
         setDecodedText(text)
