@@ -7,7 +7,7 @@ import Status from '../components/Status'
 const DemoPage: React.FC = () => {
   const navigate = useNavigate()
   const { encode, isEncoding, error: encodeError } = useEncoder()
-  const { decode, decodeWithoutSync, isDecoding, error: decodeError } = useDecoder()
+  const { decode, decodeWithoutSync, decodeWithSync, isDecoding, error: decodeError } = useDecoder()
 
   const [encodeText, setEncodeText] = useState('Hello World')
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
@@ -39,8 +39,11 @@ const DemoPage: React.FC = () => {
     setDecodeStatusType('info')
 
     try {
-      // Use decodeWithoutSync to extract FSK data first and avoid double-detection
-      const text = await decodeWithoutSync(decodeFile, { useChirp })
+      // For chirp mode, use automatic preamble/postamble detection (decodeWithSync)
+      // Manual extraction doesn't work well with chirp's matched filtering latency
+      const text = useChirp
+        ? await decodeWithSync(decodeFile, { useChirp })
+        : await decodeWithoutSync(decodeFile, { useChirp })
 
       if (text !== null) {
         setDecodedText(text)
@@ -177,9 +180,15 @@ const DemoPage: React.FC = () => {
               onClick={handleDecode}
               disabled={isDecoding || !decodeFile}
               className="btn-primary w-full"
+              title={useChirp ? "Uses automatic sync detection for chirp mode" : "Uses manual timing extraction for standard mode"}
             >
               {isDecoding ? 'Decoding...' : 'Decode Audio'}
             </button>
+            {useChirp && (
+              <small className="text-gray-500 mt-2 block">
+                ℹ️ Using automatic preamble/postamble detection for chirp mode compatibility
+              </small>
+            )}
           </div>
 
           {decodeError && <Status message={decodeError} type="error" />}

@@ -61,6 +61,50 @@ export const useDecoder = (): UseDecoderResult => {
     }
   }, [])
 
+  // Alternative decoder using full decode() with automatic preamble/postamble detection
+  // Useful for debugging timing issues with chirp mode
+  const decodeWithSync = useCallback(async (file: File, options?: DecoderOptions): Promise<string | null> => {
+    setIsDecoding(true)
+    setError(null)
+
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const audioData = await audioContext.decodeAudioData(arrayBuffer)
+      let samples = audioData.getChannelData(0)
+
+      // Resample if necessary (target: 16kHz)
+      if (audioData.sampleRate !== 16000) {
+        samples = resampleAudio(samples, audioData.sampleRate, 16000)
+      }
+
+      console.log('useDecoder: decodeWithSync called with options:', options)
+      const decoder = await createDecoder(options)
+      console.log('useDecoder: decoder created for decodeWithSync')
+      const data = decoder.decode(samples)
+      console.log('useDecoder: decoded with sync:', data.length, 'bytes')
+      const text = new TextDecoder().decode(data)
+
+      return text
+    } catch (err) {
+      let message = 'Decoding with sync failed'
+
+      if (err instanceof Error) {
+        message = err.message
+      } else if (typeof err === 'string') {
+        message = err
+      } else if (err && typeof err === 'object' && 'message' in err) {
+        message = String((err as any).message)
+      }
+
+      console.error('Decode with sync error:', err)
+      setError(message)
+      return null
+    } finally {
+      setIsDecoding(false)
+    }
+  }, [])
+
   const decodeWithoutSync = useCallback(async (file: File, options?: DecoderOptions): Promise<string | null> => {
     setIsDecoding(true)
     setError(null)
@@ -102,8 +146,11 @@ export const useDecoder = (): UseDecoderResult => {
         throw new Error('Unable to extract FSK data from audio file')
       }
 
+      console.log('useDecoder: decodeWithoutSync called with options:', options)
       const decoder = await createDecoder(options)
-      const data = await decoder.decode_without_preamble_postamble(fskDataOnly)
+      console.log('useDecoder: decoder created, type:', decoder.constructor.name)
+      const data = decoder.decode_without_preamble_postamble(fskDataOnly)
+      console.log('useDecoder: decoded', fskDataOnly.length, 'samples to', data.length, 'bytes')
       const text = new TextDecoder().decode(data)
 
       return text
@@ -126,5 +173,5 @@ export const useDecoder = (): UseDecoderResult => {
     }
   }, [])
 
-  return { decode, decodeWithoutSync, isDecoding, error }
+  return { decode, decodeWithoutSync, decodeWithSync, isDecoding, error }
 }

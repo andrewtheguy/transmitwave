@@ -22,9 +22,12 @@ export const useEncoder = (): UseEncoderResult => {
     setError(null)
 
     try {
+      console.log('useEncoder: encode called with options:', options)
       const encoder = await createEncoder(options)
+      console.log('useEncoder: encoder created, type:', encoder.constructor.name)
       const data = new TextEncoder().encode(text)
-      const samples = await encoder.encode(data)
+      const samples = encoder.encode(data)
+      console.log('useEncoder: encoded', data.length, 'bytes to', samples.length, 'audio samples')
 
       const blob = createWavBlob(samples, 16000, 1)
       return blob
