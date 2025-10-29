@@ -148,8 +148,10 @@ fn generate_chirp_for_nibble(nibble_val: u8, band_offset: usize, num_samples: us
     let position = (nibble_val as f32) / 15.0; // 0.0 to 1.0
     let target_freq = band_end_freq - position * (band_end_freq - band_start_freq);
 
-    // Chirp descends from slightly above target to the target frequency
-    let start_freq = target_freq + (band_end_freq - band_start_freq) * 0.1;
+    // Chirp descends from much higher to the target frequency for prominent sweep
+    // 1.5x band width = ~480Hz sweep for prominent audible chirp sound
+    let band_width = band_end_freq - band_start_freq;
+    let start_freq = target_freq + band_width * 1.5;
 
     generate_chirp(target_freq, start_freq, num_samples, sample_rate)
 }
