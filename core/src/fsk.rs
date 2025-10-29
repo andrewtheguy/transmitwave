@@ -1,4 +1,5 @@
 use crate::error::{AudioModemError, Result};
+use crate::fft_correlation::{fft_correlate_1d, Mode};
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
@@ -19,15 +20,14 @@ use std::f32::consts::PI;
 // - Uses Reed-Solomon FEC for error correction
 // - Includes preamble/postamble for frame synchronization
 
-/// Base frequency in Hz (lowered for better compatibility with various devices)
-/// Frequency range: 400-2400Hz (comfortable listening range, lower pitch)
-const FSK_BASE_FREQ: f32 = 400.0;
+/// Base frequency in Hz
+/// Frequency range: 1100-2900Hz (optimal mobile speaker range)
+const FSK_BASE_FREQ: f32 = 1100.0;
 
 /// Frequency spacing in Hz between adjacent bins
-/// Set to 29Hz to keep max frequency around 3000Hz for comfortable mid-range listening
-/// Max frequency: 400 + 95*29 = 3155Hz
-/// This makes each of the 6 chirps distinctly audible as separate, well-spaced tones
-const FSK_FREQ_DELTA: f32 = 29.0;
+/// Set to 20Hz for balanced frequency resolution and range
+/// Max frequency: 1100 + 95*20 = 3000Hz
+const FSK_FREQ_DELTA: f32 = 20.0;
 
 /// Total number of frequency bins (96 provides redundancy and flexibility)
 const FSK_NUM_BINS: usize = 96;
@@ -394,6 +394,10 @@ impl FskModulator {
 pub struct FskDemodulator {
     sample_rate: f32,
     use_chirp: bool,
+    // Cached chirp templates: [band_idx][nibble_val][samples]
+    chirp_templates: Option<Vec<Vec<Vec<f32>>>>,
+    // Cached template energies: [band_idx][nibble_val]
+    chirp_template_energies: Option<Vec<Vec<f32>>>,
 }
 
 impl FskDemodulator {
@@ -401,6 +405,8 @@ impl FskDemodulator {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
             use_chirp: false,
+            chirp_templates: None,
+            chirp_template_energies: None,
         }
     }
 
@@ -409,12 +415,56 @@ impl FskDemodulator {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
             use_chirp: true,
+            chirp_templates: None,
+            chirp_template_energies: None,
         }
     }
 
     /// Check if chirp FSK mode is enabled
     pub fn is_chirp(&self) -> bool {
         self.use_chirp
+    }
+
+    /// Ensure chirp templates are cached, generating them lazily if needed
+    fn ensure_chirp_templates_cached(&mut self) {
+        if self.chirp_templates.is_some() {
+            return;
+        }
+
+        let mut templates = vec![Vec::new(); FSK_NIBBLES_PER_SYMBOL];
+        let mut energies = vec![vec![0.0; 16]; FSK_NIBBLES_PER_SYMBOL];
+
+        // Create the same window used in preprocessing for chirp mode
+        let taper_len = {
+            let mut taper = ((CHIRP_SYMBOL_SAMPLES as f32) * 0.04).round() as usize;
+            if taper < FSK_ANALYSIS_MIN_TAPER_SAMPLES {
+                taper = FSK_ANALYSIS_MIN_TAPER_SAMPLES;
+            }
+            let half = CHIRP_SYMBOL_SAMPLES / 2;
+            if taper > half {
+                taper = half;
+            }
+            taper
+        };
+        let window = raised_cosine_window(CHIRP_SYMBOL_SAMPLES, taper_len);
+
+        for band_idx in 0..FSK_NIBBLES_PER_SYMBOL {
+            for nibble_val in 0u8..16 {
+                let mut template = create_chirp_template(nibble_val, band_idx, CHIRP_SYMBOL_SAMPLES, self.sample_rate);
+
+                // Apply the same raised-cosine window to template
+                for (sample, &weight) in template.iter_mut().zip(window.iter()) {
+                    *sample *= weight;
+                }
+
+                let energy: f32 = template.iter().map(|x| x * x).sum();
+                energies[band_idx][nibble_val as usize] = energy;
+                templates[band_idx].push(template);
+            }
+        }
+
+        self.chirp_templates = Some(templates);
+        self.chirp_template_energies = Some(energies);
     }
 
     /// Compute power spectrum using simple DFT for our specific frequency bins
@@ -456,7 +506,7 @@ impl FskDemodulator {
     ///
     /// Detects 6 simultaneous tones, one from each band of 16 frequencies.
     /// Returns the 3 bytes encoded in the symbol.
-    pub fn demodulate_symbol(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
+    pub fn demodulate_symbol(&mut self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
         // Check size based on mode
         let expected_size = if self.use_chirp {
             CHIRP_SYMBOL_SAMPLES
@@ -512,26 +562,57 @@ impl FskDemodulator {
         Ok(bytes)
     }
 
-    /// Hybrid Chirp FSK demodulation: Matched filtering against chirp templates
-    fn demodulate_symbol_chirp(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
+    /// Hybrid Chirp FSK demodulation: FFT-based matched filtering against chirp templates
+    fn demodulate_symbol_chirp(&mut self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
         let conditioned = self.preprocess_symbol(samples);
         let mut nibbles = [0u8; FSK_NIBBLES_PER_SYMBOL];
+
+        // Ensure templates are cached
+        self.ensure_chirp_templates_cached();
+
+        // Build prefix-sum array of squared samples for O(1) window energy computation
+        let mut sq_prefix = vec![0.0; conditioned.len() + 1];
+        for k in 0..conditioned.len() {
+            sq_prefix[k + 1] = sq_prefix[k] + conditioned[k] * conditioned[k];
+        }
+
+        // Get references to cached templates and energies
+        let templates = self.chirp_templates.as_ref().unwrap();
+        let energies = self.chirp_template_energies.as_ref().unwrap();
 
         // For each band, correlate against all 16 chirp templates and find best match
         for band_idx in 0..FSK_NIBBLES_PER_SYMBOL {
             let mut best_match = 0u8;
-            let mut best_correlation = 0.0f32;
+            let mut best_normalized_corr = 0.0f32;
 
             // Try all 16 possible nibble values for this band
             for nibble_val in 0u8..16 {
-                // Generate chirp template for this nibble value
-                let template = create_chirp_template(nibble_val, band_idx, samples.len(), self.sample_rate);
+                let nibble_idx = nibble_val as usize;
 
-                // Compute correlation (matched filter response)
-                let correlation = self.compute_correlation(&conditioned, &template);
+                // Get cached template
+                let template = &templates[band_idx][nibble_idx];
+                let template_energy = energies[band_idx][nibble_idx];
 
-                if correlation > best_correlation {
-                    best_correlation = correlation;
+                // Use FFT-based correlation with Mode::Valid since signal and template have same length
+                // Returns single value at index 0 representing the correlation at the fully-overlapping position
+                let fft_result = fft_correlate_1d(&conditioned, template, Mode::Valid)?;
+
+                // Extract the correlation value (index 0 for Valid mode with equal-length inputs)
+                let raw_correlation = fft_result.get(0).map(|&v| v.abs()).unwrap_or(0.0);
+
+                // Compute signal energy over the entire window using prefix sums
+                let signal_energy = sq_prefix[conditioned.len()];
+
+                // Compute normalized correlation coefficient (bi-directional normalization)
+                let denom = (signal_energy * template_energy).sqrt();
+                let normalized_corr = if denom > 1e-10 {
+                    raw_correlation / denom
+                } else {
+                    0.0
+                };
+
+                if normalized_corr > best_normalized_corr {
+                    best_normalized_corr = normalized_corr;
                     best_match = nibble_val;
                 }
             }
@@ -550,6 +631,9 @@ impl FskDemodulator {
     }
 
     /// Compute correlation between signal and template for matched filtering
+    ///
+    /// Note: This method is used for standard FSK only. Chirp mode uses FFT-based
+    /// correlation with proper bi-directional normalization for better performance.
     fn compute_correlation(&self, signal: &[f32], template: &[f32]) -> f32 {
         if signal.len() != template.len() {
             return 0.0;
@@ -571,7 +655,7 @@ impl FskDemodulator {
 
     /// Demodulate a sequence of multi-tone FSK symbols
     /// samples.len() must be a multiple of FSK_SYMBOL_SAMPLES
-    pub fn demodulate(&self, samples: &[f32]) -> Result<Vec<u8>> {
+    pub fn demodulate(&mut self, samples: &[f32]) -> Result<Vec<u8>> {
         let symbol_size = if self.use_chirp {
             CHIRP_SYMBOL_SAMPLES
         } else {
@@ -603,7 +687,21 @@ impl FskDemodulator {
             *sample -= mean;
         }
 
-        let taper_len = self.analysis_taper_length(buffer.len());
+        let taper_len = if self.use_chirp {
+            // For chirp mode: use adjusted taper ratio (0.04 instead of 0.06) since symbols are 2x longer
+            let mut taper = ((buffer.len() as f32) * 0.04).round() as usize;
+            if taper < FSK_ANALYSIS_MIN_TAPER_SAMPLES {
+                taper = FSK_ANALYSIS_MIN_TAPER_SAMPLES;
+            }
+            let half = buffer.len() / 2;
+            if taper > half {
+                taper = half;
+            }
+            taper
+        } else {
+            self.analysis_taper_length(buffer.len())
+        };
+
         if taper_len > 0 {
             let window = raised_cosine_window(buffer.len(), taper_len);
             for (sample, weight) in buffer.iter_mut().zip(window.iter()) {
@@ -741,7 +839,7 @@ mod tests {
 
     #[test]
     fn test_fsk_demodulator_symbol_length() {
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
         let samples = vec![0.0; FSK_SYMBOL_SAMPLES];
         assert!(demodulator.demodulate_symbol(&samples).is_ok());
     }
@@ -749,7 +847,7 @@ mod tests {
     #[test]
     fn test_fsk_roundtrip_single_symbol() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         let test_cases = vec![
             [0x00, 0x00, 0x00], // All zeros
@@ -773,7 +871,7 @@ mod tests {
     #[test]
     fn test_fsk_roundtrip_multiple_symbols() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         // Test sequence: 2 symbols = 6 bytes
         let bytes = vec![
@@ -792,7 +890,7 @@ mod tests {
     #[test]
     fn test_fsk_with_noise() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         // Encode a symbol
         let bytes = [0xAB, 0xCD, 0xEF];
@@ -848,7 +946,7 @@ mod tests {
     #[test]
     fn test_fsk_byte_patterns() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         let patterns = vec![
             vec![0x00; 6],       // All zeros
@@ -883,7 +981,7 @@ mod tests {
 
     #[test]
     fn test_demodulate_length_validation() {
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
 
         // Valid length
         let samples_valid = vec![0.0; FSK_SYMBOL_SAMPLES];
@@ -900,7 +998,7 @@ mod tests {
     #[test]
     fn test_fsk_demodulator_gain_invariance() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
         let bytes = [0x5A, 0xC3, 0x9F];
         let samples = modulator.modulate_symbol(&bytes).unwrap();
 
@@ -914,7 +1012,7 @@ mod tests {
     #[test]
     fn test_fsk_demodulator_dc_rejection() {
         let mut modulator = FskModulator::new();
-        let demodulator = FskDemodulator::new();
+        let mut demodulator = FskDemodulator::new();
         let bytes = [0x42, 0x01, 0x9C];
         let base = modulator.modulate_symbol(&bytes).unwrap();
 
@@ -968,7 +1066,7 @@ mod tests {
     #[test]
     fn test_chirp_fsk_roundtrip_single_symbol() {
         let mut modulator = FskModulator::new_with_chirp();
-        let demodulator = FskDemodulator::new_with_chirp();
+        let mut demodulator = FskDemodulator::new_with_chirp();
 
         let test_cases = vec![
             [0x00, 0x00, 0x00], // All zeros
@@ -992,7 +1090,7 @@ mod tests {
     #[test]
     fn test_chirp_fsk_roundtrip_multiple_symbols() {
         let mut modulator = FskModulator::new_with_chirp();
-        let demodulator = FskDemodulator::new_with_chirp();
+        let mut demodulator = FskDemodulator::new_with_chirp();
 
         // Test sequence: 2 symbols = 6 bytes
         let bytes = vec![
@@ -1001,7 +1099,7 @@ mod tests {
         ];
 
         let samples = modulator.modulate(&bytes).unwrap();
-        assert_eq!(samples.len(), FSK_SYMBOL_SAMPLES * 2);
+        assert_eq!(samples.len(), CHIRP_SYMBOL_SAMPLES * 2);
 
         let decoded = demodulator.demodulate(&samples).unwrap();
         assert_eq!(decoded.len(), bytes.len());
@@ -1011,7 +1109,7 @@ mod tests {
     #[test]
     fn test_chirp_fsk_with_noise() {
         let mut modulator = FskModulator::new_with_chirp();
-        let demodulator = FskDemodulator::new_with_chirp();
+        let mut demodulator = FskDemodulator::new_with_chirp();
 
         // Encode a symbol
         let bytes = [0xAB, 0xCD, 0xEF];
@@ -1030,7 +1128,7 @@ mod tests {
     #[test]
     fn test_chirp_fsk_gain_invariance() {
         let mut modulator = FskModulator::new_with_chirp();
-        let demodulator = FskDemodulator::new_with_chirp();
+        let mut demodulator = FskDemodulator::new_with_chirp();
         let bytes = [0x5A, 0xC3, 0x9F];
         let samples = modulator.modulate_symbol(&bytes).unwrap();
 
@@ -1077,7 +1175,7 @@ mod tests {
     #[test]
     fn test_chirp_fsk_byte_patterns() {
         let mut modulator = FskModulator::new_with_chirp();
-        let demodulator = FskDemodulator::new_with_chirp();
+        let mut demodulator = FskDemodulator::new_with_chirp();
 
         let patterns = vec![
             vec![0x00; 6],       // All zeros
@@ -1091,6 +1189,60 @@ mod tests {
             let samples = modulator.modulate(&bytes).unwrap();
             let decoded = demodulator.demodulate(&samples).unwrap();
             assert_eq!(decoded, bytes, "Failed for chirp pattern {:02X?}", bytes);
+        }
+    }
+
+    #[test]
+    fn test_chirp_template_caching() {
+        let mut demodulator = FskDemodulator::new_with_chirp();
+
+        // Initially, templates should not be cached
+        assert!(demodulator.chirp_templates.is_none());
+        assert!(demodulator.chirp_template_energies.is_none());
+
+        // After first demodulation, templates should be cached
+        let bytes = [0xAB, 0xCD, 0xEF];
+        let mut modulator = FskModulator::new_with_chirp();
+        let samples = modulator.modulate_symbol(&bytes).unwrap();
+        let _ = demodulator.demodulate_symbol(&samples);
+
+        // Templates should now be cached
+        assert!(demodulator.chirp_templates.is_some());
+        assert!(demodulator.chirp_template_energies.is_some());
+
+        // Verify cache structure
+        let templates = demodulator.chirp_templates.as_ref().unwrap();
+        assert_eq!(templates.len(), FSK_NIBBLES_PER_SYMBOL);
+        for band_templates in templates {
+            assert_eq!(band_templates.len(), 16);
+        }
+
+        let energies = demodulator.chirp_template_energies.as_ref().unwrap();
+        assert_eq!(energies.len(), FSK_NIBBLES_PER_SYMBOL);
+        for band_energies in energies {
+            assert_eq!(band_energies.len(), 16);
+        }
+    }
+
+    #[test]
+    fn test_chirp_correlation_normalization() {
+        let mut modulator = FskModulator::new_with_chirp();
+        let mut demodulator = FskDemodulator::new_with_chirp();
+
+        let bytes = [0xAB, 0xCD, 0xEF];
+        let samples = modulator.modulate_symbol(&bytes).unwrap();
+
+        // Decode at multiple amplitude levels
+        for gain in [0.1, 0.5, 1.0, 2.0] {
+            let scaled: Vec<f32> = samples.iter().map(|s| s * gain).collect();
+            let decoded = demodulator.demodulate_symbol(&scaled).unwrap();
+
+            // Should decode identically regardless of amplitude
+            assert_eq!(
+                decoded, bytes,
+                "Normalization failed at gain {}: got {:02X?}",
+                gain, decoded
+            );
         }
     }
 }
