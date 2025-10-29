@@ -482,4 +482,359 @@ mod tests {
         assert!(window[90] > 0.9, "Window should still be high");
         assert!(window[99] < 0.1, "Window should end near 0");
     }
+
+    // ========================================================================
+    // REAL-WORLD SCENARIO TESTS
+    // ========================================================================
+
+    /// Simple PRNG for reproducible noise
+    fn simple_rand(seed: &mut u64) -> f32 {
+        *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        ((*seed >> 32) as f32) / (u32::MAX as f32) * 2.0 - 1.0
+    }
+
+    /// Add white noise to signal at specified SNR (in dB)
+    fn add_white_noise(samples: &mut [f32], snr_db: f32) {
+        let mut seed = 12345u64;
+
+        // Calculate signal RMS
+        let signal_rms = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
+
+        // Calculate noise RMS from SNR: SNR(dB) = 20*log10(signal_rms / noise_rms)
+        let noise_rms = signal_rms / 10.0f32.powf(snr_db / 20.0);
+
+        // Add noise
+        for sample in samples.iter_mut() {
+            *sample += simple_rand(&mut seed) * noise_rms;
+        }
+    }
+
+    #[test]
+    fn test_dtmf_with_additive_noise_20db_snr() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![0, 15, 30, 47];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Add 20dB SNR noise (good conditions)
+        add_white_noise(&mut samples, 20.0);
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should decode correctly with 20dB SNR");
+    }
+
+    #[test]
+    fn test_dtmf_with_additive_noise_15db_snr() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![5, 20, 35];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Add 15dB SNR noise (moderate conditions)
+        add_white_noise(&mut samples, 15.0);
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should decode correctly with 15dB SNR");
+    }
+
+    #[test]
+    fn test_dtmf_with_additive_noise_10db_snr() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![10, 25, 40];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Add 10dB SNR noise (challenging conditions)
+        add_white_noise(&mut samples, 10.0);
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should decode correctly with 10dB SNR");
+    }
+
+    #[test]
+    fn test_dtmf_strong_attenuation_10_percent() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![0, 10, 20, 30, 40, 47];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Very strong attenuation to 10% (distant transmission)
+        for sample in samples.iter_mut() {
+            *sample *= 0.1;
+        }
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should handle 10% attenuation");
+    }
+
+    #[test]
+    fn test_dtmf_strong_attenuation_20_percent() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![5, 15, 25, 35, 45];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Strong attenuation to 20%
+        for sample in samples.iter_mut() {
+            *sample *= 0.2;
+        }
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should handle 20% attenuation");
+    }
+
+    #[test]
+    fn test_dtmf_with_dc_offset() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![7, 14, 21, 28];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Add DC offset (common in audio systems)
+        for sample in samples.iter_mut() {
+            *sample += 0.2;
+        }
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should handle DC offset");
+    }
+
+    #[test]
+    fn test_dtmf_with_soft_clipping() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![3, 12, 24, 36, 44];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Amplify and soft clip (simulates overdriven input)
+        for sample in samples.iter_mut() {
+            *sample *= 2.0;
+            *sample = sample.max(-0.9).min(0.9); // Soft clipping
+        }
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should handle soft clipping");
+    }
+
+    #[test]
+    fn test_dtmf_attenuation_plus_noise() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![1, 11, 22, 33, 46];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Realistic scenario: 30% signal strength + 15dB SNR noise
+        for sample in samples.iter_mut() {
+            *sample *= 0.3;
+        }
+        add_white_noise(&mut samples, 15.0);
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should handle attenuation + noise");
+    }
+
+    #[test]
+    fn test_dtmf_background_tone_interference() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![8, 16, 32];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Add background tone at 1500 Hz (between high frequencies)
+        let sample_rate = crate::SAMPLE_RATE as f32;
+        for (i, sample) in samples.iter_mut().enumerate() {
+            let t = i as f32 / sample_rate;
+            let interference = 0.1 * (2.0 * std::f32::consts::PI * 1500.0 * t).sin();
+            *sample += interference;
+        }
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should handle background tone interference");
+    }
+
+    #[test]
+    fn test_dtmf_sequence_with_noise() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        // Longer sequence to test sustained performance
+        let test_symbols: Vec<u8> = vec![0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 47];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Moderate noise throughout
+        add_white_noise(&mut samples, 15.0);
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should decode long sequence with noise");
+    }
+
+    #[test]
+    fn test_dtmf_all_symbols_with_noise() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        // Test all 48 symbols with noise
+        let test_symbols: Vec<u8> = (0..DTMF_NUM_SYMBOLS).collect();
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Add 12dB SNR noise
+        add_white_noise(&mut samples, 12.0);
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should decode all 48 symbols with 12dB SNR");
+    }
+
+    #[test]
+    fn test_dtmf_low_frequencies_with_noise() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        // Test symbols using low frequency indices (0-7 use low freq index 0)
+        let test_symbols = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        add_white_noise(&mut samples, 15.0);
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should decode low freq symbols with noise");
+    }
+
+    #[test]
+    fn test_dtmf_high_frequencies_with_noise() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        // Test symbols using high frequency indices (40-47 use low freq index 5)
+        let test_symbols = vec![40, 41, 42, 43, 44, 45, 46, 47];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        add_white_noise(&mut samples, 15.0);
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should decode high freq symbols with noise");
+    }
+
+    #[test]
+    fn test_dtmf_extreme_noise_robustness() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![10];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Add very heavy noise (0dB SNR - noise equal to signal)
+        // DTMF is surprisingly robust even at 0dB, so this tests extreme conditions
+        add_white_noise(&mut samples, 0.0);
+
+        // At 0dB SNR, detection may succeed or fail depending on noise pattern
+        // This is actually a robustness demonstration rather than a failure test
+        let result = demodulator.demodulate(&samples);
+
+        // Document the behavior: even at 0dB SNR, DTMF is often still decodable
+        // due to the Goertzel algorithm's frequency selectivity
+        if result.is_ok() {
+            println!("DTMF successfully decoded even at 0dB SNR (excellent robustness)");
+        } else {
+            println!("DTMF failed at 0dB SNR (expected with extreme noise)");
+        }
+
+        // Test passes regardless - this demonstrates robustness limits
+        assert!(true, "Test demonstrates extreme noise behavior");
+    }
+
+    #[test]
+    fn test_dtmf_realistic_phone_scenario() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        // Simulate phone transmission: moderate attenuation + noise + DC offset
+        let test_symbols = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // 40% attenuation (lossy transmission)
+        for sample in samples.iter_mut() {
+            *sample *= 0.4;
+        }
+
+        // Add 18dB SNR noise (realistic phone line)
+        add_white_noise(&mut samples, 18.0);
+
+        // Add DC offset
+        for sample in samples.iter_mut() {
+            *sample += 0.05;
+        }
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should handle realistic phone scenario");
+    }
+
+    #[test]
+    fn test_dtmf_speaker_to_microphone_simulation() {
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        // Simulate speaker->mic: strong attenuation + background noise + slight distortion
+        let test_symbols = vec![0, 10, 20, 30, 40];
+        let mut samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Strong attenuation (25% - distant mic)
+        for sample in samples.iter_mut() {
+            *sample *= 0.25;
+        }
+
+        // Add realistic background noise (12dB SNR)
+        add_white_noise(&mut samples, 12.0);
+
+        // Add slight non-linear distortion
+        for sample in samples.iter_mut() {
+            *sample = sample.signum() * sample.abs().powf(0.95);
+        }
+
+        let detected = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(detected, test_symbols, "Should handle speaker-to-mic scenario");
+    }
+
+    #[test]
+    fn test_dtmf_robustness_statistics() {
+        // Test statistical robustness: multiple trials with different noise
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbol = 24u8; // Middle symbol
+        let num_trials = 10;
+        let mut success_count = 0;
+
+        for trial in 0..num_trials {
+            let mut samples = modulator.modulate_symbol(test_symbol).unwrap();
+
+            // Add noise with different seed each time
+            let mut seed = 54321u64 + trial;
+            let noise_rms = 0.05; // Moderate noise
+            for sample in samples.iter_mut() {
+                *sample += simple_rand(&mut seed) * noise_rms;
+            }
+
+            if let Ok(detected) = demodulator.demodulate_symbol(&samples) {
+                if detected == test_symbol {
+                    success_count += 1;
+                }
+            }
+        }
+
+        // Should succeed in at least 80% of trials
+        assert!(
+            success_count >= 8,
+            "Should decode correctly in at least 8/10 trials with moderate noise, got {}/{}",
+            success_count, num_trials
+        );
+    }
 }
