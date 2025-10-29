@@ -52,7 +52,8 @@
       "Bash(gtimeout 180 cargo test:*)",
       "Bash(git -C /Users/it3/codes/andrew/transmitwave log --oneline)",
       "Bash(bash:*)",
-      "Bash(git hash-object:*)"
+      "Bash(git hash-object:*)",
+      "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave encode:*)"
     ],
     "deny": [],
     "ask": []

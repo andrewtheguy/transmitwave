@@ -57,8 +57,8 @@ impl Default for FountainConfig {
 }
 
 
-/// FSK symbol duration (192ms at 16kHz sample rate)
-pub const FSK_SYMBOL_SAMPLES: usize = 3072;
+/// FSK symbol duration (384ms at 16kHz sample rate, 62.5 bits/sec throughput)
+pub const FSK_SYMBOL_SAMPLES: usize = 6144;
 
 /// Apply a smooth envelope to reduce spectral splatter near symbol edges.
 const FSK_EDGE_TAPER_RATIO: f32 = 0.08; // 8% of the symbol on each side
@@ -144,11 +144,12 @@ fn generate_chirp_for_nibble(nibble_val: u8, band_offset: usize, num_samples: us
     let band_end_freq = bin_to_freq(band_offset * FSK_BINS_PER_BAND + FSK_BINS_PER_BAND - 1);
 
     // Map nibble value 0-15 to positions within the frequency band
+    // Reversed: nibble 0 → band_end_freq (high), nibble 15 → band_start_freq (low)
     let position = (nibble_val as f32) / 15.0; // 0.0 to 1.0
-    let target_freq = band_start_freq + position * (band_end_freq - band_start_freq);
+    let target_freq = band_end_freq - position * (band_end_freq - band_start_freq);
 
-    // Chirp sweeps from slightly below the target to the target frequency
-    let start_freq = target_freq - (band_end_freq - band_start_freq) * 0.1;
+    // Chirp descends from slightly above target to the target frequency
+    let start_freq = target_freq + (band_end_freq - band_start_freq) * 0.1;
 
     generate_chirp(target_freq, start_freq, num_samples, sample_rate)
 }
