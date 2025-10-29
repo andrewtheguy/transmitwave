@@ -5,6 +5,8 @@
 import init, {
     WasmEncoder,
     WasmDecoder,
+    WasmEncoderDtmf,
+    WasmDecoderDtmf,
     WasmFountainEncoder,
     WasmFountainDecoder,
     PreambleDetector,
@@ -75,6 +77,8 @@ export function isWasmInitialized(): boolean {
 export {
     WasmEncoder,
     WasmDecoder,
+    WasmEncoderDtmf,
+    WasmDecoderDtmf,
     WasmFountainEncoder,
     WasmFountainDecoder,
     PreambleDetector,
@@ -115,6 +119,33 @@ export async function createDecoder(
 ): Promise<WasmDecoder> {
     await initWasm();
     const decoder = new WasmDecoder();
+
+    // Set thresholds with 0.4 as default
+    const preambleThreshold = options.preambleThreshold ?? 0.4;
+    const postambleThreshold = options.postambleThreshold ?? 0.4;
+
+    decoder.set_preamble_threshold(preambleThreshold);
+    decoder.set_postamble_threshold(postambleThreshold);
+
+    return decoder;
+}
+
+/**
+ * Factory function to create a DTMF encoder
+ */
+export async function createEncoderDtmf(): Promise<WasmEncoderDtmf> {
+    await initWasm();
+    return new WasmEncoderDtmf();
+}
+
+/**
+ * Factory function to create a DTMF decoder
+ */
+export async function createDecoderDtmf(
+    options: DecoderOptions = {}
+): Promise<WasmDecoderDtmf> {
+    await initWasm();
+    const decoder = new WasmDecoderDtmf();
 
     // Set thresholds with 0.4 as default
     const preambleThreshold = options.preambleThreshold ?? 0.4;

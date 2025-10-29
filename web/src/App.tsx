@@ -4,6 +4,7 @@ import { initWasm } from './utils/wasm'
 import Navigation from './components/Navigation'
 import IndexPage from './pages/IndexPage'
 import DemoPage from './pages/DemoPage'
+import DTMFPage from './pages/DTMFPage'
 import AmplePage from './pages/AmplePage'
 import PreamblePostambleRecordPage from './pages/PreamblePostambleRecordPage'
 import FountainEncodePage from './pages/FountainEncodePage'
@@ -58,6 +59,7 @@ const App: React.FC = () => {
       <Routes>
         <Route path="/" element={<IndexPage />} />
         <Route path="/demo" element={<DemoPage />} />
+        <Route path="/dtmf" element={<DTMFPage />} />
         <Route path="/ample" element={<AmplePage />} />
         <Route path="/preamble-postamble-record" element={<PreamblePostambleRecordPage />} />
         <Route path="/fountain-encode" element={<FountainEncodePage />} />

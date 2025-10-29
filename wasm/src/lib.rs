@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, detect_preamble, detect_postamble};
+use transmitwave_core::{DecoderFsk, EncoderFsk, DecoderDtmf, EncoderDtmf, FountainConfig, detect_preamble, detect_postamble};
 use transmitwave_core::decoder_fsk::DecodeStats;
 use transmitwave_core::sync::DetectionThreshold;
 
@@ -137,6 +137,116 @@ impl WasmDecoder {
     /// Decode audio samples without preamble/postamble detection
     ///
     /// This method skips preamble and postamble detection and decodes the raw FSK data directly.
+    /// Useful when the audio clip has already been trimmed or when pre/post amble detection
+    /// would cause double-detection issues.
+    /// Takes a Float32Array and returns Uint8Array of decoded data
+    #[wasm_bindgen]
+    pub fn decode_without_preamble_postamble(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .decode_without_preamble_postamble(samples)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+// ============================================================================
+// DTMF ENCODER/DECODER
+// ============================================================================
+
+/// DTMF WASM Encoder (uses DTMF tones with Reed-Solomon FEC)
+#[wasm_bindgen]
+pub struct WasmEncoderDtmf {
+    inner: EncoderDtmf,
+}
+
+#[wasm_bindgen]
+impl WasmEncoderDtmf {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmEncoderDtmf, JsValue> {
+        EncoderDtmf::new()
+            .map(|encoder| WasmEncoderDtmf {
+                inner: encoder,
+            })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Encode binary data into audio samples with DTMF
+    /// Takes a Uint8Array and returns Float32Array of audio samples
+    #[wasm_bindgen]
+    pub fn encode(&mut self, data: &[u8]) -> Result<Vec<f32>, JsValue> {
+        self.inner
+            .encode(data)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
+/// DTMF WASM Decoder (uses DTMF tones with Reed-Solomon FEC)
+#[wasm_bindgen]
+pub struct WasmDecoderDtmf {
+    inner: DecoderDtmf,
+}
+
+#[wasm_bindgen]
+impl WasmDecoderDtmf {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<WasmDecoderDtmf, JsValue> {
+        DecoderDtmf::new()
+            .map(|decoder| WasmDecoderDtmf {
+                inner: decoder,
+            })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Set the detection threshold for both preamble and postamble
+    #[wasm_bindgen]
+    pub fn set_detection_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
+        self.inner.set_detection_threshold(threshold);
+    }
+
+    /// Set the detection threshold for preamble only
+    #[wasm_bindgen]
+    pub fn set_preamble_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
+        self.inner.set_preamble_threshold(threshold);
+    }
+
+    /// Get the current preamble detection threshold
+    #[wasm_bindgen]
+    pub fn get_preamble_threshold(&self) -> f32 {
+        match self.inner.get_preamble_threshold() {
+            DetectionThreshold::Fixed(value) => value,
+            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
+        }
+    }
+
+    /// Set the detection threshold for postamble only
+    #[wasm_bindgen]
+    pub fn set_postamble_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
+        self.inner.set_postamble_threshold(threshold);
+    }
+
+    /// Get the current postamble detection threshold
+    #[wasm_bindgen]
+    pub fn get_postamble_threshold(&self) -> f32 {
+        match self.inner.get_postamble_threshold() {
+            DetectionThreshold::Fixed(value) => value,
+            DetectionThreshold::Adaptive => panic!("WASM should only use Fixed threshold, not Adaptive"),
+        }
+    }
+
+    /// Decode audio samples back to binary data with DTMF
+    /// Takes a Float32Array and returns Uint8Array of decoded data
+    #[wasm_bindgen]
+    pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .decode(samples)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Decode audio samples without preamble/postamble detection
+    ///
+    /// This method skips preamble and postamble detection and decodes the raw DTMF data directly.
     /// Useful when the audio clip has already been trimmed or when pre/post amble detection
     /// would cause double-detection issues.
     /// Takes a Float32Array and returns Uint8Array of decoded data

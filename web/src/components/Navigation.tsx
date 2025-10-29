@@ -12,6 +12,7 @@ const Navigation: React.FC = () => {
         <ul className="navbar-menu">
           <li><Link to="/">Home</Link></li>
           <li><Link to="/demo">Demo</Link></li>
+          <li><Link to="/dtmf">DTMF</Link></li>
           <li><Link to="/ample">Preamble & Postamble</Link></li>
           <li><Link to="/preamble-postamble-record">Auto-Record</Link></li>
         </ul>
