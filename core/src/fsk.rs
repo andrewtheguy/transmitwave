@@ -19,14 +19,15 @@ use std::f32::consts::PI;
 // - Uses Reed-Solomon FEC for error correction
 // - Includes preamble/postamble for frame synchronization
 
-/// Base frequency in Hz (slightly raised for better audibility)
-/// Frequency range: 1100-3000Hz (moderately higher than 800-2700Hz)
-const FSK_BASE_FREQ: f32 = 1100.0;
+/// Base frequency in Hz (lowered for better compatibility with various devices)
+/// Frequency range: 400-2400Hz (comfortable listening range, lower pitch)
+const FSK_BASE_FREQ: f32 = 400.0;
 
 /// Frequency spacing in Hz between adjacent bins
-/// Increased from 20Hz to 40Hz to create more separation between bands
-/// This makes each of the 6 chirps distinctly audible as separate tones
-const FSK_FREQ_DELTA: f32 = 40.0;
+/// Set to 29Hz to keep max frequency around 3000Hz for comfortable mid-range listening
+/// Max frequency: 400 + 95*29 = 3155Hz
+/// This makes each of the 6 chirps distinctly audible as separate, well-spaced tones
+const FSK_FREQ_DELTA: f32 = 29.0;
 
 /// Total number of frequency bins (96 provides redundancy and flexibility)
 const FSK_NUM_BINS: usize = 96;
