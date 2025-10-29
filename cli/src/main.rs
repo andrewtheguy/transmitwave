@@ -8,7 +8,7 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE, DetectionThreshold};
+use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE, DetectionThreshold, DtmfModulator, DtmfDemodulator, DTMF_NUM_SYMBOLS};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
@@ -204,6 +204,30 @@ enum Commands {
         #[arg(long)]
         postamble_threshold: Option<f32>,
     },
+
+    /// Encode DTMF tones from a list of numbers (0-47)
+    /// Input file should contain one number per line
+    EncodeDtmf {
+        /// Input file with numbers (one per line, 0-47)
+        #[arg(value_name = "INPUT.TXT")]
+        input: PathBuf,
+
+        /// Output WAV file
+        #[arg(value_name = "OUTPUT.WAV")]
+        output: PathBuf,
+    },
+
+    /// Decode DTMF tones to a list of numbers (0-47)
+    /// Output file will contain one number per line
+    DecodeDtmf {
+        /// Input WAV file
+        #[arg(value_name = "INPUT.WAV")]
+        input: PathBuf,
+
+        /// Output file with numbers (one per line)
+        #[arg(value_name = "OUTPUT.TXT")]
+        output: PathBuf,
+    },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -231,6 +255,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Commands::FountainDecode { input, output, timeout, block_size, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
                 fountain_decode_command(&input, &output, timeout, block_size, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
+            }
+            Commands::EncodeDtmf { input, output } => {
+                encode_dtmf_command(&input, &output)?
+            }
+            Commands::DecodeDtmf { input, output } => {
+                decode_dtmf_command(&input, &output)?
             }
         }
         return Ok(());
@@ -854,5 +884,130 @@ async fn handler_decode(
             }),
         )),
     }
+}
+
+fn encode_dtmf_command(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Read input file with numbers (one per line)
+    let content = std::fs::read_to_string(input_path)?;
+    let mut symbols = Vec::new();
+
+    for (line_num, line) in content.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue; // Skip empty lines
+        }
+
+        let number: u8 = line.parse()
+            .map_err(|_| format!("Invalid number '{}' on line {}", line, line_num + 1))?;
+
+        if number >= DTMF_NUM_SYMBOLS {
+            return Err(format!(
+                "Number {} on line {} is out of range (must be 0-{})",
+                number, line_num + 1, DTMF_NUM_SYMBOLS - 1
+            ).into());
+        }
+
+        symbols.push(number);
+    }
+
+    println!("Read {} symbols from {}", symbols.len(), input_path.display());
+
+    // Modulate symbols to DTMF audio
+    let mut modulator = DtmfModulator::new();
+    let samples = modulator.modulate(&symbols)?;
+
+    println!(
+        "Encoded {} symbols to {} audio samples ({:.2}s at {}Hz)",
+        symbols.len(),
+        samples.len(),
+        samples.len() as f32 / SAMPLE_RATE as f32,
+        SAMPLE_RATE
+    );
+
+    // Write WAV file (16-bit PCM)
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: SAMPLE_RATE as u32,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let file = File::create(output_path)?;
+    let mut writer = hound::WavWriter::new(file, spec)?;
+
+    // Convert f32 samples to i16 range [-32768, 32767]
+    for sample in samples {
+        let clamped = sample.max(-1.0).min(1.0);
+        let i16_sample = (clamped * 32767.0) as i16;
+        writer.write_sample(i16_sample)?;
+    }
+    writer.finalize()?;
+
+    println!("Wrote DTMF audio to {}", output_path.display());
+    Ok(())
+}
+
+fn decode_dtmf_command(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Read WAV file
+    let mut reader = hound::WavReader::open(input_path)?;
+    let spec = reader.spec();
+
+    println!(
+        "Reading WAV: {} channels, {} Hz, {} bits",
+        spec.channels, spec.sample_rate, spec.bits_per_sample
+    );
+
+    // Read samples and convert to f32
+    let mut samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Int => {
+            reader
+                .samples::<i16>()
+                .map(|s| s.unwrap() as f32 / 32768.0)
+                .collect()
+        }
+        hound::SampleFormat::Float => {
+            reader.samples::<f32>().map(|s| s.unwrap()).collect()
+        }
+    };
+
+    // Handle stereo by converting to mono
+    if spec.channels == 2 {
+        samples = stereo_to_mono(&samples);
+        println!("Converted stereo to mono");
+    }
+
+    // Resample if needed
+    if spec.sample_rate != SAMPLE_RATE as u32 {
+        println!(
+            "Resampling from {} Hz to {} Hz",
+            spec.sample_rate, SAMPLE_RATE
+        );
+        samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
+    }
+
+    println!("Processing {} samples", samples.len());
+
+    // Demodulate DTMF symbols
+    let demodulator = DtmfDemodulator::new();
+    let symbols = demodulator.demodulate(&samples)?;
+
+    println!("Decoded {} symbols", symbols.len());
+
+    // Write symbols to output file (one per line)
+    let mut output = String::new();
+    for symbol in &symbols {
+        output.push_str(&format!("{}\n", symbol));
+    }
+
+    std::fs::write(output_path, output)?;
+
+    println!("Wrote {} symbols to {}", symbols.len(), output_path.display());
+    Ok(())
 }
 

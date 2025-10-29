@@ -10,6 +10,7 @@ pub mod fft_correlation;
 pub mod sync;
 pub mod resample;
 pub mod fsk;
+pub mod dtmf;
 pub mod encoder_fsk;
 pub mod decoder_fsk;
 
@@ -21,6 +22,7 @@ pub use sync::{detect_preamble, detect_postamble, DetectionThreshold};
 pub use resample::{resample_audio, stereo_to_mono};
 pub use fec::{FecEncoder, FecDecoder};
 pub use fsk::{FskModulator, FskDemodulator, FountainConfig};
+pub use dtmf::{DtmfModulator, DtmfDemodulator, DTMF_NUM_SYMBOLS, DTMF_SYMBOL_SAMPLES};
 
 // Configuration constants
 pub const SAMPLE_RATE: usize = 16000;
