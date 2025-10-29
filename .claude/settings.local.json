@@ -51,7 +51,8 @@
       "Bash(do echo \"Testing $test...\" gtimeout 30 cargo test --lib decoder_fsk::tests::$test --release)",
       "Bash(gtimeout 180 cargo test:*)",
       "Bash(git -C /Users/it3/codes/andrew/transmitwave log --oneline)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(git hash-object:*)"
     ],
     "deny": [],
     "ask": []
