@@ -59,17 +59,6 @@ impl WasmEncoder {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Create a new encoder with chirp FSK enabled
-    /// Chirp FSK provides improved noise immunity at the cost of higher CPU usage
-    #[wasm_bindgen(js_name = "newWithChirp")]
-    pub fn new_with_chirp() -> Result<WasmEncoder, JsValue> {
-        EncoderFsk::new_with_chirp()
-            .map(|encoder| WasmEncoder {
-                inner: encoder,
-            })
-            .map_err(|e| JsValue::from_str(&e.to_string()))
-    }
-
     /// Encode binary data into audio samples with FSK
     /// Takes a Uint8Array and returns Float32Array of audio samples
     #[wasm_bindgen]
@@ -91,18 +80,6 @@ impl WasmDecoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmDecoder, JsValue> {
         DecoderFsk::new()
-            .map(|decoder| WasmDecoder {
-                inner: decoder,
-            })
-            .map_err(|e| JsValue::from_str(&e.to_string()))
-    }
-
-    /// Create a new decoder with chirp FSK enabled
-    /// Chirp FSK demodulation uses matched filtering for improved noise immunity
-    /// Must match the encoder mode (if audio was encoded with chirp, decode with chirp)
-    #[wasm_bindgen(js_name = "newWithChirp")]
-    pub fn new_with_chirp() -> Result<WasmDecoder, JsValue> {
-        DecoderFsk::new_with_chirp()
             .map(|decoder| WasmDecoder {
                 inner: decoder,
             })
@@ -372,17 +349,6 @@ impl WasmFountainEncoder {
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    /// Create a new fountain encoder with chirp FSK enabled
-    /// Chirp FSK provides improved noise immunity at the cost of higher CPU usage
-    #[wasm_bindgen(js_name = "newWithChirp")]
-    pub fn new_with_chirp() -> Result<WasmFountainEncoder, JsValue> {
-        EncoderFsk::new_with_chirp()
-            .map(|encoder| WasmFountainEncoder {
-                inner: encoder,
-            })
-            .map_err(|e| JsValue::from_str(&e.to_string()))
-    }
-
     /// Encode data into fountain-coded audio stream
     /// Returns a flat Float32Array of all audio samples (concatenated blocks)
     ///
@@ -432,20 +398,6 @@ impl WasmFountainDecoder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WasmFountainDecoder, JsValue> {
         DecoderFsk::new()
-            .map(|decoder| WasmFountainDecoder {
-                inner: decoder,
-                buffer: Vec::new(),
-                block_size: 64, // Default block size
-            })
-            .map_err(|e| JsValue::from_str(&e.to_string()))
-    }
-
-    /// Create a new fountain decoder with chirp FSK enabled
-    /// Chirp FSK demodulation uses matched filtering for improved noise immunity
-    /// Must match the encoder mode (if audio was encoded with chirp, decode with chirp)
-    #[wasm_bindgen(js_name = "newWithChirp")]
-    pub fn new_with_chirp() -> Result<WasmFountainDecoder, JsValue> {
-        DecoderFsk::new_with_chirp()
             .map(|decoder| WasmFountainDecoder {
                 inner: decoder,
                 buffer: Vec::new(),

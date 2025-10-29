@@ -86,9 +86,7 @@ export {
  * FSK-only mode for maximum reliability
  */
 export interface EncoderOptions {
-    // Enable hybrid chirp FSK for improved noise robustness
-    // Trades some CPU for better multipath/interference immunity
-    useChirp?: boolean;
+    // FSK is the only supported mode for over-the-air audio transmission
 }
 
 export interface DecoderOptions {
@@ -96,24 +94,15 @@ export interface DecoderOptions {
     // Optional threshold settings (defaults to 0.4 for both)
     preambleThreshold?: number;
     postambleThreshold?: number;
-    // Enable hybrid chirp FSK demodulation (must match encoder)
-    useChirp?: boolean;
 }
 
 /**
  * Factory function to create an FSK encoder
  * FSK-only mode ensures maximum reliability for over-the-air audio transmission
  */
-export async function createEncoder(options: EncoderOptions = {}): Promise<WasmEncoder> {
+export async function createEncoder(): Promise<WasmEncoder> {
     await initWasm();
-    const useChirp = options.useChirp ?? false;
-
-    if (useChirp) {
-        const EncoderClass = WasmEncoder as any;
-        return EncoderClass.newWithChirp();
-    } else {
-        return new WasmEncoder();
-    }
+    return new WasmEncoder();
 }
 
 /**
@@ -125,16 +114,7 @@ export async function createDecoder(
     options: DecoderOptions = {}
 ): Promise<WasmDecoder> {
     await initWasm();
-    const useChirp = options.useChirp ?? false;
-
-    let decoder: WasmDecoder;
-
-    if (useChirp) {
-        const DecoderClass = WasmDecoder as any;
-        decoder = DecoderClass.newWithChirp();
-    } else {
-        decoder = new WasmDecoder();
-    }
+    const decoder = new WasmDecoder();
 
     // Set thresholds with 0.4 as default
     const preambleThreshold = options.preambleThreshold ?? 0.4;
@@ -149,37 +129,20 @@ export async function createDecoder(
 /**
  * Factory function to create a fountain encoder
  */
-export async function createFountainEncoder(options: EncoderOptions = {}): Promise<WasmFountainEncoder> {
+export async function createFountainEncoder(): Promise<WasmFountainEncoder> {
     await initWasm();
-    const useChirp = options.useChirp ?? false;
-
-    if (useChirp) {
-        const EncoderClass = WasmFountainEncoder as any;
-        return EncoderClass.newWithChirp();
-    } else {
         return new WasmFountainEncoder();
     }
-}
 
 /**
  * Factory function to create a fountain decoder
  * Supports preamble threshold configuration only (fountain mode has no postamble)
  */
 export async function createFountainDecoder(
-    options: DecoderOptions = {}
+    preambleThreshold: number = 0.4
 ): Promise<WasmFountainDecoder> {
     await initWasm();
-    const useChirp = options.useChirp ?? false;
-    const preambleThreshold = options.preambleThreshold ?? 0.4;
-
-    let decoder: WasmFountainDecoder;
-
-    if (useChirp) {
-        const DecoderClass = WasmFountainDecoder as any;
-        decoder = DecoderClass.newWithChirp();
-    } else {
-        decoder = new WasmFountainDecoder();
-    }
+    const decoder = new WasmFountainDecoder();
 
     // Set preamble threshold (clamped to valid range)
     decoder.set_preamble_threshold(Math.max(0.1, Math.min(0.9, preambleThreshold)));

@@ -33,14 +33,6 @@ impl EncoderFsk {
         })
     }
 
-    /// Create encoder with hybrid chirp FSK for improved noise robustness
-    pub fn new_with_chirp() -> Result<Self> {
-        Ok(Self {
-            fsk: FskModulator::new_with_chirp(),
-            fec: FecEncoder::new()?,
-        })
-    }
-
     /// Encode binary data into audio samples using multi-tone FSK modulation
     /// Returns: silence + preamble + silence + FSK data + silence + postamble + silence
     ///
