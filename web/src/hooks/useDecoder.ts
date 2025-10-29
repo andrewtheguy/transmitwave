@@ -3,8 +3,8 @@ import { createDecoder, DecoderOptions } from '../utils/wasm'
 import { parseWavFile, stereoToMono, resampleAudio } from '../utils/audio'
 
 interface UseDecoderResult {
-  decode: (file: File) => Promise<string | null>
-  decodeWithoutSync: (file: File) => Promise<string | null>
+  decode: (file: File, options?: DecoderOptions) => Promise<string | null>
+  decodeWithoutSync: (file: File, options?: DecoderOptions) => Promise<string | null>
   isDecoding: boolean
   error: string | null
 }
@@ -13,7 +13,7 @@ export const useDecoder = (): UseDecoderResult => {
   const [isDecoding, setIsDecoding] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const decode = useCallback(async (file: File): Promise<string | null> => {
+  const decode = useCallback(async (file: File, options?: DecoderOptions): Promise<string | null> => {
     setIsDecoding(true)
     setError(null)
 
@@ -37,7 +37,7 @@ export const useDecoder = (): UseDecoderResult => {
         samples = resampleAudio(samples, wavData.sampleRate, 16000)
       }
 
-      const decoder = await createDecoder()
+      const decoder = await createDecoder(options)
       const data = await decoder.decode(samples)
       const text = new TextDecoder().decode(data)
 
@@ -61,7 +61,7 @@ export const useDecoder = (): UseDecoderResult => {
     }
   }, [])
 
-  const decodeWithoutSync = useCallback(async (file: File): Promise<string | null> => {
+  const decodeWithoutSync = useCallback(async (file: File, options?: DecoderOptions): Promise<string | null> => {
     setIsDecoding(true)
     setError(null)
 
@@ -102,7 +102,7 @@ export const useDecoder = (): UseDecoderResult => {
         throw new Error('Unable to extract FSK data from audio file')
       }
 
-      const decoder = await createDecoder()
+      const decoder = await createDecoder(options)
       const data = await decoder.decode_without_preamble_postamble(fskDataOnly)
       const text = new TextDecoder().decode(data)
 

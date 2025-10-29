@@ -118,6 +118,9 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const [preambleThreshold, setPreambleThreshold] = useState(0.4)
   const [postambleThreshold, setPostambleThreshold] = useState(0.4)
 
+  // Chirp FSK setting
+  const [useChirp, setUseChirp] = useState(false)
+
   const scheduleInitialSamplesMerge = () => {
     if (initialMergeScheduledRef.current || !pendingInitialSamplesRef.current) {
       return
@@ -256,8 +259,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
         }
       }
 
-      // Initialize decoder with thresholds
-      decoderWorker.postMessage({ type: 'init', preambleThreshold, postambleThreshold })
+      // Initialize decoder with thresholds and chirp mode
+      decoderWorker.postMessage({ type: 'init', preambleThreshold, postambleThreshold, useChirp })
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -904,6 +907,23 @@ const PreamblePostambleRecordPage: React.FC = () => {
             <span>{postambleThreshold.toFixed(2)}</span>
           </div>
           <small>Lower values = more sensitive. Default: 0.4</small>
+        </div>
+
+        <div className="mt-4">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={useChirp}
+              onChange={(e) => setUseChirp(e.target.checked)}
+              disabled={isListening}
+            />
+            <strong>Use Chirp FSK</strong>
+          </label>
+          <small>
+            {useChirp
+              ? '✓ Better noise/multipath immunity (higher CPU)'
+              : '○ Standard FSK (lower CPU)'}
+          </small>
         </div>
 
         <div className="mt-4">

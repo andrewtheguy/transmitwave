@@ -4,6 +4,7 @@ interface InitMessage {
   type: 'init'
   preambleThreshold: number
   postambleThreshold: number
+  useChirp?: boolean
 }
 
 interface DecodeMessage {
@@ -32,6 +33,7 @@ let decoder: any = null
 let isInitialized = false
 let preambleThreshold = 0.4
 let postambleThreshold = 0.4
+let useChirp = false
 
 self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   try {
@@ -39,17 +41,19 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
     switch (type) {
       case 'init': {
-        const { preambleThreshold: pThresh, postambleThreshold: poThresh } = event.data as InitMessage
+        const { preambleThreshold: pThresh, postambleThreshold: poThresh, useChirp: chirp } = event.data as InitMessage
         preambleThreshold = pThresh
         postambleThreshold = poThresh
+        useChirp = chirp ?? false
 
         try {
           decoder = await createDecoder({
             preambleThreshold,
             postambleThreshold,
+            useChirp,
           })
           isInitialized = true
-          console.log(`Decoder worker initialized with preamble=${preambleThreshold}, postamble=${postambleThreshold}`)
+          console.log(`Decoder worker initialized with preamble=${preambleThreshold}, postamble=${postambleThreshold}, chirp=${useChirp}`)
           self.postMessage({ type: 'init_done' })
         } catch (error) {
           console.error('Failed to initialize decoder:', error)
@@ -126,6 +130,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
             decoder = await createDecoder({
               preambleThreshold,
               postambleThreshold,
+              useChirp,
             })
             console.log(`Decoder thresholds updated: preamble=${preambleThreshold}, postamble=${postambleThreshold}`)
             self.postMessage({ type: 'threshold_updated' })
@@ -143,6 +148,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
           decoder = await createDecoder({
             preambleThreshold,
             postambleThreshold,
+            useChirp,
           })
           console.log('Decoder reset')
           self.postMessage({ type: 'reset_done' })
