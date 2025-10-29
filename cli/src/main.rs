@@ -8,7 +8,7 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE, DetectionThreshold, DtmfModulator, DtmfDemodulator, DTMF_NUM_SYMBOLS};
+use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE, DetectionThreshold, EncoderDtmf, DecoderDtmf};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
@@ -205,11 +205,11 @@ enum Commands {
         postamble_threshold: Option<f32>,
     },
 
-    /// Encode DTMF tones from a list of numbers (0-47)
-    /// Input file should contain one number per line
+    /// Encode binary data to WAV using DTMF tones with Reed-Solomon FEC
+    /// Uses dual-tone DTMF signaling for reliable over-the-air transmission
     EncodeDtmf {
-        /// Input file with numbers (one per line, 0-47)
-        #[arg(value_name = "INPUT.TXT")]
+        /// Input binary file
+        #[arg(value_name = "INPUT.BIN")]
         input: PathBuf,
 
         /// Output WAV file
@@ -217,16 +217,44 @@ enum Commands {
         output: PathBuf,
     },
 
-    /// Decode DTMF tones to a list of numbers (0-47)
-    /// Output file will contain one number per line
+    /// Decode WAV file to binary data using DTMF tones with Reed-Solomon FEC
+    /// Automatically detects preamble/postamble and corrects errors
     DecodeDtmf {
         /// Input WAV file
         #[arg(value_name = "INPUT.WAV")]
         input: PathBuf,
 
-        /// Output file with numbers (one per line)
-        #[arg(value_name = "OUTPUT.TXT")]
+        /// Output binary file
+        #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
+
+        /// Decode without preamble/postamble detection (for trimmed audio)
+        #[arg(long)]
+        no_sync: bool,
+
+        /// Use adaptive threshold for both preamble and postamble
+        #[arg(long)]
+        adaptive: bool,
+
+        /// Fixed detection threshold for both preamble and postamble (0.001-1.0)
+        #[arg(short, long)]
+        threshold: Option<f32>,
+
+        /// Use adaptive threshold for preamble only
+        #[arg(long)]
+        preamble_adaptive: bool,
+
+        /// Fixed detection threshold for preamble only (overrides --threshold for preamble)
+        #[arg(long)]
+        preamble_threshold: Option<f32>,
+
+        /// Use adaptive threshold for postamble only
+        #[arg(long)]
+        postamble_adaptive: bool,
+
+        /// Fixed detection threshold for postamble only (overrides --threshold for postamble)
+        #[arg(long)]
+        postamble_threshold: Option<f32>,
     },
 }
 
@@ -259,8 +287,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::EncodeDtmf { input, output } => {
                 encode_dtmf_command(&input, &output)?
             }
-            Commands::DecodeDtmf { input, output } => {
-                decode_dtmf_command(&input, &output)?
+            Commands::DecodeDtmf { input, output, no_sync, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
+                decode_dtmf_command(&input, &output, no_sync, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
             }
         }
         return Ok(());
@@ -890,38 +918,15 @@ fn encode_dtmf_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Read input file with numbers (one per line)
-    let content = std::fs::read_to_string(input_path)?;
-    let mut symbols = Vec::new();
+    // Read input binary file
+    let data = std::fs::read(input_path)?;
+    println!("Read {} bytes from {}", data.len(), input_path.display());
 
-    for (line_num, line) in content.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue; // Skip empty lines
-        }
+    let mut encoder = EncoderDtmf::new()?;
 
-        let number: u8 = line.parse()
-            .map_err(|_| format!("Invalid number '{}' on line {}", line, line_num + 1))?;
-
-        if number >= DTMF_NUM_SYMBOLS {
-            return Err(format!(
-                "Number {} on line {} is out of range (must be 0-{})",
-                number, line_num + 1, DTMF_NUM_SYMBOLS - 1
-            ).into());
-        }
-
-        symbols.push(number);
-    }
-
-    println!("Read {} symbols from {}", symbols.len(), input_path.display());
-
-    // Modulate symbols to DTMF audio
-    let mut modulator = DtmfModulator::new();
-    let samples = modulator.modulate(&symbols)?;
-
+    let samples = encoder.encode(&data)?;
     println!(
-        "Encoded {} symbols to {} audio samples ({:.2}s at {}Hz)",
-        symbols.len(),
+        "Encoded with DTMF to {} audio samples ({:.2}s at {}Hz)",
         samples.len(),
         samples.len() as f32 / SAMPLE_RATE as f32,
         SAMPLE_RATE
@@ -930,7 +935,7 @@ fn encode_dtmf_command(
     // Write WAV file (16-bit PCM)
     let spec = WavSpec {
         channels: 1,
-        sample_rate: SAMPLE_RATE as u32,
+        sample_rate: transmitwave_core::SAMPLE_RATE as u32,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
@@ -953,61 +958,108 @@ fn encode_dtmf_command(
 fn decode_dtmf_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
+    no_sync: bool,
+    adaptive: bool,
+    threshold: Option<f32>,
+    preamble_adaptive: bool,
+    preamble_threshold: Option<f32>,
+    postamble_adaptive: bool,
+    postamble_threshold: Option<f32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read WAV file
-    let mut reader = hound::WavReader::open(input_path)?;
-    let spec = reader.spec();
+    let file = File::open(input_path)?;
+    let mut reader = hound::WavReader::new(file)?;
 
+    let spec = reader.spec();
     println!(
-        "Reading WAV: {} channels, {} Hz, {} bits",
-        spec.channels, spec.sample_rate, spec.bits_per_sample
+        "Read WAV: {} Hz, {} channels, {} bits",
+        spec.sample_rate, spec.channels, spec.bits_per_sample
     );
 
-    // Read samples and convert to f32
-    let mut samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Int => {
-            reader
-                .samples::<i16>()
-                .map(|s| s.unwrap() as f32 / 32768.0)
+    // Extract samples (handle both 16-bit and 32-bit float formats)
+    let mut samples = match spec.bits_per_sample {
+        16 => {
+            // Convert i16 to f32
+            let int_samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
+            int_samples?
+                .into_iter()
+                .map(|s| s as f32 / 32768.0)
                 .collect()
         }
-        hound::SampleFormat::Float => {
-            reader.samples::<f32>().map(|s| s.unwrap()).collect()
+        32 => {
+            // Already f32
+            let float_samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
+            float_samples?
+        }
+        _ => {
+            return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample).into());
         }
     };
 
-    // Handle stereo by converting to mono
+    println!("Extracted {} samples", samples.len());
+
+    // Convert to mono if stereo
     if spec.channels == 2 {
+        println!("Converting stereo to mono...");
         samples = stereo_to_mono(&samples);
-        println!("Converted stereo to mono");
+        println!("Converted to {} mono samples", samples.len());
     }
 
-    // Resample if needed
+    // Resample to 16kHz if needed
     if spec.sample_rate != SAMPLE_RATE as u32 {
-        println!(
-            "Resampling from {} Hz to {} Hz",
-            spec.sample_rate, SAMPLE_RATE
-        );
+        println!("Resampling from {} Hz to {} Hz...", spec.sample_rate, SAMPLE_RATE);
         samples = resample_audio(&samples, spec.sample_rate as usize, SAMPLE_RATE);
+        println!("Resampled to {} samples", samples.len());
     }
 
-    println!("Processing {} samples", samples.len());
+    let mut decoder = DecoderDtmf::new()?;
 
-    // Demodulate DTMF symbols
-    let demodulator = DtmfDemodulator::new();
-    let symbols = demodulator.demodulate(&samples)?;
+    let data = if no_sync {
+        println!("Decoding without preamble/postamble detection (trimmed audio mode)");
+        decoder.decode_without_preamble_postamble(&samples)?
+    } else {
+        // Set preamble threshold
+        if preamble_adaptive {
+            println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
+            decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+        } else if let Some(thresh) = preamble_threshold {
+            println!("Using fixed preamble detection threshold: {:.3}", thresh);
+            decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
+        } else if adaptive {
+            println!("Using adaptive preamble detection threshold (auto-adjust based on signal)");
+            decoder.set_preamble_threshold(DetectionThreshold::Adaptive);
+        } else if let Some(thresh) = threshold {
+            println!("Using fixed preamble detection threshold: {:.3}", thresh);
+            decoder.set_preamble_threshold(DetectionThreshold::Fixed(thresh));
+        } else {
+            println!("Using default adaptive preamble detection threshold");
+        }
 
-    println!("Decoded {} symbols", symbols.len());
+        // Set postamble threshold
+        if postamble_adaptive {
+            println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+            decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
+        } else if let Some(thresh) = postamble_threshold {
+            println!("Using fixed postamble detection threshold: {:.3}", thresh);
+            decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
+        } else if adaptive {
+            println!("Using adaptive postamble detection threshold (auto-adjust based on signal)");
+            decoder.set_postamble_threshold(DetectionThreshold::Adaptive);
+        } else if let Some(thresh) = threshold {
+            println!("Using fixed postamble detection threshold: {:.3}", thresh);
+            decoder.set_postamble_threshold(DetectionThreshold::Fixed(thresh));
+        } else {
+            println!("Using default adaptive postamble detection threshold");
+        }
 
-    // Write symbols to output file (one per line)
-    let mut output = String::new();
-    for symbol in &symbols {
-        output.push_str(&format!("{}\n", symbol));
-    }
+        decoder.decode(&samples)?
+    };
+    println!("Decoded {} bytes with DTMF", data.len());
 
-    std::fs::write(output_path, output)?;
+    // Write binary file
+    std::fs::write(output_path, &data)?;
+    println!("Wrote {} to {}", data.len(), output_path.display());
 
-    println!("Wrote {} symbols to {}", symbols.len(), output_path.display());
     Ok(())
 }
 

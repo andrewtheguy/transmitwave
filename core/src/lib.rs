@@ -13,9 +13,13 @@ pub mod fsk;
 pub mod dtmf;
 pub mod encoder_fsk;
 pub mod decoder_fsk;
+pub mod encoder_dtmf;
+pub mod decoder_dtmf;
 
 pub use encoder_fsk::{EncoderFsk, FountainStream};
 pub use decoder_fsk::DecoderFsk;
+pub use encoder_dtmf::EncoderDtmf;
+pub use decoder_dtmf::DecoderDtmf;
 pub use error::{AudioModemError, Result};
 pub use fft_correlation::{Mode, fft_correlate_1d};
 pub use sync::{detect_preamble, detect_postamble, DetectionThreshold};
