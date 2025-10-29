@@ -3,7 +3,7 @@ use crate::fec::{FecDecoder, FecMode};
 use crate::framing::{FrameDecoder, crc16};
 use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
 use crate::sync::{detect_postamble, detect_preamble, DetectionThreshold};
-use crate::PREAMBLE_SAMPLES;
+use crate::{PREAMBLE_SAMPLES, SYNC_SILENCE_SAMPLES};
 use raptorq::{Decoder, EncodingPacket};
 use std::panic::catch_unwind;
 use log::warn;
@@ -95,8 +95,8 @@ impl DecoderFsk {
         let preamble_pos = detect_preamble(samples, self.preamble_threshold)
             .ok_or(AudioModemError::PreambleNotFound)?;
 
-        // Data starts after preamble
-        let data_start = preamble_pos + PREAMBLE_SAMPLES;
+        // Data starts after preamble + silence gap
+        let data_start = preamble_pos + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
         if data_start + FSK_SYMBOL_SAMPLES > samples.len() {
             return Err(AudioModemError::InsufficientData);

@@ -41,6 +41,10 @@ pub const PREAMBLE_SAMPLES: usize = (SAMPLE_RATE * SYNC_DURATION_MS) / 1000; // 
 pub const POSTAMBLE_DURATION_MS: usize = SYNC_DURATION_MS;
 pub const POSTAMBLE_SAMPLES: usize = (SAMPLE_RATE * SYNC_DURATION_MS) / 1000; // 4000
 
+// Brief silence gaps for better frame detection (1/16 second each)
+pub const SYNC_SILENCE_MS: usize = 63; // Silence before/after sync signals
+pub const SYNC_SILENCE_SAMPLES: usize = (SAMPLE_RATE * SYNC_SILENCE_MS) / 1000; // 1008
+
 // FEC configuration
 // Reed-Solomon (255, 223) - can correct up to 16 byte errors per 255-byte block
 pub const RS_DATA_BYTES: usize = 223;

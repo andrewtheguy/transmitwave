@@ -3,7 +3,7 @@ use crate::fec::{FecEncoder, FecMode};
 use crate::framing::{Frame, FrameEncoder, crc16};
 use crate::fsk::{FskModulator, FountainConfig};
 use crate::sync::{generate_preamble, generate_postamble_signal};
-use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES};
+use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, SYNC_SILENCE_SAMPLES};
 use raptorq::{Encoder, EncodingPacket};
 use std::time::{Duration, Instant};
 use log::info;
@@ -102,10 +102,18 @@ impl EncoderFsk {
         // Generate preamble signal for synchronization
         let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);
 
-        // Modulate data bytes using multi-tone FSK
+        // Build frame: preamble → silence → FSK payload → silence → postamble
         let mut samples = preamble;
+
+        // Add silence after preamble for symmetry and clear frame boundaries
+        samples.extend_from_slice(&vec![0.0f32; SYNC_SILENCE_SAMPLES]);
+
+        // Modulate data bytes using multi-tone FSK
         let fsk_samples = self.fsk.modulate(&encoded_data)?;
         samples.extend_from_slice(&fsk_samples);
+
+        // Add silence before postamble to separate payload from end marker
+        samples.extend_from_slice(&vec![0.0f32; SYNC_SILENCE_SAMPLES]);
 
         // Generate postamble signal for frame boundary detection
         let postamble = generate_postamble_signal(POSTAMBLE_SAMPLES, 0.5);
