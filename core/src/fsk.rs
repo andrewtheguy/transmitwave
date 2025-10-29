@@ -19,9 +19,9 @@ use std::f32::consts::PI;
 // - Uses Reed-Solomon FEC for error correction
 // - Includes preamble/postamble for frame synchronization
 
-/// Base frequency in Hz (raised for higher perceived pitch and clarity)
-/// Frequency range: 1600-3500Hz (octave higher than 800-2700Hz)
-const FSK_BASE_FREQ: f32 = 1600.0;
+/// Base frequency in Hz (slightly raised for better audibility)
+/// Frequency range: 1100-3000Hz (moderately higher than 800-2700Hz)
+const FSK_BASE_FREQ: f32 = 1100.0;
 
 /// Frequency spacing in Hz between adjacent bins
 const FSK_FREQ_DELTA: f32 = 20.0;
