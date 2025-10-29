@@ -53,7 +53,8 @@
       "Bash(git -C /Users/it3/codes/andrew/transmitwave log --oneline)",
       "Bash(bash:*)",
       "Bash(git hash-object:*)",
-      "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave encode:*)"
+      "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave encode:*)",
+      "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave decode:*)"
     ],
     "deny": [],
     "ask": []

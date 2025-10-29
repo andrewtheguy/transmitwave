@@ -62,7 +62,7 @@ pub const FSK_SYMBOL_SAMPLES: usize = 3072;
 
 /// Chirp FSK symbol duration (384ms at 16kHz sample rate, 62.5 bits/sec throughput)
 /// Longer duration enables steeper, more prominent chirp sweep
-const CHIRP_SYMBOL_SAMPLES: usize = 6144;
+pub const CHIRP_SYMBOL_SAMPLES: usize = 6144;
 
 /// Apply a smooth envelope to reduce spectral splatter near symbol edges.
 const FSK_EDGE_TAPER_RATIO: f32 = 0.08; // 8% of the symbol on each side
@@ -402,6 +402,11 @@ impl FskDemodulator {
         }
     }
 
+    /// Check if chirp FSK mode is enabled
+    pub fn is_chirp(&self) -> bool {
+        self.use_chirp
+    }
+
     /// Compute power spectrum using simple DFT for our specific frequency bins
     ///
     /// This is more efficient than full FFT since we only need 96 specific bins.
@@ -557,12 +562,18 @@ impl FskDemodulator {
     /// Demodulate a sequence of multi-tone FSK symbols
     /// samples.len() must be a multiple of FSK_SYMBOL_SAMPLES
     pub fn demodulate(&self, samples: &[f32]) -> Result<Vec<u8>> {
-        if samples.len() % FSK_SYMBOL_SAMPLES != 0 {
+        let symbol_size = if self.use_chirp {
+            CHIRP_SYMBOL_SAMPLES
+        } else {
+            FSK_SYMBOL_SAMPLES
+        };
+
+        if samples.len() % symbol_size != 0 {
             return Err(AudioModemError::InvalidInputSize);
         }
 
         let mut bytes = Vec::new();
-        for chunk in samples.chunks(FSK_SYMBOL_SAMPLES) {
+        for chunk in samples.chunks(symbol_size) {
             let symbol_bytes = self.demodulate_symbol(chunk)?;
             bytes.extend_from_slice(&symbol_bytes);
         }
