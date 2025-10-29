@@ -21,8 +21,8 @@ use std::f32::consts::PI;
 // - Includes preamble/postamble for frame synchronization
 
 /// Base frequency in Hz
-/// Frequency range: 1100-2900Hz (optimal mobile speaker range)
-const FSK_BASE_FREQ: f32 = 1100.0;
+/// Frequency range: 800-2700Hz (warm, pleasant tones)
+const FSK_BASE_FREQ: f32 = 800.0;
 
 /// Frequency spacing in Hz between adjacent bins
 /// Set to 20Hz for balanced frequency resolution and range
@@ -64,9 +64,9 @@ impl Default for FountainConfig {
 /// FSK symbol duration (192ms at 16kHz sample rate)
 pub const FSK_SYMBOL_SAMPLES: usize = 3072;
 
-/// Chirp FSK symbol duration (384ms at 16kHz sample rate, 62.5 bits/sec throughput)
-/// Longer duration enables steeper, more prominent chirp sweep
-pub const CHIRP_SYMBOL_SAMPLES: usize = 6144;
+/// Chirp FSK symbol duration (240ms at 16kHz sample rate, 100 bits/sec throughput)
+/// Balanced for pleasant sound while maintaining good data rate
+pub const CHIRP_SYMBOL_SAMPLES: usize = 3840;
 
 /// Apply a smooth envelope to reduce spectral splatter near symbol edges.
 const FSK_EDGE_TAPER_RATIO: f32 = 0.08; // 8% of the symbol on each side
@@ -115,7 +115,7 @@ fn freq_to_bin(freq: f32) -> Option<usize> {
     }
 }
 
-/// Generate a chirp signal that sweeps to the target frequency
+/// Generate a linear up-chirp signal that sweeps to the target frequency
 ///
 /// A chirp is a frequency-modulated signal where frequency increases linearly.
 /// This provides better noise immunity than fixed-frequency tones due to:
@@ -132,40 +132,38 @@ fn generate_chirp(target_freq: f32, start_freq: f32, num_samples: usize, sample_
     let duration = num_samples as f32 / sample_rate;
     let mut samples = vec![0.0f32; num_samples];
 
-    // Logarithmic frequency modulation for smooth perceptual sweep
-    // Humans perceive pitch logarithmically, so log-sweep sounds smoother than linear sweep
-    // f(t) = start_freq * (target_freq / start_freq)^(t / duration)
-    let freq_ratio = target_freq / start_freq;
-    let ln_ratio = freq_ratio.ln();
-
-    // Phase accumulation: θ(t) = 2π * start_freq * (duration / ln(ratio)) * [exp(ln(ratio) * t / duration) - 1]
-    let phase_scale = 2.0 * PI * start_freq * duration / ln_ratio;
+    // Linear frequency modulation: f(t) = start_freq + (target_freq - start_freq) * t / duration
+    // Phase: θ(t) = 2π * (start_freq*t + 0.5*k*t²) where k = (target_freq - start_freq) / duration
+    let k = (target_freq - start_freq) / duration;
 
     for i in 0..num_samples {
         let t = i as f32 / sample_rate;
-        let exp_term = (ln_ratio * t / duration).exp();
-        let phase = phase_scale * (exp_term - 1.0);
-        samples[i] = phase.sin();
+        let phase = 2.0 * PI * (start_freq * t + 0.5 * k * t * t);
+
+        // Apply sine envelope for smooth attack/decay
+        let envelope = (PI * i as f32 / num_samples as f32).sin();
+        samples[i] = phase.sin() * envelope;
     }
 
     samples
 }
 
 /// Helper: Generate a chirp for a specific nibble value and band
+/// Generates up-chirps (frequency increases from start to target)
 fn generate_chirp_for_nibble(nibble_val: u8, band_offset: usize, num_samples: usize, sample_rate: f32) -> Vec<f32> {
     // Calculate frequency range for this band
     let band_start_freq = bin_to_freq(band_offset * FSK_BINS_PER_BAND);
     let band_end_freq = bin_to_freq(band_offset * FSK_BINS_PER_BAND + FSK_BINS_PER_BAND - 1);
 
     // Map nibble value 0-15 to positions within the frequency band
-    // Reversed: nibble 0 → band_end_freq (high), nibble 15 → band_start_freq (low)
+    // nibble 0 → band_start_freq (low), nibble 15 → band_end_freq (high)
     let position = (nibble_val as f32) / 15.0; // 0.0 to 1.0
-    let target_freq = band_end_freq - position * (band_end_freq - band_start_freq);
+    let target_freq = band_start_freq + position * (band_end_freq - band_start_freq);
 
-    // Chirp descends from much higher to the target frequency for prominent sweep
-    // 1.5x band width = ~480Hz sweep for prominent audible chirp sound
+    // Up-chirp: sweeps upward with 1.2x band width for pleasant rising sweep
+    // Gentler sweep range than 1.5x for more musical sound
     let band_width = band_end_freq - band_start_freq;
-    let start_freq = target_freq + band_width * 1.5;
+    let start_freq = target_freq - band_width * 1.2;
 
     generate_chirp(target_freq, start_freq, num_samples, sample_rate)
 }
@@ -436,7 +434,7 @@ impl FskDemodulator {
 
         // Create the same window used in preprocessing for chirp mode
         let taper_len = {
-            let mut taper = ((CHIRP_SYMBOL_SAMPLES as f32) * 0.04).round() as usize;
+            let mut taper = ((CHIRP_SYMBOL_SAMPLES as f32) * FSK_ANALYSIS_TAPER_RATIO).round() as usize;
             if taper < FSK_ANALYSIS_MIN_TAPER_SAMPLES {
                 taper = FSK_ANALYSIS_MIN_TAPER_SAMPLES;
             }
@@ -688,8 +686,8 @@ impl FskDemodulator {
         }
 
         let taper_len = if self.use_chirp {
-            // For chirp mode: use adjusted taper ratio (0.04 instead of 0.06) since symbols are 2x longer
-            let mut taper = ((buffer.len() as f32) * 0.04).round() as usize;
+            // For chirp mode: use same taper ratio as standard mode
+            let mut taper = ((buffer.len() as f32) * FSK_ANALYSIS_TAPER_RATIO).round() as usize;
             if taper < FSK_ANALYSIS_MIN_TAPER_SAMPLES {
                 taper = FSK_ANALYSIS_MIN_TAPER_SAMPLES;
             }
@@ -1141,7 +1139,7 @@ mod tests {
 
     #[test]
     fn test_chirp_vs_standard_fsk_throughput() {
-        // Chirp: 3 bytes per 384ms symbol (62.5 bits/sec)
+        // Chirp: 3 bytes per 240ms symbol (100 bits/sec)
         // Standard: 3 bytes per 192ms symbol (125 bits/sec)
         let mut chirp_mod = FskModulator::new_with_chirp();
         let mut standard_mod = FskModulator::new();
@@ -1150,10 +1148,11 @@ mod tests {
         let chirp_samples = chirp_mod.modulate_symbol(&bytes).unwrap();
         let standard_samples = standard_mod.modulate_symbol(&bytes).unwrap();
 
-        // Chirp is 2x longer for steeper, more prominent sweep
+        // Chirp is 1.25x longer for pleasant up-sweep sound
         assert_eq!(chirp_samples.len(), CHIRP_SYMBOL_SAMPLES);
         assert_eq!(standard_samples.len(), FSK_SYMBOL_SAMPLES);
-        assert_eq!(chirp_samples.len(), standard_samples.len() * 2);
+        assert_eq!(chirp_samples.len(), 3840);
+        assert_eq!(standard_samples.len(), 3072);
     }
 
     #[test]
