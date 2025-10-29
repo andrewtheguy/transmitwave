@@ -1,7 +1,7 @@
 use crate::error::{AudioModemError, Result};
 use crate::fec::{FecDecoder, FecMode};
 use crate::framing::{FrameDecoder, crc16};
-use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES, CHIRP_SYMBOL_SAMPLES};
+use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
 use crate::sync::{detect_postamble, detect_preamble, DetectionThreshold};
 use crate::{PREAMBLE_SAMPLES, SYNC_SILENCE_SAMPLES};
 use raptorq::{Decoder, EncodingPacket};
@@ -42,26 +42,6 @@ impl DecoderFsk {
             postamble_threshold: DetectionThreshold::Adaptive, // Default: use adaptive threshold
             stats: DecodeStats::default(),
         })
-    }
-
-    /// Create decoder with hybrid chirp FSK for improved noise robustness
-    pub fn new_with_chirp() -> Result<Self> {
-        Ok(Self {
-            fsk: FskDemodulator::new_with_chirp(),
-            fec: FecDecoder::new()?,
-            preamble_threshold: DetectionThreshold::Adaptive,
-            postamble_threshold: DetectionThreshold::Adaptive,
-            stats: DecodeStats::default(),
-        })
-    }
-
-    /// Get the symbol size based on whether chirp mode is enabled
-    fn symbol_size(&self) -> usize {
-        if self.fsk.is_chirp() {
-            CHIRP_SYMBOL_SAMPLES
-        } else {
-            FSK_SYMBOL_SAMPLES
-        }
     }
 
     /// Set the detection threshold for preamble detection
@@ -107,8 +87,7 @@ impl DecoderFsk {
     /// Handles shortened Reed-Solomon decoding by restoring padding zeros
     /// before RS decoding, then removing them after.
     pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>> {
-        let sym_size = self.symbol_size();
-        if samples.len() < sym_size * 2 {
+        if samples.len() < FSK_SYMBOL_SAMPLES * 2 {
             return Err(AudioModemError::InsufficientData);
         }
 
@@ -119,7 +98,7 @@ impl DecoderFsk {
         // Data starts after preamble + silence gap
         let data_start = preamble_pos + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        if data_start + sym_size > samples.len() {
+        if data_start + FSK_SYMBOL_SAMPLES > samples.len() {
             return Err(AudioModemError::InsufficientData);
         }
 
@@ -134,12 +113,12 @@ impl DecoderFsk {
         let fsk_region = &samples[data_start..data_end];
 
         // Ensure we have complete symbols
-        let symbol_count = fsk_region.len() / sym_size;
+        let symbol_count = fsk_region.len() / FSK_SYMBOL_SAMPLES;
         if symbol_count == 0 {
             return Err(AudioModemError::InsufficientData);
         }
 
-        let valid_samples = symbol_count * sym_size;
+        let valid_samples = symbol_count * FSK_SYMBOL_SAMPLES;
         let fsk_samples = &fsk_region[..valid_samples];
 
         // Demodulate multi-tone FSK symbols to bytes
@@ -255,7 +234,7 @@ impl DecoderFsk {
     /// Useful when the audio clip has already been trimmed or when pre/post amble detection
     /// would cause double-detection issues.
     pub fn decode_without_preamble_postamble(&mut self, samples: &[f32]) -> Result<Vec<u8>> {
-        let sym_size = self.symbol_size();
+        let sym_size = FSK_SYMBOL_SAMPLES;
         if samples.len() < sym_size * 2 {
             return Err(AudioModemError::InsufficientData);
         }
@@ -416,9 +395,8 @@ impl DecoderFsk {
             };
 
             let data_start = search_offset + preamble_pos + PREAMBLE_SAMPLES;
-            let sym_size = self.symbol_size();
 
-            if data_start + sym_size > samples.len() {
+            if data_start + FSK_SYMBOL_SAMPLES > samples.len() {
                 break;
             }
 

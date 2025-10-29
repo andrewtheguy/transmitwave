@@ -15,12 +15,11 @@ const DemoPage: React.FC = () => {
   const [decodeFile, setDecodeFile] = useState<File | null>(null)
   const [decodeStatus, setDecodeStatus] = useState<string | null>(null)
   const [decodeStatusType, setDecodeStatusType] = useState<'success' | 'error' | 'info' | 'warning'>('info')
-  const [useChirp, setUseChirp] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
   const downloadRef = useRef<HTMLAnchorElement>(null)
 
   const handleEncode = async () => {
-    const blob = await encode(encodeText, { useChirp })
+    const blob = await encode(encodeText)
     if (blob) {
       const url = URL.createObjectURL(blob)
       setAudioUrl(url)
@@ -39,9 +38,7 @@ const DemoPage: React.FC = () => {
     setDecodeStatusType('info')
 
     try {
-      // Demo page encodes and immediately decodes clean audio
-      // Use automatic sync detection which handles both with and without postamble
-      const text = await decode(decodeFile, { useChirp })
+      const text = await decode(decodeFile)
 
       if (text !== null) {
         setDecodedText(text)
@@ -104,22 +101,6 @@ const DemoPage: React.FC = () => {
           </div>
 
           <div className="mt-4">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={useChirp}
-                onChange={(e) => setUseChirp(e.target.checked)}
-              />
-              <strong>Use Chirp FSK</strong>
-            </label>
-            <small style={{ color: '#718096' }}>
-              {useChirp
-                ? '✓ Better noise/multipath immunity (higher CPU)'
-                : '○ Standard FSK (lower CPU)'}
-            </small>
-          </div>
-
-          <div className="mt-4">
             <button
               onClick={handleEncode}
               disabled={isEncoding || !encodeText}
@@ -160,33 +141,13 @@ const DemoPage: React.FC = () => {
           </div>
 
           <div className="mt-4">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={useChirp}
-                onChange={(e) => setUseChirp(e.target.checked)}
-              />
-              <strong>Use Chirp FSK</strong>
-            </label>
-            <small style={{ color: '#718096' }}>
-              ⚠️ Must match the encoding mode (if audio was encoded with chirp, decode with chirp)
-            </small>
-          </div>
-
-          <div className="mt-4">
             <button
               onClick={handleDecode}
               disabled={isDecoding || !decodeFile}
               className="btn-primary w-full"
-              title={useChirp ? "Uses automatic sync detection for chirp mode" : "Uses manual timing extraction for standard mode"}
             >
               {isDecoding ? 'Decoding...' : 'Decode Audio'}
             </button>
-            {useChirp && (
-              <small className="text-gray-500 mt-2 block">
-                ℹ️ Using automatic preamble/postamble detection for chirp mode compatibility
-              </small>
-            )}
           </div>
 
           {decodeError && <Status message={decodeError} type="error" />}

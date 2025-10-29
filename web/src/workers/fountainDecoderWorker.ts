@@ -2,7 +2,6 @@ import { createFountainDecoder, initWasm } from '../utils/wasm'
 
 interface InitMessage {
   type: 'init'
-  useChirp?: boolean
 }
 
 interface FeedChunkMessage {
@@ -28,7 +27,6 @@ type WorkerMessage = InitMessage | FeedChunkMessage | SetBlockSizeMessage | TryD
 let sampleBuffer: Float32Array[] = []
 let blockSize = 64
 let wasmInitialized = false
-let useChirp = false
 const MAX_BUFFER_SAMPLES = 80000 // ~5 seconds at 16kHz
 
 // No eager initialization - initialize on first use to avoid race conditions
@@ -45,7 +43,7 @@ async function createNewDecoder() {
     }
   }
 
-  const decoder = await createFountainDecoder({ useChirp })
+  const decoder = await createFountainDecoder()
   decoder.set_block_size(blockSize)
   return decoder
 }
@@ -56,9 +54,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
     switch (type) {
       case 'init': {
-        const { useChirp: chirp } = event.data as InitMessage
-        useChirp = chirp ?? false
-        console.log(`Fountain decoder worker initialized with chirp=${useChirp}`)
+        console.log(`Fountain decoder worker initialized`)
         self.postMessage({ type: 'init_done' })
         break
       }

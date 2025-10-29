@@ -86,10 +86,6 @@ enum Commands {
         #[arg(value_name = "OUTPUT.WAV")]
         output: PathBuf,
 
-        /// Use hybrid chirp FSK for improved noise robustness (experimental)
-        /// Trades some CPU for better multipath/interference immunity
-        #[arg(long)]
-        chirp: bool,
     },
 
     /// Decode WAV file to binary data using Reed-Solomon FEC (recommended)
@@ -102,11 +98,6 @@ enum Commands {
         /// Output binary file
         #[arg(value_name = "OUTPUT.BIN")]
         output: PathBuf,
-
-        /// Use hybrid chirp FSK for improved noise robustness (must match encoder mode)
-        /// If audio was encoded with --chirp, must decode with --chirp
-        #[arg(long)]
-        chirp: bool,
 
         /// Decode without preamble/postamble detection (for trimmed audio)
         #[arg(long)]
@@ -226,11 +217,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
-            Commands::Encode { input, output, chirp } => {
-                encode_fsk_command(&input, &output, chirp)?
+            Commands::Encode { input, output } => {
+                encode_fsk_command(&input, &output)?
             }
-            Commands::Decode { input, output, chirp, no_sync, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
-                decode_fsk_command(&input, &output, chirp, no_sync, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
+            Commands::Decode { input, output, no_sync, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold } => {
+                decode_fsk_command(&input, &output, no_sync, adaptive, threshold, preamble_adaptive, preamble_threshold, postamble_adaptive, postamble_threshold)?
             }
             Commands::Server { port } => {
                 return start_web_server(port);
@@ -260,9 +251,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if mode == "encode" || mode == "enc" {
-            encode_fsk_command(&input, &output, false)?
+            encode_fsk_command(&input, &output)?
         } else if mode == "decode" || mode == "dec" {
-            decode_fsk_command(&input, &output, false, false, false, None, false, None, false, None)?
+            decode_fsk_command(&input, &output, false, false, None, false, None, false, None)?
         } else {
             eprintln!("Error: Unknown mode '{}'. Use 'encode' or 'decode'", mode);
             std::process::exit(1);
@@ -278,19 +269,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn encode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
-    use_chirp: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read input binary file
     let data = std::fs::read(input_path)?;
     println!("Read {} bytes from {}", data.len(), input_path.display());
 
-    // Create FSK encoder and encode data
-    let mut encoder = if use_chirp {
-        println!("Using hybrid chirp FSK modulation");
-        EncoderFsk::new_with_chirp()?
-    } else {
-        EncoderFsk::new()?
-    };
+    let mut encoder = EncoderFsk::new()?;
+
     let samples = encoder.encode(&data)?;
     println!(
         "Encoded with multi-tone FSK to {} audio samples",
@@ -512,7 +497,6 @@ fn fountain_decode_command(
 fn decode_fsk_command(
     input_path: &PathBuf,
     output_path: &PathBuf,
-    use_chirp: bool,
     no_sync: bool,
     adaptive: bool,
     threshold: Option<f32>,
@@ -567,13 +551,8 @@ fn decode_fsk_command(
         println!("Resampled to {} samples", samples.len());
     }
 
-    // Decode with FSK
-    let mut decoder = if use_chirp {
-        println!("Using hybrid chirp FSK demodulation");
-        DecoderFsk::new_with_chirp()?
-    } else {
-        DecoderFsk::new()?
-    };
+    let mut decoder = DecoderFsk::new()?;
+
 
     let data = if no_sync {
         println!("Decoding without preamble/postamble detection (trimmed audio mode)");
