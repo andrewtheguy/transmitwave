@@ -25,9 +25,9 @@ use std::f32::consts::PI;
 const FSK_BASE_FREQ: f32 = 800.0;
 
 /// Frequency spacing in Hz between adjacent bins
-/// Set to 20Hz for balanced frequency resolution and range
-/// Max frequency: 1100 + 95*20 = 3000Hz
-const FSK_FREQ_DELTA: f32 = 20.0;
+/// Set to 32Hz for spaced-out, distinct tones
+/// Max frequency: 800 + 95*32 = 3840Hz
+const FSK_FREQ_DELTA: f32 = 32.0;
 
 /// Total number of frequency bins (96 provides redundancy and flexibility)
 const FSK_NUM_BINS: usize = 96;
@@ -149,8 +149,11 @@ fn generate_chirp(target_freq: f32, start_freq: f32, num_samples: usize, sample_
 }
 
 /// Helper: Generate a chirp for a specific nibble value and band
-/// Generates up-chirps (frequency increases from start to target)
-fn generate_chirp_for_nibble(nibble_val: u8, band_offset: usize, num_samples: usize, sample_rate: f32) -> Vec<f32> {
+/// Parameters:
+/// - `nibble_val`: the value (0-15) determining target frequency within band
+/// - `band_offset`: which of the 6 bands (0-5) this nibble belongs to
+/// - `is_descending`: true for down-chirps, false for up-chirps
+fn generate_chirp_for_nibble(nibble_val: u8, band_offset: usize, num_samples: usize, sample_rate: f32, is_descending: bool) -> Vec<f32> {
     // Calculate frequency range for this band
     let band_start_freq = bin_to_freq(band_offset * FSK_BINS_PER_BAND);
     let band_end_freq = bin_to_freq(band_offset * FSK_BINS_PER_BAND + FSK_BINS_PER_BAND - 1);
@@ -160,18 +163,24 @@ fn generate_chirp_for_nibble(nibble_val: u8, band_offset: usize, num_samples: us
     let position = (nibble_val as f32) / 15.0; // 0.0 to 1.0
     let target_freq = band_start_freq + position * (band_end_freq - band_start_freq);
 
-    // Up-chirp: sweeps upward with 1.2x band width for pleasant rising sweep
-    // Gentler sweep range than 1.5x for more musical sound
     let band_width = band_end_freq - band_start_freq;
-    let start_freq = target_freq - band_width * 1.2;
 
-    generate_chirp(target_freq, start_freq, num_samples, sample_rate)
+    // Generate chirp based on direction
+    if is_descending {
+        // Down-chirp: frequency decreases from higher to target
+        let start_freq = target_freq + band_width * 1.2;
+        generate_chirp(target_freq, start_freq, num_samples, sample_rate)
+    } else {
+        // Up-chirp: frequency increases from lower to target
+        let start_freq = target_freq - band_width * 1.2;
+        generate_chirp(target_freq, start_freq, num_samples, sample_rate)
+    }
 }
 
 /// Create a template chirp for matched filtering during demodulation
 /// Maps nibble values 0-15 to chirps that sweep to specific frequencies within the band
-fn create_chirp_template(nibble_val: u8, band_offset: usize, num_samples: usize, sample_rate: f32) -> Vec<f32> {
-    generate_chirp_for_nibble(nibble_val, band_offset, num_samples, sample_rate)
+fn create_chirp_template(nibble_val: u8, band_offset: usize, num_samples: usize, sample_rate: f32, is_descending: bool) -> Vec<f32> {
+    generate_chirp_for_nibble(nibble_val, band_offset, num_samples, sample_rate, is_descending)
 }
 
 /// Generate a raised-cosine style window that softly ramps amplitude at both edges.
@@ -299,6 +308,7 @@ impl FskModulator {
 
     /// Hybrid Chirp FSK modulation: Linear frequency-modulated (chirp) signals
     /// Each nibble encodes a target frequency as a chirp that sweeps to that frequency
+    /// Alternates between all up-chirps and all down-chirps across symbols
     fn modulate_symbol_chirp(&mut self, bytes: &[u8]) -> Result<Vec<f32>> {
         let symbol_samples = CHIRP_SYMBOL_SAMPLES;
         let mut samples = vec![0.0f32; symbol_samples];
@@ -313,12 +323,17 @@ impl FskModulator {
             bytes[2] & 0x0F,         // Low nibble of byte 2
         ];
 
+        // Determine if this symbol should use descending chirps
+        // Hash the bytes to get a pseudo-random but deterministic direction
+        let bytes_sum = bytes[0].wrapping_add(bytes[1]).wrapping_add(bytes[2]);
+        let is_descending = (bytes_sum & 1) == 1;
+
         // Generate and superimpose all 6 chirps
         for (nibble_idx, &nibble_val) in nibbles.iter().enumerate() {
             let band_offset = nibble_idx;
 
-            // Generate chirp for this nibble
-            let chirp_samples = generate_chirp_for_nibble(nibble_val, band_offset, symbol_samples, self.sample_rate);
+            // Generate chirp for this nibble with consistent direction for entire symbol
+            let chirp_samples = generate_chirp_for_nibble(nibble_val, band_offset, symbol_samples, self.sample_rate, is_descending);
 
             // Add chirp to output
             for i in 0..symbol_samples {
@@ -392,10 +407,11 @@ impl FskModulator {
 pub struct FskDemodulator {
     sample_rate: f32,
     use_chirp: bool,
-    // Cached chirp templates: [band_idx][nibble_val][samples]
-    chirp_templates: Option<Vec<Vec<Vec<f32>>>>,
-    // Cached template energies: [band_idx][nibble_val]
-    chirp_template_energies: Option<Vec<Vec<f32>>>,
+    // Cached chirp templates: [direction][band_idx][nibble_val][samples]
+    // direction: 0 = up-chirp, 1 = down-chirp
+    chirp_templates: Option<Vec<Vec<Vec<Vec<f32>>>>>,
+    // Cached template energies: [direction][band_idx][nibble_val]
+    chirp_template_energies: Option<Vec<Vec<Vec<f32>>>>,
 }
 
 impl FskDemodulator {
@@ -424,13 +440,14 @@ impl FskDemodulator {
     }
 
     /// Ensure chirp templates are cached, generating them lazily if needed
+    /// Creates templates for both up-chirps (direction=0) and down-chirps (direction=1)
     fn ensure_chirp_templates_cached(&mut self) {
         if self.chirp_templates.is_some() {
             return;
         }
 
-        let mut templates = vec![Vec::new(); FSK_NIBBLES_PER_SYMBOL];
-        let mut energies = vec![vec![0.0; 16]; FSK_NIBBLES_PER_SYMBOL];
+        let mut all_templates = vec![Vec::new(); 2]; // 2 directions
+        let mut all_energies = vec![vec![vec![0.0; 16]; FSK_NIBBLES_PER_SYMBOL]; 2];
 
         // Create the same window used in preprocessing for chirp mode
         let taper_len = {
@@ -446,23 +463,33 @@ impl FskDemodulator {
         };
         let window = raised_cosine_window(CHIRP_SYMBOL_SAMPLES, taper_len);
 
-        for band_idx in 0..FSK_NIBBLES_PER_SYMBOL {
-            for nibble_val in 0u8..16 {
-                let mut template = create_chirp_template(nibble_val, band_idx, CHIRP_SYMBOL_SAMPLES, self.sample_rate);
+        // Generate templates for both directions
+        for is_descending in [false, true] {
+            let direction_idx = if is_descending { 1 } else { 0 };
+            let mut templates = vec![Vec::new(); FSK_NIBBLES_PER_SYMBOL];
+            let mut energies = vec![vec![0.0; 16]; FSK_NIBBLES_PER_SYMBOL];
 
-                // Apply the same raised-cosine window to template
-                for (sample, &weight) in template.iter_mut().zip(window.iter()) {
-                    *sample *= weight;
+            for band_idx in 0..FSK_NIBBLES_PER_SYMBOL {
+                for nibble_val in 0u8..16 {
+                    let mut template = create_chirp_template(nibble_val, band_idx, CHIRP_SYMBOL_SAMPLES, self.sample_rate, is_descending);
+
+                    // Apply the same raised-cosine window to template
+                    for (sample, &weight) in template.iter_mut().zip(window.iter()) {
+                        *sample *= weight;
+                    }
+
+                    let energy: f32 = template.iter().map(|x| x * x).sum();
+                    energies[band_idx][nibble_val as usize] = energy;
+                    templates[band_idx].push(template);
                 }
-
-                let energy: f32 = template.iter().map(|x| x * x).sum();
-                energies[band_idx][nibble_val as usize] = energy;
-                templates[band_idx].push(template);
             }
+
+            all_templates[direction_idx] = templates;
+            all_energies[direction_idx] = energies;
         }
 
-        self.chirp_templates = Some(templates);
-        self.chirp_template_energies = Some(energies);
+        self.chirp_templates = Some(all_templates);
+        self.chirp_template_energies = Some(all_energies);
     }
 
     /// Compute power spectrum using simple DFT for our specific frequency bins
@@ -561,6 +588,7 @@ impl FskDemodulator {
     }
 
     /// Hybrid Chirp FSK demodulation: FFT-based matched filtering against chirp templates
+    /// Tries both up-chirp and down-chirp templates and selects the best match per band
     fn demodulate_symbol_chirp(&mut self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
         let conditioned = self.preprocess_symbol(samples);
         let mut nibbles = [0u8; FSK_NIBBLES_PER_SYMBOL];
@@ -578,40 +606,43 @@ impl FskDemodulator {
         let templates = self.chirp_templates.as_ref().unwrap();
         let energies = self.chirp_template_energies.as_ref().unwrap();
 
-        // For each band, correlate against all 16 chirp templates and find best match
+        // For each band, correlate against all 16 chirp templates in both directions and find best match
         for band_idx in 0..FSK_NIBBLES_PER_SYMBOL {
             let mut best_match = 0u8;
             let mut best_normalized_corr = 0.0f32;
 
-            // Try all 16 possible nibble values for this band
-            for nibble_val in 0u8..16 {
-                let nibble_idx = nibble_val as usize;
+            // Try both directions (up-chirps and down-chirps)
+            for direction_idx in 0..2 {
+                // Try all 16 possible nibble values for this band
+                for nibble_val in 0u8..16 {
+                    let nibble_idx = nibble_val as usize;
 
-                // Get cached template
-                let template = &templates[band_idx][nibble_idx];
-                let template_energy = energies[band_idx][nibble_idx];
+                    // Get cached template for this direction
+                    let template = &templates[direction_idx][band_idx][nibble_idx];
+                    let template_energy = energies[direction_idx][band_idx][nibble_idx];
 
-                // Use FFT-based correlation with Mode::Valid since signal and template have same length
-                // Returns single value at index 0 representing the correlation at the fully-overlapping position
-                let fft_result = fft_correlate_1d(&conditioned, template, Mode::Valid)?;
+                    // Use FFT-based correlation with Mode::Valid since signal and template have same length
+                    // Returns single value at index 0 representing the correlation at the fully-overlapping position
+                    let fft_result = fft_correlate_1d(&conditioned, template, Mode::Valid)?;
 
-                // Extract the correlation value (index 0 for Valid mode with equal-length inputs)
-                let raw_correlation = fft_result.get(0).map(|&v| v.abs()).unwrap_or(0.0);
+                    // Extract the correlation value (index 0 for Valid mode with equal-length inputs)
+                    let raw_correlation = fft_result.get(0).map(|&v| v.abs()).unwrap_or(0.0);
 
-                // Compute signal energy over the entire window using prefix sums
-                let signal_energy = sq_prefix[conditioned.len()];
+                    // Compute signal energy over the entire window using prefix sums
+                    let signal_energy = sq_prefix[conditioned.len()];
 
-                // Compute normalized correlation coefficient (bi-directional normalization)
-                let denom = (signal_energy * template_energy).sqrt();
-                let normalized_corr = if denom > 1e-10 {
-                    raw_correlation / denom
-                } else {
-                    0.0
-                };
+                    // Compute normalized correlation coefficient (bi-directional normalization)
+                    let denom = (signal_energy * template_energy).sqrt();
+                    let normalized_corr = if denom > 1e-10 {
+                        raw_correlation / denom
+                    } else {
+                        0.0
+                    };
 
-                if normalized_corr > best_normalized_corr {
-                    best_normalized_corr = normalized_corr;
-                    best_match = nibble_val;
+                    if normalized_corr > best_normalized_corr {
+                        best_normalized_corr = normalized_corr;
+                        best_match = nibble_val;
+                    }
                 }
             }
 
@@ -1160,14 +1191,16 @@ mod tests {
         let sample_rate = 16000.0;
         let num_samples = 3072;
 
-        // Create templates for all 16 nibble values in band 0
-        for nibble_val in 0u8..16 {
-            let template = create_chirp_template(nibble_val, 0, num_samples, sample_rate);
-            assert_eq!(template.len(), num_samples);
+        // Create templates for all 16 nibble values in band 0 for both directions
+        for is_descending in [false, true] {
+            for nibble_val in 0u8..16 {
+                let template = create_chirp_template(nibble_val, 0, num_samples, sample_rate, is_descending);
+                assert_eq!(template.len(), num_samples);
 
-            // Each template should be a valid signal
-            let has_nonzero = template.iter().any(|&x| x.abs() > 1e-6);
-            assert!(has_nonzero, "Template for nibble {} is all zeros", nibble_val);
+                // Each template should be a valid signal
+                let has_nonzero = template.iter().any(|&x| x.abs() > 1e-6);
+                assert!(has_nonzero, "Template for nibble {} ({}) is all zeros", nibble_val, if is_descending { "down" } else { "up" });
+            }
         }
     }
 
@@ -1209,17 +1242,23 @@ mod tests {
         assert!(demodulator.chirp_templates.is_some());
         assert!(demodulator.chirp_template_energies.is_some());
 
-        // Verify cache structure
+        // Verify cache structure: [direction][band][nibble]
         let templates = demodulator.chirp_templates.as_ref().unwrap();
-        assert_eq!(templates.len(), FSK_NIBBLES_PER_SYMBOL);
-        for band_templates in templates {
-            assert_eq!(band_templates.len(), 16);
+        assert_eq!(templates.len(), 2); // 2 directions (up and down)
+        for direction_templates in templates {
+            assert_eq!(direction_templates.len(), FSK_NIBBLES_PER_SYMBOL);
+            for band_templates in direction_templates {
+                assert_eq!(band_templates.len(), 16);
+            }
         }
 
         let energies = demodulator.chirp_template_energies.as_ref().unwrap();
-        assert_eq!(energies.len(), FSK_NIBBLES_PER_SYMBOL);
-        for band_energies in energies {
-            assert_eq!(band_energies.len(), 16);
+        assert_eq!(energies.len(), 2); // 2 directions
+        for direction_energies in energies {
+            assert_eq!(direction_energies.len(), FSK_NIBBLES_PER_SYMBOL);
+            for band_energies in direction_energies {
+                assert_eq!(band_energies.len(), 16);
+            }
         }
     }
 
