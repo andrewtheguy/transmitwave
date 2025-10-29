@@ -25,10 +25,11 @@ pub enum DetectionThreshold {
 //   - SignalType::Chirp         (frequency sweep from low to high, better detection in noisy environments)
 //   - SignalType::PrnNoise      (blends in better with the sound of the payload)
 //   - SignalType::ThreeNoteWhistle (musical three-note whistle pattern)
+//   - SignalType::PrnWithFreq   (PRN modulated at different frequencies, 1200 Hz preamble / 700 Hz postamble)
 //
 // This controls what `generate_preamble()` and `generate_postamble_signal()`
 // actually generate, allowing easy comparison between signal types.
-const SIGNAL_TYPE: SignalType = SignalType::Chirp;
+const SIGNAL_TYPE: SignalType = SignalType::PrnWithFreq;
 
 /// Window length (in samples) for computing RMS in adaptive threshold mode.
 /// This controls the size of sliding windows used to find the maximum RMS,
@@ -44,6 +45,7 @@ enum SignalType {
     PrnNoise,        // Pseudo-random bipolar noise (different seeds for pre/post)
     Chirp,           // Linear frequency sweep
     ThreeNoteWhistle, // Three-note whistle pattern (different melodies for pre/post)
+    PrnWithFreq,     // PRN sequence modulated at different frequencies (different freq for pre/post)
 }
 
 /// Generates a Barker code (11-bit) for synchronization
@@ -72,6 +74,51 @@ fn generate_prn_noise(seed: u32, duration_samples: usize, amplitude: f32) -> Vec
         lfsr >>= 1;
         if feedback != 0 {
             lfsr ^= LFSR_TAPS;
+        }
+    }
+
+    samples
+}
+
+/// Generate PRN sequence modulated with a carrier frequency
+/// Uses chip-level modulation: each PRN bit is held for multiple samples
+/// seed: LFSR seed for PRN generation (different seed for preamble vs postamble)
+/// carrier_freq: Carrier frequency in Hz for modulation
+/// duration_samples: How many samples to generate
+/// amplitude: Output amplitude scaling
+fn generate_prn_with_carrier(seed: u32, carrier_freq: f32, duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    let sample_rate = SAMPLE_RATE as f32;
+    let mut lfsr = seed;
+    let mut samples = vec![0.0; duration_samples];
+
+    // Taps for 32-bit LFSR
+    const LFSR_TAPS: u32 = 0xB4000001;
+
+    // Each PRN chip spans multiple samples to create audible modulation
+    let samples_per_chip = 100;
+    let mut phase_accumulator: f32 = 0.0;
+    let phase_increment = 2.0 * PI * carrier_freq / sample_rate;
+
+    for n in 0..duration_samples {
+        // Generate PRN bit for current chip
+        if n % samples_per_chip == 0 {
+            let feedback = lfsr & 1;
+            lfsr >>= 1;
+            if feedback != 0 {
+                lfsr ^= LFSR_TAPS;
+            }
+        }
+
+        // Get PRN value: -1 for LSB=0, +1 for LSB=1
+        let prn_value = if lfsr & 1 == 1 { 1.0 } else { -1.0 };
+
+        // Modulate: PRN controls amplitude of carrier wave
+        samples[n] = amplitude * prn_value * phase_accumulator.sin();
+
+        // Update phase accumulator
+        phase_accumulator += phase_increment;
+        if phase_accumulator > 2.0 * PI {
+            phase_accumulator -= 2.0 * PI;
         }
     }
 
@@ -246,8 +293,24 @@ pub fn generate_postamble_three_note(duration_samples: usize, amplitude: f32) ->
     samples
 }
 
+/// Generates preamble with PRN modulated at carrier frequency
+/// PRN at higher frequency (1200 Hz) for distinctive preamble
+pub fn generate_preamble_prn_freq(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    const PREAMBLE_SEED: u32 = 0xDEADBEEF;
+    const PREAMBLE_CARRIER_FREQ: f32 = 1200.0;
+    generate_prn_with_carrier(PREAMBLE_SEED, PREAMBLE_CARRIER_FREQ, duration_samples, amplitude)
+}
+
+/// Generates postamble with PRN modulated at different carrier frequency
+/// PRN at lower frequency (700 Hz) for distinctive postamble
+pub fn generate_postamble_prn_freq(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+    const POSTAMBLE_SEED: u32 = 0xCAFEBABE;
+    const POSTAMBLE_CARRIER_FREQ: f32 = 700.0;
+    generate_prn_with_carrier(POSTAMBLE_SEED, POSTAMBLE_CARRIER_FREQ, duration_samples, amplitude)
+}
+
 /// Generate preamble signal
-/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, or ThreeNoteWhistle)
+/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, ThreeNoteWhistle, or PrnWithFreq)
 pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match SIGNAL_TYPE {
         SignalType::PrnNoise => {
@@ -263,11 +326,15 @@ pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
             // Three-note whistle: ascending melody (800 -> 1200 -> 1600 Hz)
             generate_preamble_three_note(duration_samples, amplitude)
         }
+        SignalType::PrnWithFreq => {
+            // PRN modulated at carrier frequency (1200 Hz for preamble)
+            generate_preamble_prn_freq(duration_samples, amplitude)
+        }
     }
 }
 
 /// Generate postamble signal
-/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, or ThreeNoteWhistle)
+/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, ThreeNoteWhistle, or PrnWithFreq)
 pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match SIGNAL_TYPE {
         SignalType::PrnNoise => {
@@ -282,6 +349,10 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
         SignalType::ThreeNoteWhistle => {
             // Three-note whistle: descending melody (1600 -> 1200 -> 700 Hz)
             generate_postamble_three_note(duration_samples, amplitude)
+        }
+        SignalType::PrnWithFreq => {
+            // PRN modulated at different carrier frequency (700 Hz for postamble)
+            generate_postamble_prn_freq(duration_samples, amplitude)
         }
     }
 }
@@ -701,6 +772,7 @@ mod tests {
             SignalType::PrnNoise => generate_preamble(crate::PREAMBLE_SAMPLES, amplitude),
             SignalType::Chirp => generate_preamble_chirp(crate::PREAMBLE_SAMPLES, amplitude),
             SignalType::ThreeNoteWhistle => generate_preamble_three_note(crate::PREAMBLE_SAMPLES, amplitude),
+            SignalType::PrnWithFreq => generate_preamble_prn_freq(crate::PREAMBLE_SAMPLES, amplitude),
         }
     }
 
@@ -709,6 +781,7 @@ mod tests {
             SignalType::PrnNoise => generate_postamble_signal(crate::POSTAMBLE_SAMPLES, amplitude),
             SignalType::Chirp => generate_postamble_chirp(crate::POSTAMBLE_SAMPLES, amplitude),
             SignalType::ThreeNoteWhistle => generate_postamble_three_note(crate::POSTAMBLE_SAMPLES, amplitude),
+            SignalType::PrnWithFreq => generate_postamble_prn_freq(crate::POSTAMBLE_SAMPLES, amplitude),
         }
     }
 
