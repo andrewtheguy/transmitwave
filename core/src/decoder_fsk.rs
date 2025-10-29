@@ -44,6 +44,17 @@ impl DecoderFsk {
         })
     }
 
+    /// Create decoder with hybrid chirp FSK for improved noise robustness
+    pub fn new_with_chirp() -> Result<Self> {
+        Ok(Self {
+            fsk: FskDemodulator::new_with_chirp(),
+            fec: FecDecoder::new()?,
+            preamble_threshold: DetectionThreshold::Adaptive,
+            postamble_threshold: DetectionThreshold::Adaptive,
+            stats: DecodeStats::default(),
+        })
+    }
+
     /// Set the detection threshold for preamble detection
     pub fn set_preamble_threshold(&mut self, threshold: DetectionThreshold) {
         self.preamble_threshold = match threshold {
