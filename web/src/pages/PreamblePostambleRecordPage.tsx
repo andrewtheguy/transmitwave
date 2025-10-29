@@ -951,12 +951,24 @@ const PreamblePostambleRecordPage: React.FC = () => {
           >
             Start Listening
           </button>
-          {isListening && (
+          {isRecording && (
+            <button
+              onClick={() => {
+                isRecordingRef.current = false
+                stopRecording('Recording stopped manually')
+              }}
+              className="btn-secondary w-full"
+              style={{ background: '#dc2626' }}
+            >
+              ⏹️ Stop Recording
+            </button>
+          )}
+          {isListening && !isRecording && (
             <button
               onClick={stopListening}
               className="btn-secondary w-full"
             >
-              Stop
+              Stop Listening
             </button>
           )}
         </div>
