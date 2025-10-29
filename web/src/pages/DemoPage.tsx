@@ -7,7 +7,7 @@ import Status from '../components/Status'
 const DemoPage: React.FC = () => {
   const navigate = useNavigate()
   const { encode, isEncoding, error: encodeError } = useEncoder()
-  const { decode, isDecoding, error: decodeError } = useDecoder()
+  const { decode, decodeWithoutSync, isDecoding, error: decodeError } = useDecoder()
 
   const [encodeText, setEncodeText] = useState('Hello World')
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
@@ -38,7 +38,8 @@ const DemoPage: React.FC = () => {
     setDecodeStatusType('info')
 
     try {
-      const text = await decode(decodeFile)
+      // Use decodeWithoutSync to extract FSK data first and avoid double-detection
+      const text = await decodeWithoutSync(decodeFile)
 
       if (text !== null) {
         setDecodedText(text)
