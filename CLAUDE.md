@@ -2,6 +2,6 @@
 - use project's ./tmp/ directory (not /tmp) for test files
 - dont add too much doccs to save output tokens
 - I'll run my vite http server, don't try to start another server
-- run integration tests in release mode for performance
+- run integration tests in release mode for performance except wasm tests
 - use gtimeout command instead of timeout on macOS systems
 - for troubleshooting wasm, build with `wasm-pack build --dev --target web`

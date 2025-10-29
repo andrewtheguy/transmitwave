@@ -24,7 +24,7 @@ export const useEncoder = (): UseEncoderResult => {
     try {
       const encoder = await createEncoder(options)
       const data = new TextEncoder().encode(text)
-      const samples = await encoder.encode(data)
+      const samples = encoder.encode(data)
 
       const blob = createWavBlob(samples, 16000, 1)
       return blob

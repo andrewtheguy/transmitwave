@@ -29,7 +29,7 @@ pub enum DetectionThreshold {
 //
 // This controls what `generate_preamble()` and `generate_postamble_signal()`
 // actually generate, allowing easy comparison between signal types.
-const SIGNAL_TYPE: SignalType = SignalType::PrnWithFreq;
+const SIGNAL_TYPE: SignalType = SignalType::Chirp;
 
 /// Window length (in samples) for computing RMS in adaptive threshold mode.
 /// This controls the size of sliding windows used to find the maximum RMS,

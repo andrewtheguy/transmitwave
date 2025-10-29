@@ -19,11 +19,15 @@ use std::f32::consts::PI;
 // - Uses Reed-Solomon FEC for error correction
 // - Includes preamble/postamble for frame synchronization
 
-/// Base frequency in Hz (optimal range for mobile phone speakers)
-const FSK_BASE_FREQ: f32 = 800.0;
+/// Base frequency in Hz (lowered for better compatibility with various devices)
+/// Frequency range: 400-2400Hz (comfortable listening range, lower pitch)
+const FSK_BASE_FREQ: f32 = 400.0;
 
 /// Frequency spacing in Hz between adjacent bins
-const FSK_FREQ_DELTA: f32 = 20.0;
+/// Set to 29Hz to keep max frequency around 3000Hz for comfortable mid-range listening
+/// Max frequency: 400 + 95*29 = 3155Hz
+/// This makes each of the 6 chirps distinctly audible as separate, well-spaced tones
+const FSK_FREQ_DELTA: f32 = 29.0;
 
 /// Total number of frequency bins (96 provides redundancy and flexibility)
 const FSK_NUM_BINS: usize = 96;
@@ -59,6 +63,10 @@ impl Default for FountainConfig {
 
 /// FSK symbol duration (192ms at 16kHz sample rate)
 pub const FSK_SYMBOL_SAMPLES: usize = 3072;
+
+/// Chirp FSK symbol duration (384ms at 16kHz sample rate, 62.5 bits/sec throughput)
+/// Longer duration enables steeper, more prominent chirp sweep
+pub const CHIRP_SYMBOL_SAMPLES: usize = 6144;
 
 /// Apply a smooth envelope to reduce spectral splatter near symbol edges.
 const FSK_EDGE_TAPER_RATIO: f32 = 0.08; // 8% of the symbol on each side
@@ -107,6 +115,67 @@ fn freq_to_bin(freq: f32) -> Option<usize> {
     }
 }
 
+/// Generate a chirp signal that sweeps to the target frequency
+///
+/// A chirp is a frequency-modulated signal where frequency increases linearly.
+/// This provides better noise immunity than fixed-frequency tones due to:
+/// - Energy spread across bandwidth (reduced peak power)
+/// - Matched filter processing gain
+/// - Better multipath and Doppler resilience
+///
+/// Parameters:
+/// - `target_freq`: the final frequency to sweep to (Hz)
+/// - `start_freq`: the starting frequency (Hz)
+/// - `num_samples`: number of samples to generate
+/// - `sample_rate`: sample rate in Hz
+fn generate_chirp(target_freq: f32, start_freq: f32, num_samples: usize, sample_rate: f32) -> Vec<f32> {
+    let duration = num_samples as f32 / sample_rate;
+    let mut samples = vec![0.0f32; num_samples];
+
+    // Logarithmic frequency modulation for smooth perceptual sweep
+    // Humans perceive pitch logarithmically, so log-sweep sounds smoother than linear sweep
+    // f(t) = start_freq * (target_freq / start_freq)^(t / duration)
+    let freq_ratio = target_freq / start_freq;
+    let ln_ratio = freq_ratio.ln();
+
+    // Phase accumulation: θ(t) = 2π * start_freq * (duration / ln(ratio)) * [exp(ln(ratio) * t / duration) - 1]
+    let phase_scale = 2.0 * PI * start_freq * duration / ln_ratio;
+
+    for i in 0..num_samples {
+        let t = i as f32 / sample_rate;
+        let exp_term = (ln_ratio * t / duration).exp();
+        let phase = phase_scale * (exp_term - 1.0);
+        samples[i] = phase.sin();
+    }
+
+    samples
+}
+
+/// Helper: Generate a chirp for a specific nibble value and band
+fn generate_chirp_for_nibble(nibble_val: u8, band_offset: usize, num_samples: usize, sample_rate: f32) -> Vec<f32> {
+    // Calculate frequency range for this band
+    let band_start_freq = bin_to_freq(band_offset * FSK_BINS_PER_BAND);
+    let band_end_freq = bin_to_freq(band_offset * FSK_BINS_PER_BAND + FSK_BINS_PER_BAND - 1);
+
+    // Map nibble value 0-15 to positions within the frequency band
+    // Reversed: nibble 0 → band_end_freq (high), nibble 15 → band_start_freq (low)
+    let position = (nibble_val as f32) / 15.0; // 0.0 to 1.0
+    let target_freq = band_end_freq - position * (band_end_freq - band_start_freq);
+
+    // Chirp descends from much higher to the target frequency for prominent sweep
+    // 1.5x band width = ~480Hz sweep for prominent audible chirp sound
+    let band_width = band_end_freq - band_start_freq;
+    let start_freq = target_freq + band_width * 1.5;
+
+    generate_chirp(target_freq, start_freq, num_samples, sample_rate)
+}
+
+/// Create a template chirp for matched filtering during demodulation
+/// Maps nibble values 0-15 to chirps that sweep to specific frequencies within the band
+fn create_chirp_template(nibble_val: u8, band_offset: usize, num_samples: usize, sample_rate: f32) -> Vec<f32> {
+    generate_chirp_for_nibble(nibble_val, band_offset, num_samples, sample_rate)
+}
+
 /// Generate a raised-cosine style window that softly ramps amplitude at both edges.
 fn raised_cosine_window(len: usize, taper_len: usize) -> Vec<f32> {
     if taper_len == 0 || len == 0 {
@@ -135,14 +204,28 @@ fn raised_cosine_window(len: usize, taper_len: usize) -> Vec<f32> {
 /// Transmits 3 bytes (6 nibbles) per symbol using 6 simultaneous frequencies.
 /// Each nibble (4 bits, value 0-15) selects one frequency from a band of 16 frequencies.
 /// The 6 frequencies are transmitted simultaneously in the same time slot.
+///
+/// Supports two modes:
+/// - Standard FSK: Fixed-frequency sine waves (current approach)
+/// - Hybrid Chirp FSK: Linear frequency-modulated (chirp) signals for improved noise robustness
 pub struct FskModulator {
     sample_rate: f32,
+    use_chirp: bool,
 }
 
 impl FskModulator {
     pub fn new() -> Self {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
+            use_chirp: false,
+        }
+    }
+
+    /// Create a modulator that uses hybrid chirp FSK for improved noise robustness
+    pub fn new_with_chirp() -> Self {
+        Self {
+            sample_rate: crate::SAMPLE_RATE as f32,
+            use_chirp: true,
         }
     }
 
@@ -163,6 +246,15 @@ impl FskModulator {
             return Err(AudioModemError::InvalidInputSize);
         }
 
+        if self.use_chirp {
+            self.modulate_symbol_chirp(bytes)
+        } else {
+            self.modulate_symbol_standard(bytes)
+        }
+    }
+
+    /// Standard FSK modulation: Fixed-frequency sine waves
+    fn modulate_symbol_standard(&mut self, bytes: &[u8]) -> Result<Vec<f32>> {
         let symbol_samples = FSK_SYMBOL_SAMPLES;
         let mut samples = vec![0.0f32; symbol_samples];
 
@@ -198,6 +290,47 @@ impl FskModulator {
         self.apply_edge_taper(&mut samples);
 
         // Scale by 1/6 to prevent clipping when superimposing 6 tones
+        // Also apply 0.7 overall amplitude
+        let scale = 0.7 / FSK_NIBBLES_PER_SYMBOL as f32;
+        for sample in samples.iter_mut() {
+            *sample *= scale;
+        }
+
+        Ok(samples)
+    }
+
+    /// Hybrid Chirp FSK modulation: Linear frequency-modulated (chirp) signals
+    /// Each nibble encodes a target frequency as a chirp that sweeps to that frequency
+    fn modulate_symbol_chirp(&mut self, bytes: &[u8]) -> Result<Vec<f32>> {
+        let symbol_samples = CHIRP_SYMBOL_SAMPLES;
+        let mut samples = vec![0.0f32; symbol_samples];
+
+        // Extract 6 nibbles from 3 bytes
+        let nibbles = [
+            (bytes[0] >> 4) & 0x0F,  // High nibble of byte 0
+            bytes[0] & 0x0F,         // Low nibble of byte 0
+            (bytes[1] >> 4) & 0x0F,  // High nibble of byte 1
+            bytes[1] & 0x0F,         // Low nibble of byte 1
+            (bytes[2] >> 4) & 0x0F,  // High nibble of byte 2
+            bytes[2] & 0x0F,         // Low nibble of byte 2
+        ];
+
+        // Generate and superimpose all 6 chirps
+        for (nibble_idx, &nibble_val) in nibbles.iter().enumerate() {
+            let band_offset = nibble_idx;
+
+            // Generate chirp for this nibble
+            let chirp_samples = generate_chirp_for_nibble(nibble_val, band_offset, symbol_samples, self.sample_rate);
+
+            // Add chirp to output
+            for i in 0..symbol_samples {
+                samples[i] += chirp_samples[i];
+            }
+        }
+
+        self.apply_edge_taper(&mut samples);
+
+        // Scale by 1/6 to prevent clipping when superimposing 6 chirps
         // Also apply 0.7 overall amplitude
         let scale = 0.7 / FSK_NIBBLES_PER_SYMBOL as f32;
         for sample in samples.iter_mut() {
@@ -252,18 +385,36 @@ impl FskModulator {
     }
 }
 
-/// FSK demodulator - detects multiple simultaneous frequencies using FFT
+/// FSK demodulator - detects multiple simultaneous frequencies
 ///
 /// Analyzes the spectrum to find 6 simultaneous tones, each representing a nibble.
+/// Supports two modes:
+/// - Standard FSK: Uses Goertzel algorithm for frequency detection
+/// - Hybrid Chirp FSK: Uses matched filtering for chirp detection
 pub struct FskDemodulator {
     sample_rate: f32,
+    use_chirp: bool,
 }
 
 impl FskDemodulator {
     pub fn new() -> Self {
         Self {
             sample_rate: crate::SAMPLE_RATE as f32,
+            use_chirp: false,
         }
+    }
+
+    /// Create a demodulator that uses hybrid chirp FSK for improved noise robustness
+    pub fn new_with_chirp() -> Self {
+        Self {
+            sample_rate: crate::SAMPLE_RATE as f32,
+            use_chirp: true,
+        }
+    }
+
+    /// Check if chirp FSK mode is enabled
+    pub fn is_chirp(&self) -> bool {
+        self.use_chirp
     }
 
     /// Compute power spectrum using simple DFT for our specific frequency bins
@@ -306,10 +457,26 @@ impl FskDemodulator {
     /// Detects 6 simultaneous tones, one from each band of 16 frequencies.
     /// Returns the 3 bytes encoded in the symbol.
     pub fn demodulate_symbol(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
-        if samples.len() != FSK_SYMBOL_SAMPLES {
+        // Check size based on mode
+        let expected_size = if self.use_chirp {
+            CHIRP_SYMBOL_SAMPLES
+        } else {
+            FSK_SYMBOL_SAMPLES
+        };
+
+        if samples.len() != expected_size {
             return Err(AudioModemError::InvalidInputSize);
         }
 
+        if self.use_chirp {
+            self.demodulate_symbol_chirp(samples)
+        } else {
+            self.demodulate_symbol_standard(samples)
+        }
+    }
+
+    /// Standard FSK demodulation: Frequency detection via spectrum analysis
+    fn demodulate_symbol_standard(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
         // Compute power spectrum
         let spectrum = self.compute_spectrum(samples);
 
@@ -345,15 +512,78 @@ impl FskDemodulator {
         Ok(bytes)
     }
 
+    /// Hybrid Chirp FSK demodulation: Matched filtering against chirp templates
+    fn demodulate_symbol_chirp(&self, samples: &[f32]) -> Result<[u8; FSK_BYTES_PER_SYMBOL]> {
+        let conditioned = self.preprocess_symbol(samples);
+        let mut nibbles = [0u8; FSK_NIBBLES_PER_SYMBOL];
+
+        // For each band, correlate against all 16 chirp templates and find best match
+        for band_idx in 0..FSK_NIBBLES_PER_SYMBOL {
+            let mut best_match = 0u8;
+            let mut best_correlation = 0.0f32;
+
+            // Try all 16 possible nibble values for this band
+            for nibble_val in 0u8..16 {
+                // Generate chirp template for this nibble value
+                let template = create_chirp_template(nibble_val, band_idx, samples.len(), self.sample_rate);
+
+                // Compute correlation (matched filter response)
+                let correlation = self.compute_correlation(&conditioned, &template);
+
+                if correlation > best_correlation {
+                    best_correlation = correlation;
+                    best_match = nibble_val;
+                }
+            }
+
+            nibbles[band_idx] = best_match;
+        }
+
+        // Reconstruct 3 bytes from 6 nibbles
+        let bytes = [
+            (nibbles[0] << 4) | nibbles[1],  // Byte 0
+            (nibbles[2] << 4) | nibbles[3],  // Byte 1
+            (nibbles[4] << 4) | nibbles[5],  // Byte 2
+        ];
+
+        Ok(bytes)
+    }
+
+    /// Compute correlation between signal and template for matched filtering
+    fn compute_correlation(&self, signal: &[f32], template: &[f32]) -> f32 {
+        if signal.len() != template.len() {
+            return 0.0;
+        }
+
+        let mut correlation = 0.0f32;
+        for (s, t) in signal.iter().zip(template.iter()) {
+            correlation += s * t;
+        }
+
+        // Normalize by template energy
+        let template_energy: f32 = template.iter().map(|x| x * x).sum();
+        if template_energy > 0.0 {
+            correlation / template_energy.sqrt()
+        } else {
+            0.0
+        }
+    }
+
     /// Demodulate a sequence of multi-tone FSK symbols
     /// samples.len() must be a multiple of FSK_SYMBOL_SAMPLES
     pub fn demodulate(&self, samples: &[f32]) -> Result<Vec<u8>> {
-        if samples.len() % FSK_SYMBOL_SAMPLES != 0 {
+        let symbol_size = if self.use_chirp {
+            CHIRP_SYMBOL_SAMPLES
+        } else {
+            FSK_SYMBOL_SAMPLES
+        };
+
+        if samples.len() % symbol_size != 0 {
             return Err(AudioModemError::InvalidInputSize);
         }
 
         let mut bytes = Vec::new();
-        for chunk in samples.chunks(FSK_SYMBOL_SAMPLES) {
+        for chunk in samples.chunks(symbol_size) {
             let symbol_bytes = self.demodulate_symbol(chunk)?;
             bytes.extend_from_slice(&symbol_bytes);
         }
@@ -692,6 +922,175 @@ mod tests {
             let offset_samples: Vec<f32> = base.iter().map(|s| s + offset).collect();
             let decoded = demodulator.demodulate_symbol(&offset_samples).unwrap();
             assert_eq!(decoded, bytes, "Failed with offset {}", offset);
+        }
+    }
+
+    // ========== HYBRID CHIRP FSK TESTS ==========
+
+    #[test]
+    fn test_chirp_generation() {
+        let sample_rate = 16000.0;
+        let num_samples = 3072;
+
+        // Generate a chirp that sweeps from 1000 Hz to 2000 Hz
+        let chirp = generate_chirp(2000.0, 1000.0, num_samples, sample_rate);
+
+        assert_eq!(chirp.len(), num_samples);
+
+        // Verify chirp is bounded [-1, 1] and has non-trivial energy
+        for sample in &chirp {
+            assert!(sample.abs() <= 1.0, "Sample out of bounds");
+        }
+
+        // Check that there's significant non-zero energy (not all zeros)
+        let energy: f32 = chirp.iter().map(|x| x * x).sum();
+        assert!(energy > 0.1, "Chirp energy too low: {}", energy);
+    }
+
+    #[test]
+    fn test_chirp_fsk_modulator_creation() {
+        let modulator = FskModulator::new_with_chirp();
+        assert!(modulator.use_chirp);
+
+        let standard_modulator = FskModulator::new();
+        assert!(!standard_modulator.use_chirp);
+    }
+
+    #[test]
+    fn test_chirp_fsk_demodulator_creation() {
+        let demodulator = FskDemodulator::new_with_chirp();
+        assert!(demodulator.use_chirp);
+
+        let standard_demodulator = FskDemodulator::new();
+        assert!(!standard_demodulator.use_chirp);
+    }
+
+    #[test]
+    fn test_chirp_fsk_roundtrip_single_symbol() {
+        let mut modulator = FskModulator::new_with_chirp();
+        let demodulator = FskDemodulator::new_with_chirp();
+
+        let test_cases = vec![
+            [0x00, 0x00, 0x00], // All zeros
+            [0xFF, 0xFF, 0xFF], // All ones
+            [0xAB, 0xCD, 0xEF], // Mixed values
+            [0x12, 0x34, 0x56], // Another pattern
+            [0x0F, 0xF0, 0x55], // Edge cases
+        ];
+
+        for bytes in test_cases {
+            let samples = modulator.modulate_symbol(&bytes).unwrap();
+            let decoded = demodulator.demodulate_symbol(&samples).unwrap();
+            assert_eq!(
+                decoded, bytes,
+                "Failed roundtrip for chirp FSK {:02X?}",
+                bytes
+            );
+        }
+    }
+
+    #[test]
+    fn test_chirp_fsk_roundtrip_multiple_symbols() {
+        let mut modulator = FskModulator::new_with_chirp();
+        let demodulator = FskDemodulator::new_with_chirp();
+
+        // Test sequence: 2 symbols = 6 bytes
+        let bytes = vec![
+            0xAB, 0xCD, 0xEF, // Symbol 1
+            0x12, 0x34, 0x56, // Symbol 2
+        ];
+
+        let samples = modulator.modulate(&bytes).unwrap();
+        assert_eq!(samples.len(), FSK_SYMBOL_SAMPLES * 2);
+
+        let decoded = demodulator.demodulate(&samples).unwrap();
+        assert_eq!(decoded.len(), bytes.len());
+        assert_eq!(decoded, bytes);
+    }
+
+    #[test]
+    fn test_chirp_fsk_with_noise() {
+        let mut modulator = FskModulator::new_with_chirp();
+        let demodulator = FskDemodulator::new_with_chirp();
+
+        // Encode a symbol
+        let bytes = [0xAB, 0xCD, 0xEF];
+        let mut samples = modulator.modulate_symbol(&bytes).unwrap();
+
+        // Add small noise (5% amplitude)
+        for sample in samples.iter_mut() {
+            *sample += 0.05 * ((*sample * 100.0).sin());
+        }
+
+        // Should still decode correctly
+        let decoded = demodulator.demodulate_symbol(&samples).unwrap();
+        assert_eq!(decoded, bytes);
+    }
+
+    #[test]
+    fn test_chirp_fsk_gain_invariance() {
+        let mut modulator = FskModulator::new_with_chirp();
+        let demodulator = FskDemodulator::new_with_chirp();
+        let bytes = [0x5A, 0xC3, 0x9F];
+        let samples = modulator.modulate_symbol(&bytes).unwrap();
+
+        for gain in [0.1, 0.5, 1.0, 2.5, 5.0] {
+            let scaled: Vec<f32> = samples.iter().map(|s| s * gain).collect();
+            let decoded = demodulator.demodulate_symbol(&scaled).unwrap();
+            assert_eq!(decoded, bytes, "Failed at gain {}", gain);
+        }
+    }
+
+    #[test]
+    fn test_chirp_vs_standard_fsk_throughput() {
+        // Chirp: 3 bytes per 384ms symbol (62.5 bits/sec)
+        // Standard: 3 bytes per 192ms symbol (125 bits/sec)
+        let mut chirp_mod = FskModulator::new_with_chirp();
+        let mut standard_mod = FskModulator::new();
+
+        let bytes = [0xAB, 0xCD, 0xEF];
+        let chirp_samples = chirp_mod.modulate_symbol(&bytes).unwrap();
+        let standard_samples = standard_mod.modulate_symbol(&bytes).unwrap();
+
+        // Chirp is 2x longer for steeper, more prominent sweep
+        assert_eq!(chirp_samples.len(), CHIRP_SYMBOL_SAMPLES);
+        assert_eq!(standard_samples.len(), FSK_SYMBOL_SAMPLES);
+        assert_eq!(chirp_samples.len(), standard_samples.len() * 2);
+    }
+
+    #[test]
+    fn test_chirp_template_generation() {
+        let sample_rate = 16000.0;
+        let num_samples = 3072;
+
+        // Create templates for all 16 nibble values in band 0
+        for nibble_val in 0u8..16 {
+            let template = create_chirp_template(nibble_val, 0, num_samples, sample_rate);
+            assert_eq!(template.len(), num_samples);
+
+            // Each template should be a valid signal
+            let has_nonzero = template.iter().any(|&x| x.abs() > 1e-6);
+            assert!(has_nonzero, "Template for nibble {} is all zeros", nibble_val);
+        }
+    }
+
+    #[test]
+    fn test_chirp_fsk_byte_patterns() {
+        let mut modulator = FskModulator::new_with_chirp();
+        let demodulator = FskDemodulator::new_with_chirp();
+
+        let patterns = vec![
+            vec![0x00; 6],       // All zeros
+            vec![0xFF; 6],       // All ones
+            vec![0xAA; 6],       // Alternating bits
+            vec![0x55; 6],       // Alternating bits (inverse)
+            vec![0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF], // Alternating bytes
+        ];
+
+        for bytes in patterns {
+            let samples = modulator.modulate(&bytes).unwrap();
+            let decoded = demodulator.demodulate(&samples).unwrap();
+            assert_eq!(decoded, bytes, "Failed for chirp pattern {:02X?}", bytes);
         }
     }
 }

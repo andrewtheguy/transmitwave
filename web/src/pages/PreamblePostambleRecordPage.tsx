@@ -118,6 +118,9 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const [preambleThreshold, setPreambleThreshold] = useState(0.4)
   const [postambleThreshold, setPostambleThreshold] = useState(0.4)
 
+  // Chirp FSK setting
+  const [useChirp, setUseChirp] = useState(false)
+
   const scheduleInitialSamplesMerge = () => {
     if (initialMergeScheduledRef.current || !pendingInitialSamplesRef.current) {
       return
@@ -256,8 +259,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
         }
       }
 
-      // Initialize decoder with thresholds
-      decoderWorker.postMessage({ type: 'init', preambleThreshold, postambleThreshold })
+      // Initialize decoder with thresholds and chirp mode
+      decoderWorker.postMessage({ type: 'init', preambleThreshold, postambleThreshold, useChirp })
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -907,6 +910,23 @@ const PreamblePostambleRecordPage: React.FC = () => {
         </div>
 
         <div className="mt-4">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={useChirp}
+              onChange={(e) => setUseChirp(e.target.checked)}
+              disabled={isListening}
+            />
+            <strong>Use Chirp FSK</strong>
+          </label>
+          <small>
+            {useChirp
+              ? '✓ Better noise/multipath immunity (higher CPU)'
+              : '○ Standard FSK (lower CPU)'}
+          </small>
+        </div>
+
+        <div className="mt-4">
           <label><strong>Input Level</strong></label>
           <div style={{ background: '#f7fafc', padding: '1rem', borderRadius: '0.5rem', marginTop: '0.5rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem', height: '20px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
@@ -931,12 +951,24 @@ const PreamblePostambleRecordPage: React.FC = () => {
           >
             Start Listening
           </button>
-          {isListening && (
+          {isRecording && (
+            <button
+              onClick={() => {
+                isRecordingRef.current = false
+                stopRecording('Recording stopped manually')
+              }}
+              className="btn-secondary w-full"
+              style={{ background: '#dc2626' }}
+            >
+              ⏹️ Stop Recording
+            </button>
+          )}
+          {isListening && !isRecording && (
             <button
               onClick={stopListening}
               className="btn-secondary w-full"
             >
-              Stop
+              Stop Listening
             </button>
           )}
         </div>

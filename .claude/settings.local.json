@@ -51,7 +51,15 @@
       "Bash(do echo \"Testing $test...\" gtimeout 30 cargo test --lib decoder_fsk::tests::$test --release)",
       "Bash(gtimeout 180 cargo test:*)",
       "Bash(git -C /Users/it3/codes/andrew/transmitwave log --oneline)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(git hash-object:*)",
+      "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave encode:*)",
+      "Bash(/Users/it3/codes/andrew/transmitwave/target/release/transmitwave decode:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_snapshot"
     ],
     "deny": [],
     "ask": []
