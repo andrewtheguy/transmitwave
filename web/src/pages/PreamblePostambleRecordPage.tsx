@@ -12,6 +12,8 @@ const PREAMBLE_DURATION_MS = 250
 const PREAMBLE_SAMPLES = (TARGET_SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000 // 4000
 const PRE_ROLL_MS = 100
 const PRE_ROLL_SAMPLES = (TARGET_SAMPLE_RATE * PRE_ROLL_MS) / 1000 // keep ~0.1s before preamble for safety
+const POSTAMBLE_SAMPLES = PREAMBLE_SAMPLES
+const POSTAMBLE_SEARCH_GUARD_SAMPLES = 1000 // skip a short cushion past the detected preamble before scanning for postamble
 const AUTO_GAIN_MIN = 0.3
 const AUTO_GAIN_MAX = 12.0
 const AUTO_GAIN_SMOOTHING = 0.25
@@ -81,6 +83,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const recordingDurationIntervalRef = useRef<number>(0)
   const postambleSearchStartRef = useRef<number>(0)
   const recordingResampleBufferRef = useRef<number[]>([])
+  const pendingInitialSamplesRef = useRef<number[] | null>(null)
+  const initialMergeScheduledRef = useRef<boolean>(false)
   const isRecordingRef = useRef<boolean>(false)
   const preambleDetectedRef = useRef<boolean>(false)
   const preamblePosInRecordingRef = useRef<number>(0)
@@ -113,6 +117,39 @@ const PreamblePostambleRecordPage: React.FC = () => {
   // Threshold settings
   const [preambleThreshold, setPreambleThreshold] = useState(0.4)
   const [postambleThreshold, setPostambleThreshold] = useState(0.4)
+
+  const scheduleInitialSamplesMerge = () => {
+    if (initialMergeScheduledRef.current || !pendingInitialSamplesRef.current) {
+      return
+    }
+
+    initialMergeScheduledRef.current = true
+
+    const runMerge = () => {
+      initialMergeScheduledRef.current = false
+      const initialSamples = pendingInitialSamplesRef.current
+      if (!initialSamples) {
+        return
+      }
+
+      pendingInitialSamplesRef.current = null
+
+      const gain = autoGainAdjustmentRef.current
+      const normalized = initialSamples.map((sample) => applyAutoGain(sample, gain))
+      const currentSamples = recordedSamplesRef.current
+      const mergedSamples = normalized.concat(currentSamples)
+
+      recordedSamplesRef.current = mergedSamples
+      preamblePosInRecordingRef.current = normalized.length
+      setRecordingSamples(mergedSamples.length)
+    }
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(runMerge)
+    } else {
+      setTimeout(runMerge, 0)
+    }
+  }
 
   const startListening = async () => {
     try {
@@ -260,6 +297,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
       samplesProcessedRef.current = 0
       recordedSamplesRef.current = []
       recordingResampleBufferRef.current = []
+      pendingInitialSamplesRef.current = null
+      initialMergeScheduledRef.current = false
       isRecordingRef.current = false
       preambleDetectedRef.current = false
       preamblePosInRecordingRef.current = 0
@@ -397,21 +436,26 @@ const PreamblePostambleRecordPage: React.FC = () => {
           }
 
           // Try to detect postamble after we have enough samples
-          // Skip the first 8000 samples (preamble + some data)
-          if (postambleWorkerRef.current && recordedSamplesRef.current.length > 8000) {
-            // Use windowing with overlap for better detection
-            // Send a window of 4000 samples with 2000 sample overlap
-            const windowSize = 4000
-            const overlapSize = 2000
+          const totalSamples = recordedSamplesRef.current.length
+
+          if (postambleWorkerRef.current && totalSamples >= POSTAMBLE_SAMPLES) {
+            const windowSize = POSTAMBLE_SAMPLES
+            const overlapSize = POSTAMBLE_SAMPLES / 2
             let windowStart = postambleSearchStartRef.current
 
-            // Initialize window start on first check
             if (windowStart === 0) {
-              windowStart = 8000
+              const preambleEnd = Math.max(preamblePosInRecordingRef.current, PREAMBLE_SAMPLES)
+              const guardedStart = preambleEnd + POSTAMBLE_SEARCH_GUARD_SAMPLES
+              const maxStart = Math.max(0, totalSamples - windowSize)
+              windowStart = Math.min(guardedStart, maxStart)
             }
 
-            // Only send if we have new samples beyond our previous window
-            if (windowStart + windowSize <= recordedSamplesRef.current.length) {
+            const maxStart = Math.max(0, totalSamples - windowSize)
+            if (windowStart > maxStart) {
+              windowStart = maxStart
+            }
+
+            if (windowStart + windowSize <= totalSamples) {
               const windowEnd = windowStart + windowSize
               const windowSamples = recordedSamplesRef.current.slice(windowStart, windowEnd)
 
@@ -420,8 +464,7 @@ const PreamblePostambleRecordPage: React.FC = () => {
                 samples: new Float32Array(windowSamples)
               })
 
-              // Move window forward with overlap
-              postambleSearchStartRef.current = windowEnd - overlapSize
+              postambleSearchStartRef.current = Math.max(0, windowEnd - overlapSize)
             }
           }
         }
@@ -436,27 +479,18 @@ const PreamblePostambleRecordPage: React.FC = () => {
   const handlePreambleDetected = () => {
     if (preambleDetectedRef.current || isRecordingRef.current) return
 
-    preambleDetectedRef.current = true
-    isRecordingRef.current = true
-    setPreambleDetected(true)
-    setDetectionStatus('Preamble detected! Recording...')
-    setDetectionStatusType('success')
-    setIsRecording(true)
-    recordingStartTimeRef.current = Date.now()
-
     // Trim buffer to include just a small pre-roll before preamble
     const PREAMBLE_DURATION_MS = 250
     const PREAMBLE_SAMPLES = (TARGET_SAMPLE_RATE * PREAMBLE_DURATION_MS) / 1000
     const PRE_ROLL_MS = 100
     const PRE_ROLL_SAMPLES = (TARGET_SAMPLE_RATE * PRE_ROLL_MS) / 1000
 
-    const preambleWindow = Math.min(PREAMBLE_SAMPLES, allResampledSamplesRef.current.length)
-    const preambleStart = Math.max(0, allResampledSamplesRef.current.length - preambleWindow)
+    const totalResampled = allResampledSamplesRef.current.length
+    const preambleWindow = Math.min(PREAMBLE_SAMPLES, totalResampled)
+    const preambleStart = Math.max(0, totalResampled - preambleWindow)
     const trimmedStart = Math.max(0, preambleStart - PRE_ROLL_SAMPLES)
-    const allResampled = allResampledSamplesRef.current.slice(trimmedStart)
+    const initialSamples = allResampledSamplesRef.current.slice(trimmedStart)
     const preambleSamples = allResampledSamplesRef.current.slice(preambleStart)
-    allResampledSamplesRef.current = []
-    resampleBufferRef.current = []
 
     // Calculate preamble amplitude (RMS of detected preamble only)
     const preambleAmplitude = calculateRMS(preambleSamples)
@@ -470,14 +504,22 @@ const PreamblePostambleRecordPage: React.FC = () => {
     autoGainAdjustmentRef.current = gainAdjustment
     setAutoGainAdjustment(gainAdjustment)
 
-    // Normalize the accumulated resampled samples with gain adjustment
-    const normalizedAccumulated = allResampled.map((sample) => applyAutoGain(sample, gainAdjustment))
+    pendingInitialSamplesRef.current = initialSamples
+    allResampledSamplesRef.current = []
+    resampleBufferRef.current = []
+    recordingResampleBufferRef.current = []
 
-    // Start recording with the preamble and everything before it
-    recordedSamplesRef.current = normalizedAccumulated
-    preamblePosInRecordingRef.current = normalizedAccumulated.length
+    preambleDetectedRef.current = true
+    isRecordingRef.current = true
+    setPreambleDetected(true)
+    setDetectionStatus('Preamble detected! Recording...')
+    setDetectionStatusType('success')
+    setIsRecording(true)
+    recordingStartTimeRef.current = Date.now()
+    preamblePosInRecordingRef.current = 0
+    recordedSamplesRef.current = []
     setRecordingDuration(0)
-    setRecordingSamples(recordedSamplesRef.current.length)
+    setRecordingSamples(0)
 
     // Start recording duration timer
     recordingDurationIntervalRef.current = window.setInterval(() => {
@@ -494,6 +536,9 @@ const PreamblePostambleRecordPage: React.FC = () => {
         }, 100)
       }
     }, 100)
+
+    // Merge the initial pre-roll/preamble samples after yielding to the browser
+    scheduleInitialSamplesMerge()
 
     // Clear preamble worker buffer for memory efficiency
     if (preambleWorkerRef.current) {
@@ -528,6 +573,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
     }
 
     setIsListening(false)
+    pendingInitialSamplesRef.current = null
+    initialMergeScheduledRef.current = false
     setIsRecording(false)
     setDetectionStatus('Stopped listening')
     setDetectionStatusType('info')
@@ -562,6 +609,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
     }
 
     isRecordingRef.current = false
+    pendingInitialSamplesRef.current = null
+    initialMergeScheduledRef.current = false
     setIsRecording(false)
     setIsListening(false)
     autoGainAdjustmentRef.current = 1.0 // Reset auto-gain adjustment
@@ -676,6 +725,8 @@ const PreamblePostambleRecordPage: React.FC = () => {
     // Reset all refs
     preambleDetectedRef.current = false
     isRecordingRef.current = false
+    pendingInitialSamplesRef.current = null
+    initialMergeScheduledRef.current = false
     preamblePosInRecordingRef.current = 0
     recordedSamplesRef.current = []
     recordingResampleBufferRef.current = []
