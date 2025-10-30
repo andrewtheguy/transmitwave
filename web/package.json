@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:wasm": "cd ../wasm && bash build.sh",
+    "build:wasm": "cd ../wasm && wasm-pack build --release --target web",
     "build:all": "npm run build:wasm && npm run build",
     "preview": "vite preview"
   },
