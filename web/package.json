@@ -8,6 +8,7 @@
     "build": "vite build",
     "build:wasm": "cd ../wasm && wasm-pack build --release --target web",
     "build:all": "npm run build:wasm && npm run build",
+    "build:cloud": "bash cloud_build.sh && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -15,7 +16,8 @@
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.4",
     "transmitwave-wasm": "file:../wasm/pkg",
-    "vite-plugin-wasm": "^3.5.0"
+    "vite-plugin-wasm": "^3.5.0",
+    "wasm-pack": "^0.13.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
