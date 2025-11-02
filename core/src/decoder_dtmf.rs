@@ -67,10 +67,12 @@ impl DecoderDtmf {
     /// Decode audio samples back to binary data
     /// Expects: preamble + (DTMF symbols) + postamble
     ///
+    /// More forgiving: attempts to decode even with partial data or noise
     /// Handles shortened Reed-Solomon decoding by restoring padding zeros
     /// before RS decoding, then removing them after.
     pub fn decode(&mut self, samples: &[f32]) -> Result<Vec<u8>> {
-        if samples.len() < DTMF_SYMBOL_SAMPLES * 2 {
+        // More lenient: just need at least one symbol worth of data
+        if samples.len() < DTMF_SYMBOL_SAMPLES {
             return Err(AudioModemError::InsufficientData);
         }
 
@@ -81,31 +83,32 @@ impl DecoderDtmf {
         // Data starts after preamble + silence gap
         let data_start = preamble_pos + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        if data_start + DTMF_SYMBOL_SAMPLES > samples.len() {
+        // More lenient: just check if we have some data after preamble
+        if data_start >= samples.len() {
             return Err(AudioModemError::InsufficientData);
         }
 
         // Try to detect postamble to find end of data
         let remaining = &samples[data_start..];
-        let postamble_pos = detect_postamble(remaining, self.postamble_threshold)
-            .ok_or(AudioModemError::PostambleNotFound)?;
 
-        let data_end = data_start + postamble_pos;
+        // More lenient: if postamble not found, use all remaining data
+        let data_end = if let Some(postamble_pos) = detect_postamble(remaining, self.postamble_threshold) {
+            data_start + postamble_pos
+        } else {
+            // No postamble found, but continue with all remaining data
+            samples.len()
+        };
 
         // Extract DTMF data region
         let dtmf_region = &samples[data_start..data_end];
 
-        // Ensure we have complete symbols
-        let symbol_count = dtmf_region.len() / DTMF_SYMBOL_SAMPLES;
-        if symbol_count == 0 {
+        // More lenient: try to decode even with less data
+        if dtmf_region.is_empty() {
             return Err(AudioModemError::InsufficientData);
         }
 
-        let valid_samples = symbol_count * DTMF_SYMBOL_SAMPLES;
-        let dtmf_samples = &dtmf_region[..valid_samples];
-
-        // Demodulate DTMF symbols
-        let symbols = self.dtmf.demodulate(dtmf_samples)?;
+        // Demodulate DTMF symbols (demodulator handles gaps and skips bad symbols)
+        let symbols = self.dtmf.demodulate(dtmf_region)?;
 
         // Convert DTMF symbols back to bytes
         let bytes = self.dtmf_symbols_to_bytes(&symbols)?;
@@ -214,20 +217,16 @@ impl DecoderDtmf {
 
     /// Decode audio samples without preamble/postamble detection
     ///
-    /// This method skips preamble and postamble detection and decodes the raw DTMF data directly.
+    /// More forgiving: skips preamble and postamble detection and decodes the raw DTMF data directly.
     /// Useful when the audio clip has already been trimmed.
+    /// Attempts to decode even with partial or noisy data.
     pub fn decode_without_preamble_postamble(&mut self, samples: &[f32]) -> Result<Vec<u8>> {
-        if samples.len() < DTMF_SYMBOL_SAMPLES * 2 {
+        if samples.is_empty() {
             return Err(AudioModemError::InsufficientData);
         }
 
-        // Ensure we have complete symbols
-        let symbol_count = samples.len() / DTMF_SYMBOL_SAMPLES;
-        let valid_samples = symbol_count * DTMF_SYMBOL_SAMPLES;
-        let dtmf_samples = &samples[..valid_samples];
-
-        // Demodulate DTMF symbols
-        let symbols = self.dtmf.demodulate(dtmf_samples)?;
+        // Demodulate DTMF symbols (demodulator handles gaps and skips bad symbols)
+        let symbols = self.dtmf.demodulate(samples)?;
 
         // Convert DTMF symbols back to bytes
         let bytes = self.dtmf_symbols_to_bytes(&symbols)?;

@@ -9,7 +9,8 @@ use std::f32::consts::PI;
 /// - Total symbols: 48 (encoding 0-47, ~5.6 bits per symbol)
 ///
 /// Symbol parameters (at 16kHz sample rate):
-/// - 3200 samples = 200ms per symbol (extended for reliable over-the-air transmission)
+/// - 1600 samples = 100ms per symbol (shorter duration for faster transmission)
+/// - 800 samples = 50ms gap between symbols (clear separation)
 /// - Dual-tone generation with raised-cosine windowing
 /// - Goertzel algorithm for efficient frequency detection
 
@@ -22,8 +23,11 @@ const DTMF_HIGH_FREQS: [f32; 8] = [1200.0, 1262.0, 1324.0, 1386.0, 1448.0, 1510.
 /// Total number of symbols (6 × 8 = 48)
 pub const DTMF_NUM_SYMBOLS: u8 = 48;
 
-/// Number of samples per DTMF symbol (200ms at 16kHz for reliable over-the-air transmission)
-pub const DTMF_SYMBOL_SAMPLES: usize = 3200;
+/// Number of samples per DTMF symbol (100ms at 16kHz for reliable over-the-air transmission)
+pub const DTMF_SYMBOL_SAMPLES: usize = 1600;
+
+/// Gap between DTMF symbols (50ms at 16kHz for clear separation)
+pub const DTMF_SYMBOL_GAP_SAMPLES: usize = 800;
 
 /// Edge taper ratio (8% on each side for smooth transitions)
 const DTMF_EDGE_TAPER_RATIO: f32 = 0.08;
@@ -91,12 +95,17 @@ impl DtmfModulator {
         Ok(samples)
     }
 
-    /// Modulate a sequence of symbols
+    /// Modulate a sequence of symbols with gaps between them
     pub fn modulate(&mut self, symbols: &[u8]) -> Result<Vec<f32>> {
         let mut samples = Vec::new();
-        for &symbol in symbols {
+        for (i, &symbol) in symbols.iter().enumerate() {
             let symbol_samples = self.modulate_symbol(symbol)?;
             samples.extend_from_slice(&symbol_samples);
+
+            // Add gap after each symbol except the last one
+            if i < symbols.len() - 1 {
+                samples.extend_from_slice(&vec![0.0f32; DTMF_SYMBOL_GAP_SAMPLES]);
+            }
         }
         Ok(samples)
     }
@@ -164,13 +173,17 @@ impl DtmfDemodulator {
     }
 
     /// Demodulate a single DTMF symbol
+    /// Returns Ok(symbol) if decodable, Err otherwise (allowing caller to skip bad symbols)
     pub fn demodulate_symbol(&self, samples: &[f32]) -> Result<u8> {
-        if samples.len() != DTMF_SYMBOL_SAMPLES {
+        if samples.len() < DTMF_SYMBOL_SAMPLES {
             return Err(AudioModemError::InvalidInputSize);
         }
 
+        // Use only the first DTMF_SYMBOL_SAMPLES (more lenient)
+        let valid_samples = &samples[..DTMF_SYMBOL_SAMPLES];
+
         // Preprocess signal
-        let conditioned = self.preprocess_symbol(samples);
+        let conditioned = self.preprocess_symbol(valid_samples);
 
         // Detect strongest low frequency
         let mut max_low_power = 0.0;
@@ -207,16 +220,39 @@ impl DtmfDemodulator {
         Ok(symbol)
     }
 
-    /// Demodulate a sequence of DTMF symbols
+    /// Demodulate a sequence of DTMF symbols (with gaps between them)
+    /// More forgiving: skips bad symbols but continues decoding instead of failing completely
     pub fn demodulate(&self, samples: &[f32]) -> Result<Vec<u8>> {
-        if samples.len() % DTMF_SYMBOL_SAMPLES != 0 {
-            return Err(AudioModemError::InvalidInputSize);
+        let mut symbols = Vec::new();
+        let symbol_with_gap = DTMF_SYMBOL_SAMPLES + DTMF_SYMBOL_GAP_SAMPLES;
+        let mut offset = 0;
+
+        // Process all symbols with gaps
+        while offset + DTMF_SYMBOL_SAMPLES <= samples.len() {
+            let chunk = &samples[offset..offset + DTMF_SYMBOL_SAMPLES];
+
+            // Try to decode, but continue even if this symbol fails
+            if let Ok(symbol) = self.demodulate_symbol(chunk) {
+                symbols.push(symbol);
+            }
+            // If demodulation fails, just skip this symbol and continue
+
+            // Move to next symbol (skip the gap)
+            offset += symbol_with_gap;
         }
 
-        let mut symbols = Vec::new();
-        for chunk in samples.chunks(DTMF_SYMBOL_SAMPLES) {
-            let symbol = self.demodulate_symbol(chunk)?;
-            symbols.push(symbol);
+        // Handle the last symbol if it doesn't have a gap after it
+        if offset < samples.len() && samples.len() - offset >= DTMF_SYMBOL_SAMPLES {
+            let chunk = &samples[offset..offset + DTMF_SYMBOL_SAMPLES];
+            if let Ok(symbol) = self.demodulate_symbol(chunk) {
+                symbols.push(symbol);
+            }
+            // If demodulation fails, just skip this symbol
+        }
+
+        // Be more forgiving: succeed if we got at least some symbols
+        if symbols.is_empty() {
+            return Err(AudioModemError::InvalidInputSize);
         }
 
         Ok(symbols)
@@ -431,8 +467,8 @@ mod tests {
         let mut modulator = DtmfModulator::new();
         let samples = modulator.modulate_symbol(0).unwrap();
 
-        // 200ms at 16kHz = 3200 samples
-        assert_eq!(samples.len(), 3200);
+        // 100ms at 16kHz = 1600 samples
+        assert_eq!(samples.len(), 1600);
     }
 
     #[test]
@@ -801,6 +837,39 @@ mod tests {
 
         let detected = demodulator.demodulate(&samples).unwrap();
         assert_eq!(detected, test_symbols, "Should handle speaker-to-mic scenario");
+    }
+
+    #[test]
+    fn test_dtmf_forgiving_with_partial_corruption() {
+        // Test that decoder can handle partial symbol corruption by skipping bad symbols
+        let mut modulator = DtmfModulator::new();
+        let demodulator = DtmfDemodulator::new();
+
+        let test_symbols = vec![10, 20, 30, 40];
+        let samples = modulator.modulate(&test_symbols).unwrap();
+
+        // Create a corrupted version by zeroing out the middle symbol
+        let mut corrupted = samples.clone();
+        let symbol_with_gap = DTMF_SYMBOL_SAMPLES + DTMF_SYMBOL_GAP_SAMPLES;
+        let second_symbol_start = symbol_with_gap;
+        let second_symbol_end = second_symbol_start + DTMF_SYMBOL_SAMPLES;
+
+        // Corrupt the second symbol completely
+        for i in second_symbol_start..second_symbol_end {
+            if i < corrupted.len() {
+                corrupted[i] = 0.0;
+            }
+        }
+
+        // Should still decode, but skip the corrupted symbol
+        let result = demodulator.demodulate(&corrupted);
+        assert!(result.is_ok(), "Should decode despite corruption");
+
+        let decoded = result.unwrap();
+        // Should have decoded some symbols (at least the good ones)
+        assert!(!decoded.is_empty(), "Should decode at least some symbols");
+        // First symbol should be correct
+        assert_eq!(decoded[0], 10, "First symbol should be correct");
     }
 
     #[test]
