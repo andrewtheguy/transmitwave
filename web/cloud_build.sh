@@ -7,9 +7,14 @@ if [ "$BUILD_FOR_CLOUD" != "true" ]; then
   exit 1
 fi
 
-# Install Rust and Cargo
-curl https://sh.rustup.rs -sSf | sh -s -- -y
-source "$HOME/.cargo/env"
+# Install Rust and Cargo if not already installed
+if ! command -v cargo &> /dev/null; then
+  echo "Cargo not found, installing Rust..."
+  curl https://sh.rustup.rs -sSf | sh -s -- -y
+  source "$HOME/.cargo/env"
+else
+  echo "Cargo already installed, skipping Rust installation."
+fi
 
 # Build WASM module
 cd ../wasm
