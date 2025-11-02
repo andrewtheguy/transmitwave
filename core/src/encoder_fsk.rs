@@ -364,6 +364,7 @@ impl Default for EncoderFsk {
 mod tests {
     use super::*;
     use crate::SAMPLE_RATE;
+    use log::info;
 
     #[test]
     fn test_encoder_fsk_basic() {
