@@ -40,40 +40,10 @@ export const useDecoder = (): UseDecoderResult => {
 
       const decoder = await createDecoder(options)
 
-      try {
-        // Try full decode with automatic preamble/postamble detection
-        const data = await decoder.decode(samples)
-        const text = new TextDecoder().decode(data)
-        return text
-      } catch (syncErr: any) {
-        // If postamble detection fails, fall back to manual extraction
-        const errorMsg = syncErr?.message || String(syncErr) || ''
-        if (errorMsg.includes('postamble')) {
-          console.warn('Postamble detection failed, falling back to manual extraction')
-
-          // Extract FSK data without preamble/postamble
-          const PREAMBLE_DURATION_MS = 250
-          const PREAMBLE_SAMPLES = (16000 * PREAMBLE_DURATION_MS) / 1000 // 4000 samples
-          const SYNC_SILENCE_SAMPLES = 800
-
-          const dataStart = Math.min(PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES, samples.length)
-          const postambleEstimate = PREAMBLE_SAMPLES
-          const dataEnd = Math.max(dataStart, samples.length - postambleEstimate)
-
-          const fskDataOnly = samples.slice(dataStart, dataEnd)
-
-          if (fskDataOnly.length === 0) {
-            throw new Error('Unable to extract FSK data from audio file')
-          }
-
-          const data = decoder.decode_without_preamble_postamble(fskDataOnly)
-          const text = new TextDecoder().decode(data)
-          return text
-        } else {
-          // Re-throw if it's a different error
-          throw syncErr
-        }
-      }
+      // Pass entire wave file with preamble/postamble for full decode
+      const data = await decoder.decode(new Float32Array(samples))
+      const text = new TextDecoder().decode(data)
+      return text
     } catch (err) {
       let message = 'Decoding failed'
 
