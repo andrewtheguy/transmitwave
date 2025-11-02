@@ -103,11 +103,12 @@ impl DecoderFsk {
         }
 
         // Try to detect postamble to find end of data, using configured threshold
+        // If postamble is not found, use all remaining samples
         let remaining = &samples[data_start..];
-        let postamble_pos = detect_postamble(remaining, self.postamble_threshold)
-            .ok_or(AudioModemError::PostambleNotFound)?;
-
-        let data_end = data_start + postamble_pos;
+        let data_end = match detect_postamble(remaining, self.postamble_threshold) {
+            Some(postamble_pos) => data_start + postamble_pos,
+            None => samples.len(), // Use all remaining data if no postamble found
+        };
 
         // Extract FSK data region
         let fsk_region = &samples[data_start..data_end];
