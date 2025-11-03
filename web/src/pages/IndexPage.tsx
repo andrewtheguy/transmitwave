@@ -1,5 +1,6 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FOUNTAIN_MAX_PAYLOAD_BYTES } from '../constants/fountain'
 
 const IndexPage: React.FC = () => {
   const navigate = useNavigate()
@@ -74,7 +75,7 @@ const IndexPage: React.FC = () => {
           <li style={{ margin: '0.5rem 0' }}>✅ Reed-Solomon error correction (255, 223)</li>
           <li style={{ margin: '0.5rem 0' }}>✅ 400-2300 Hz sub-bass frequency band</li>
           <li style={{ margin: '0.5rem 0' }}>✅ 16 kHz sample rate</li>
-          <li style={{ margin: '0.5rem 0' }}>✅ 200 byte max payload per transmission</li>
+          <li style={{ margin: '0.5rem 0' }}>✅ {FOUNTAIN_MAX_PAYLOAD_BYTES} byte max payload per transmission</li>
           <li style={{ margin: '0.5rem 0' }}>✅ Real-time preamble/postamble detection</li>
           <li style={{ margin: '0.5rem 0' }}>✅ Auto-gain adjustment for variable input levels</li>
           <li style={{ margin: '0.5rem 0' }}>✅ Optimized for over-the-air audio transmission</li>
@@ -137,7 +138,7 @@ const IndexPage: React.FC = () => {
               <td style={{ padding: '0.5rem' }}>
                 <strong>Max Payload</strong>
               </td>
-              <td style={{ padding: '0.5rem' }}>200 bytes per transmission</td>
+              <td style={{ padding: '0.5rem' }}>{FOUNTAIN_MAX_PAYLOAD_BYTES} bytes per transmission</td>
             </tr>
           </tbody>
         </table>

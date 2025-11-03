@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { createFountainEncoder } from '../utils/wasm'
 import { createWavBlob } from '../utils/audio'
 import Status from '../components/Status'
+import { FOUNTAIN_BLOCK_SIZE_BYTES, FOUNTAIN_MAX_PAYLOAD_BYTES } from '../constants/fountain'
 
 const FountainEncodePage: React.FC = () => {
   const navigate = useNavigate()
@@ -21,7 +22,7 @@ const FountainEncodePage: React.FC = () => {
   const isStreamingRef = useRef(false)
 
   const TIMEOUT_SECS = 30
-  const BLOCK_SIZE = 64
+  const BLOCK_SIZE = FOUNTAIN_BLOCK_SIZE_BYTES
   const REPAIR_RATIO = 0.5
   const STREAM_SAMPLE_RATE = 16000
 
@@ -270,13 +271,13 @@ const FountainEncodePage: React.FC = () => {
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Enter text to encode..."
-            maxLength={200}
+            maxLength={FOUNTAIN_MAX_PAYLOAD_BYTES}
             disabled={isEncoding || isPlaying || isStreaming}
             style={{ minHeight: '120px', resize: 'vertical' }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
             <div style={{ fontSize: '0.9rem', color: '#718096' }}>
-              {text.length} / 200 characters
+              {text.length} / {FOUNTAIN_MAX_PAYLOAD_BYTES} characters
             </div>
             <button
               onClick={handleClearText}

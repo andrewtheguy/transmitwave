@@ -1,0 +1,2 @@
+export const FOUNTAIN_BLOCK_SIZE_BYTES = 64
+export const FOUNTAIN_MAX_PAYLOAD_BYTES = 200
