@@ -192,7 +192,11 @@ impl EncoderFsk {
 
         // Calculate max samples based on timeout_secs as audio duration
         // Use the single source of truth: crate::SAMPLE_RATE
-        let max_samples = config.timeout_secs as usize * crate::SAMPLE_RATE;
+        let max_samples = if config.timeout_secs == 0 {
+            usize::MAX
+        } else {
+            config.timeout_secs as usize * crate::SAMPLE_RATE
+        };
 
         Ok(FountainStream {
             encoder,

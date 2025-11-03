@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createFountainEncoder } from '../utils/wasm'
 import { createWavBlob } from '../utils/audio'
@@ -9,14 +9,48 @@ const FountainEncodePage: React.FC = () => {
   const [text, setText] = useState('Hello fountain mode!')
   const [isEncoding, setIsEncoding] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const downloadRef = useRef<HTMLAnchorElement>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const streamEncoderRef = useRef<Awaited<ReturnType<typeof createFountainEncoder>> | null>(null)
+  const streamAudioContextRef = useRef<AudioContext | null>(null)
+  const streamTimerRef = useRef<number | null>(null)
+  const streamScheduledTimeRef = useRef(0)
+  const isStreamingRef = useRef(false)
 
   const TIMEOUT_SECS = 30
   const BLOCK_SIZE = 64
   const REPAIR_RATIO = 0.5
+  const STREAM_SAMPLE_RATE = 16000
+
+  const stopStreaming = useCallback(() => {
+    if (streamTimerRef.current !== null) {
+      window.clearTimeout(streamTimerRef.current)
+      streamTimerRef.current = null
+    }
+
+    try {
+      streamEncoderRef.current?.stop_streaming()
+    } catch (err) {
+      console.warn('Error stopping fountain stream:', err)
+    }
+    streamEncoderRef.current = null
+
+    if (streamAudioContextRef.current) {
+      const ctx = streamAudioContextRef.current
+      streamAudioContextRef.current = null
+      ctx.close().catch((error) => {
+        console.warn('Error closing AudioContext:', error)
+      })
+    }
+
+    streamScheduledTimeRef.current = 0
+    isStreamingRef.current = false
+    setIsStreaming(false)
+    setIsPlaying(false)
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -26,6 +60,12 @@ const FountainEncodePage: React.FC = () => {
     }
   }, [audioUrl])
 
+  useEffect(() => {
+    return () => {
+      stopStreaming()
+    }
+  }, [stopStreaming])
+
   const handleEncodeAndPlay = async () => {
     if (!text) {
       setError('Please enter text to encode')
@@ -34,6 +74,7 @@ const FountainEncodePage: React.FC = () => {
 
     setIsEncoding(true)
     setError(null)
+    stopStreaming()
 
     try {
       const encoder = await createFountainEncoder()
@@ -74,6 +115,113 @@ const FountainEncodePage: React.FC = () => {
     }
   }
 
+  const scheduleStreamingBlock = useCallback((samples: Float32Array) => {
+    const audioContext = streamAudioContextRef.current
+    if (!audioContext || samples.length === 0) {
+      return
+    }
+
+    const buffer = audioContext.createBuffer(1, samples.length, STREAM_SAMPLE_RATE)
+    buffer.copyToChannel(samples, 0)
+
+    const source = audioContext.createBufferSource()
+    source.buffer = buffer
+    source.connect(audioContext.destination)
+
+    const now = audioContext.currentTime
+    const nextStart = streamScheduledTimeRef.current > now
+      ? streamScheduledTimeRef.current
+      : now
+    source.start(nextStart)
+
+    const duration = samples.length / STREAM_SAMPLE_RATE
+    streamScheduledTimeRef.current = nextStart + duration
+
+    source.onended = () => {
+      source.disconnect()
+    }
+  }, [STREAM_SAMPLE_RATE])
+
+  const ensureStreamingBuffer = useCallback(() => {
+    if (!isStreamingRef.current) {
+      return
+    }
+
+    const encoder = streamEncoderRef.current
+    const audioContext = streamAudioContextRef.current
+
+    if (!encoder || !audioContext) {
+      stopStreaming()
+      return
+    }
+
+    const MIN_BUFFER_SECONDS = 1
+
+    try {
+      while (streamScheduledTimeRef.current - audioContext.currentTime < MIN_BUFFER_SECONDS) {
+        const block = encoder.next_stream_block()
+        if (!block || block.length === 0) {
+          setError('Streaming ended (timeout reached)')
+          stopStreaming()
+          return
+        }
+        scheduleStreamingBlock(block)
+      }
+    } catch (err) {
+      console.error('Streaming error:', err)
+      const message = err instanceof Error ? err.message : 'Streaming failed'
+      setError(message)
+      stopStreaming()
+      return
+    }
+
+    if (streamTimerRef.current !== null) {
+      window.clearTimeout(streamTimerRef.current)
+    }
+    if (isStreamingRef.current) {
+      streamTimerRef.current = window.setTimeout(ensureStreamingBuffer, 200)
+    }
+  }, [scheduleStreamingBlock, stopStreaming])
+
+  const handleStartStreaming = useCallback(async () => {
+    if (isStreaming) {
+      return
+    }
+
+    if (!text) {
+      setError('Please enter text to encode')
+      return
+    }
+
+    setError(null)
+    stopStreaming()
+
+    try {
+      const encoder = await createFountainEncoder()
+      const data = new TextEncoder().encode(text)
+      await encoder.start_streaming(data, BLOCK_SIZE, REPAIR_RATIO, 0)
+
+      const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext)
+      if (!AudioContextClass) {
+        throw new Error('Web Audio API is not supported in this browser.')
+      }
+
+      const audioContext: AudioContext = new AudioContextClass()
+      streamAudioContextRef.current = audioContext
+      streamEncoderRef.current = encoder
+      streamScheduledTimeRef.current = audioContext.currentTime
+      isStreamingRef.current = true
+      setIsStreaming(true)
+
+      ensureStreamingBuffer()
+    } catch (err) {
+      console.error('Failed to start streaming:', err)
+      const message = err instanceof Error ? err.message : 'Failed to start streaming'
+      setError(message)
+      stopStreaming()
+    }
+  }, [BLOCK_SIZE, REPAIR_RATIO, ensureStreamingBuffer, isStreaming, stopStreaming, text])
+
   const handleAudioEnded = () => {
     setIsPlaying(false)
   }
@@ -92,6 +240,7 @@ const FountainEncodePage: React.FC = () => {
   }
 
   const handleReset = () => {
+    stopStreaming()
     setText('Hello fountain mode!')
     setError(null)
     setIsPlaying(false)
@@ -109,7 +258,7 @@ const FountainEncodePage: React.FC = () => {
     <div className="container">
       <div className="text-center mb-5">
         <h1>Fountain Code Encoder</h1>
-        <p>Continuous streaming mode using RaptorQ fountain codes - transmits for 30 seconds</p>
+        <p>Generate a timed clip or stream continuously using RaptorQ fountain codes. Stop the stream any time without buffering audio.</p>
       </div>
 
       <div className="card" style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -122,7 +271,7 @@ const FountainEncodePage: React.FC = () => {
             onChange={(e) => setText(e.target.value)}
             placeholder="Enter text to encode..."
             maxLength={200}
-            disabled={isEncoding || isPlaying}
+            disabled={isEncoding || isPlaying || isStreaming}
             style={{ minHeight: '120px', resize: 'vertical' }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
@@ -131,7 +280,7 @@ const FountainEncodePage: React.FC = () => {
             </div>
             <button
               onClick={handleClearText}
-              disabled={isEncoding || isPlaying || !text}
+              disabled={isEncoding || isPlaying || isStreaming || !text}
               className="btn-tertiary"
               style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem' }}
             >
@@ -143,14 +292,39 @@ const FountainEncodePage: React.FC = () => {
         <div className="mt-4">
           <button
             onClick={handleEncodeAndPlay}
-            disabled={isEncoding || isPlaying || !text}
+            disabled={isEncoding || isPlaying || isStreaming || !text}
             className="btn-primary w-full"
           >
-            {isEncoding ? 'Encoding...' : isPlaying ? 'Playing...' : 'Encode & Play'}
+            {isEncoding ? 'Encoding...' : isPlaying ? 'Playing...' : isStreaming ? 'Streaming...' : 'Encode & Play'}
           </button>
         </div>
 
+        <div className="mt-3">
+          <button
+            onClick={handleStartStreaming}
+            disabled={isEncoding || isPlaying || isStreaming || !text}
+            className="btn-secondary w-full"
+          >
+            {isStreaming ? 'Streaming...' : 'Start Continuous Stream'}
+          </button>
+        </div>
+
+        {isStreaming && (
+          <div className="mt-2">
+            <button
+              onClick={stopStreaming}
+              className="btn-secondary w-full"
+              style={{ backgroundColor: '#e53e3e', color: '#fff' }}
+            >
+              Stop Streaming
+            </button>
+          </div>
+        )}
+
         {error && <Status message={error} type="error" />}
+        {isStreaming && !error && (
+          <Status message="Streaming fountain blocks... audio is generated live and not buffered." type="info" />
+        )}
 
         {audioUrl && (
           <div className="mt-4">
@@ -179,6 +353,7 @@ const FountainEncodePage: React.FC = () => {
             <li>Duration: {TIMEOUT_SECS} seconds</li>
             <li>Block size: {BLOCK_SIZE} bytes</li>
             <li>Repair ratio: {REPAIR_RATIO * 100}%</li>
+            <li>Continuous stream: runs until manually stopped (no buffering)</li>
           </ul>
         </div>
       </div>
