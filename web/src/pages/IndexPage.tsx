@@ -17,9 +17,9 @@ const IndexPage: React.FC = () => {
         <div
           className="card transition-all"
           style={{ cursor: 'pointer', height: '100%', border: '2px solid var(--primary-color)' }}
-          onClick={() => navigate('/demo')}
+          onClick={() => navigate('/standard-fsk')}
         >
-          <h3>📝 Main Demo</h3>
+          <h3>📝 Standard FSK</h3>
           <p>Encode text to audio and decode audio back to text with real-time WAV file generation.</p>
           <div style={{ fontSize: '0.85rem', color: '#059669', marginBottom: '1rem', fontWeight: 'bold' }}>✓ Recommended (Reed-Solomon)</div>
           <button className="btn-primary w-full">Open Demo</button>
@@ -27,10 +27,10 @@ const IndexPage: React.FC = () => {
 
         <div
           className="card transition-all"
-          style={{ cursor: 'pointer', height: '100%' }}
-          onClick={() => navigate('/preamble-postamble-record')}
+          style={{ cursor: 'pointer', height: '100%', border: '2px solid var(--primary-color)' }}
+          onClick={() => navigate('/standard-fsk-listen')}
         >
-          <h3>🎙️ Preamble → Record → Postamble</h3>
+          <h3>🎙️ Standard FSK Listen</h3>
           <p>Listen for preamble to auto-start recording, auto-stop on postamble, then auto-decode message.</p>
           <div style={{ fontSize: '0.85rem', color: '#059669', marginBottom: '1rem', fontWeight: 'bold' }}>✓ Recommended (Reed-Solomon)</div>
           <button className="btn-primary w-full">Open Demo</button>
@@ -39,7 +39,7 @@ const IndexPage: React.FC = () => {
         <div
           className="card transition-all"
           style={{ cursor: 'pointer', height: '100%' }}
-          onClick={() => navigate('/ample')}
+          onClick={() => navigate('/signal-detection')}
         >
           <h3>🎤 Signal Detection</h3>
           <p>Real-time detection of preamble and postamble synchronization signals from your microphone input.</p>
@@ -48,23 +48,21 @@ const IndexPage: React.FC = () => {
 
         <div
           className="card transition-all"
-          style={{ cursor: 'pointer', height: '100%', opacity: 0.8, borderLeft: '4px solid #f59e0b' }}
+          style={{ cursor: 'pointer', height: '100%' }}
           onClick={() => navigate('/fountain-encode')}
         >
           <h3>⛲ Fountain Encode</h3>
           <p>Encode and continuously stream data for 30 seconds using RaptorQ fountain codes.</p>
-          <div style={{ fontSize: '0.85rem', color: '#f59e0b', marginBottom: '1rem', fontWeight: 'bold' }}>⚠️ Experimental - Not fully working</div>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
 
         <div
           className="card transition-all"
-          style={{ cursor: 'pointer', height: '100%', opacity: 0.8, borderLeft: '4px solid #f59e0b' }}
+          style={{ cursor: 'pointer', height: '100%' }}
           onClick={() => navigate('/fountain-listen')}
         >
           <h3>🎧 Fountain Listen</h3>
           <p>Listen for fountain-coded stream and decode data after 30 seconds of reception.</p>
-          <div style={{ fontSize: '0.85rem', color: '#f59e0b', marginBottom: '1rem', fontWeight: 'bold' }}>⚠️ Experimental - Not fully working</div>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
       </div>

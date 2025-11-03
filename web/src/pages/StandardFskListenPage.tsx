@@ -19,7 +19,7 @@ const AUTO_GAIN_MAX = 12.0
 const AUTO_GAIN_SMOOTHING = 0.25
 const AUTO_GAIN_TOLERANCE = 0.08 // 8% error window before adjusting again
 
-const PreamblePostambleRecordPage: React.FC = () => {
+const StandardFskListenPage: React.FC = () => {
   const navigate = useNavigate()
 
   // Helper function to calculate RMS (Root Mean Square) amplitude
@@ -1042,4 +1042,4 @@ const PreamblePostambleRecordPage: React.FC = () => {
   )
 }
 
-export default PreamblePostambleRecordPage
+export default StandardFskListenPage
