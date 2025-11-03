@@ -4,6 +4,10 @@
 
 Fountain code mode is a specialized transmission mode designed for unreliable or one-way communication channels where the sender continuously streams data until the receiver successfully decodes it. It uses **RaptorQ fountain codes (RFC 6330)** for robust erasure coding.
 
+**Two modes available:**
+- **CLI Mode**: Pre-generates a timed audio clip (e.g., 30 seconds) with all blocks encoded upfront
+- **Web Streaming Mode**: Live on-demand generation with manual start/stop control and no memory buffering
+
 ## What are Fountain Codes?
 
 Fountain codes are a class of erasure codes that can generate a potentially infinite stream of encoding packets from a source message. Key properties:
@@ -25,6 +29,10 @@ This implementation uses **RaptorQ codes (RFC 6330)**, not simple Luby Transform
 
 ### Open-Ended Streaming
 - Uses **only preamble signaling** (no postamble)
+- Distinctive **three-note whistle preamble** (800 Hz → 1200 Hz → 1600 Hz)
+  - Different from standard mode's chirp sweep (800-1800 Hz)
+  - Ascending melody creates recognizable audio signature
+  - Easier to distinguish aurally from background noise
 - Blocks can be transmitted continuously without boundaries
 - Receiver can start listening at any point in the stream
 - Ideal for broadcast scenarios or unreliable channels
@@ -34,6 +42,7 @@ The `timeout_secs` parameter controls the **total audio duration**, not CPU time
 - 30 second timeout → generates ~30 seconds of audio
 - Prevents generating excessive data (hours of audio for small payloads)
 - Ensures practical file sizes and transmission times
+- Set to 0 for continuous streaming mode (web interface only - streams indefinitely until manually stopped)
 
 ### Block Structure
 Each fountain block contains:
@@ -41,7 +50,11 @@ Each fountain block contains:
 [Preamble] [Frame Metadata] [Packet Length] [RaptorQ Packet] [Padding]
 ```
 
-- **Preamble**: Synchronization signal for block detection
+- **Preamble**: Three-note whistle synchronization signal (800 Hz → 1200 Hz → 1600 Hz)
+  - Unique to fountain mode (standard mode uses chirp preamble)
+  - Ascending melody pattern with smooth transitions
+  - Each note ~83ms with natural attack/decay envelope
+  - Distinct from standard mode's 800-1800 Hz chirp sweep
 - **Frame Metadata**: 6 bytes (4 for frame_length, 2 for symbol_size)
 - **Packet Length**: 2 bytes (enables padding removal)
 - **RaptorQ Packet**: Serialized encoding packet (source or repair)
@@ -99,9 +112,34 @@ Parameters:
 - `--timeout`: Maximum time to spend decoding (default: 30)
 - `--block-size`: Must match encoder's block size (default: 64)
 
+### Web Interface Continuous Streaming
+
+The web interface supports real-time continuous streaming without pre-buffering:
+
+**Features:**
+- **On-demand generation**: Blocks generated in real-time, not pre-buffered
+- **Manual control**: Start/stop streaming at any time
+- **No memory overhead**: Only buffers 1 second of audio ahead
+- **Live playback**: Uses Web Audio API for seamless scheduling
+- **Indefinite streaming**: Runs until manually stopped (no timeout limit)
+
+**How it works:**
+```typescript
+// Start streaming (timeout_secs = 0 for continuous mode)
+await encoder.start_streaming(data, block_size, repair_ratio, 0)
+
+// Get next block on-demand (called repeatedly)
+const block = encoder.next_stream_block()
+
+// Stop at any time
+encoder.stop_streaming()
+```
+
+The streaming encoder maintains a buffer of approximately 1 second of audio, generating new blocks as needed to keep playback continuous. This eliminates memory constraints and allows indefinite transmission.
+
 ### API Usage
 
-#### Encoding
+#### Encoding (Pre-generated Stream)
 ```rust
 use transmitwave_core::{EncoderFsk, FountainConfig};
 
@@ -205,14 +243,19 @@ packets_needed ≈ min_packets × (1 + packet_loss_rate)
 
 ## Comparison with Standard Mode
 
-| Feature | Standard Mode | Fountain Mode |
-|---------|--------------|---------------|
-| FEC | Reed-Solomon | RaptorQ (RFC 6330) |
-| Structure | Single frame with postamble | Continuous blocks, preamble-only |
-| Use case | Point-to-point reliable link | Broadcast or unreliable channel |
-| Feedback | None | None |
-| Redundancy | Fixed (FEC overhead) | Configurable (repair ratio) |
-| Recovery | Error correction within frame | Any sufficient subset of packets |
+| Feature | Standard Mode | Fountain Mode (CLI) | Fountain Mode (Web Streaming) |
+|---------|--------------|---------------------|-------------------------------|
+| FEC | Reed-Solomon | RaptorQ (RFC 6330) | RaptorQ (RFC 6330) |
+| Preamble | Chirp (800-1800 Hz sweep) | Three-note whistle (800→1200→1600 Hz) | Three-note whistle (800→1200→1600 Hz) |
+| Postamble | Yes (descending chirp) | No (preamble-only) | No (preamble-only) |
+| Structure | Single frame with postamble | Continuous blocks, preamble-only | Continuous blocks, preamble-only |
+| Generation | All at once | All upfront (timed) | On-demand (live) |
+| Memory | Frame size | Full audio stream | ~1 second buffer |
+| Duration | Single transmission | Fixed timeout | Indefinite (manual stop) |
+| Use case | Point-to-point reliable link | Timed broadcast | Live streaming broadcast |
+| Feedback | None | None | None |
+| Redundancy | Fixed (FEC overhead) | Configurable (repair ratio) | Configurable (repair ratio) |
+| Recovery | Error correction within frame | Any sufficient subset of packets | Any sufficient subset of packets |
 
 ## Example Scenarios
 
@@ -234,13 +277,37 @@ transmitwave fountain-encode critical.dat output.wav --timeout 60 --repair-ratio
 transmitwave fountain-encode broadcast.txt output.wav --timeout 120 --repair-ratio 0.5
 ```
 
+### Scenario 4: Live Streaming (Web Interface)
+```
+# Web interface: Start continuous stream
+1. Enter message text
+2. Click "Start Continuous Stream"
+3. Stream plays indefinitely with live block generation
+4. Click "Stop Streaming" when done (no pre-buffering required)
+```
+
+**Benefits:**
+- No memory constraints (generates blocks on-demand)
+- Manual control over transmission duration
+- Immediate start/stop without waiting for full generation
+- Ideal for interactive demonstrations or live broadcasts
+
 ## Limitations
 
-- **Not for real-time**: Encoding generates full stream upfront
-- **Memory usage**: Entire audio stream held in memory before writing
+### CLI Mode (Pre-generated)
+- **Not real-time**: Encoding generates full stream upfront
+- **Memory usage**: Entire audio stream held in memory before writing to WAV
 - **File size**: Longer timeouts create large WAV files
+
+### Web Streaming Mode
+- **Browser only**: Continuous streaming requires Web Audio API
+- **No WAV export**: Streaming mode doesn't generate downloadable files
+- **Network delay**: WASM module must load before streaming starts
+
+### Both Modes
 - **Block size constraint**: Must be consistent between encoder/decoder
 - **No acknowledgment**: Sender doesn't know when receiver succeeds
+- **One-way communication**: No feedback channel for coordination
 
 ## Testing
 
@@ -266,8 +333,10 @@ Tests cover:
 ## Future Improvements
 
 Potential enhancements:
-- Streaming encoding (generate blocks on-demand)
+- ~~Streaming encoding (generate blocks on-demand)~~ ✅ **Implemented** in web interface
+- CLI streaming support (currently web-only)
 - Dynamic repair ratio based on channel conditions
 - Metadata-only mode for very small payloads
 - Interleaving for burst error resilience
 - Progressive decoding feedback
+- Two-way acknowledgment protocol

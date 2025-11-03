@@ -1,14 +1,36 @@
 # Audio Modem Library - FSK Mode
 
-A Rust library for reliable low-bandwidth communication over audio channels using multi-tone FSK modulation. Encodes binary data into simultaneous audio frequencies (400-2300 Hz) for maximum robustness in speaker-to-microphone transmission scenarios.
+A Rust library for reliable low-bandwidth communication over audio channels using multi-tone FSK modulation. Encodes binary data into simultaneous audio frequencies (800-2700 Hz) for maximum robustness in speaker-to-microphone transmission scenarios.
+
+## Credit
+
+This project is inspired by the [ggwave](https://github.com/ggerganov/ggwave) library by Georgi Gerganov. Both projects use a multi-tone FSK modulation scheme for data-over-sound transmission, but with different technical implementations:
+
+**ggwave's approach:**
+- Base frequency: 1875 Hz (audible mode)
+- Frequency spacing: 46.875 Hz
+- Sound markers for frame synchronization
+- Default sample rate: 48 kHz
+
+**transmitwave's approach:**
+- Base frequency: 800 Hz (optimized for mobile phone speakers)
+- Frequency spacing: 20 Hz (tighter spacing for more bins)
+- Chirp-based preamble/postamble for synchronization
+- Sample rate: 16 kHz
+
+While both use similar multi-tone FSK principles (96 frequency bins, 6 tones per symbol, 3 bytes per transmission), the different parameters mean the protocols are **not directly compatible**. Transmitwave's lower base frequency and tighter spacing provide better performance on mobile device speakers, especially for iPhone and Android devices.
+
+**Unique to transmitwave:**
+- **Fountain Code Mode**: Supports RaptorQ fountain codes (RFC 6330) for rateless streaming transmission - ideal for unreliable channels and broadcast scenarios where continuous streaming is needed. Uses a distinctive three-note whistle preamble (800→1200→1600 Hz) instead of chirp for synchronization. See [FOUNTAIN_MODE.md](FOUNTAIN_MODE.md) for details.
 
 ## Features
 
 - **Multi-tone FSK Modulation**: 6 simultaneous audio frequencies for non-coherent energy detection
-- **Sub-Bass Frequency Band**: Uses low frequencies (400-2300 Hz) for excellent room acoustics compatibility
+- **Mobile-Optimized Frequency Band**: Uses 800-2700 Hz for excellent mobile phone speaker compatibility
 - **Reed-Solomon FEC**: Forward error correction for reliability
 - **CRC Validation**: Integrity checks on frame headers
 - **Preamble/Postamble Detection**: Frame synchronization for reliable reception
+- **Fountain Code Mode**: RaptorQ rateless streaming for unreliable/broadcast channels (see [FOUNTAIN_MODE.md](FOUNTAIN_MODE.md))
 - **Maximum Reliability**: Optimized for over-the-air audio transfer with minimal error rates
 - **Multiple Targets**: Native CLI tool, WASM library, and core library
 
@@ -48,12 +70,13 @@ const recoveredData = decoder.decode(audioSamples);
 
 **Audio Parameters:**
 - Sample Rate: 16 kHz
-- FSK Frequencies: 96 bins with 6 simultaneous tones (400-2300 Hz)
+- FSK Frequencies: 96 bins with 6 simultaneous tones (800-2700 Hz)
 - Frequency Spacing: 20 Hz between adjacent bins
+- Base Frequency: 800 Hz (optimized for mobile phone speakers)
 - Symbol Duration: 192 ms (3072 samples per symbol) for robust low-frequency detection
 - Preamble Duration: 250 ms for reliable synchronization
 - Postamble Duration: 250 ms for end-of-frame detection
-- Frequency Band: Sub-bass optimized for excellent room acoustics compatibility
+- Frequency Band: Optimized for mobile phone speaker reproduction
 
 **FEC Configuration:**
 - Reed-Solomon: (255, 223) - 32 bytes ECC
@@ -103,7 +126,7 @@ diff test.bin decoded.bin
 - **Throughput**: ~16 bits/sec of actual data
 - **Overhead**: Optimized for maximum reliability over speed
 - **Latency**: ~2 seconds per 200-byte message
-- **Frequency Range**: 400-2300 Hz (sub-bass band with excellent acoustic properties)
+- **Frequency Range**: 800-2700 Hz (optimized for mobile phone speaker reproduction)
 
 ## Testing
 
@@ -155,7 +178,7 @@ This modem prioritizes **reliability** over throughput:
 - Reed-Solomon FEC enables recovery from bit errors
 - Preamble/postamble detection provides frame synchronization
 - Very low bit rate (16 bps) allows use of simple, robust modulation
-- ggwave-compatible frequency band ensures broad compatibility
+- Inspired by ggwave's multi-tone FSK approach but optimized for mobile phone speakers with lower frequencies (800 Hz base vs 1875 Hz)
 
 ## Dependencies
 
@@ -175,8 +198,7 @@ wasm-pack build wasm --release --target web
 ## Notes on FSK Mode
 
 - **Reliability**: Multi-tone FSK with error correction provides robust transmission over typical audio channels
-- **Low-Frequency Band**: Uses 400-2300 Hz (sub-bass) for excellent room acoustics and reduced reflections
+- **Mobile-Optimized Band**: Uses 800-2700 Hz, optimized for mobile phone speaker reproduction (iPhone, Android)
 - **Non-Coherent Detection**: Goertzel-based energy detection eliminates need for complex phase tracking
 - **Over-the-Air**: Designed specifically for speaker-to-microphone audio transfer scenarios
-- **96 Frequency Bins**: Provides sufficient redundancy and flexibility for adaptive frequency allocation
-- **Legacy Modes Removed**: Legacy OFDM and spread spectrum modes have been removed to focus development on the most reliable FSK implementation
+- **96 Frequency Bins**: Provides sufficient redundancy and flexibility with 20 Hz spacing
