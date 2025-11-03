@@ -23,6 +23,17 @@ While both use similar multi-tone FSK principles (96 frequency bins, 6 tones per
 **Unique to transmitwave:**
 - **Fountain Code Mode**: Supports RaptorQ fountain codes (RFC 6330) for rateless streaming transmission - ideal for unreliable channels and broadcast scenarios where continuous streaming is needed. Uses a distinctive three-note whistle preamble (800→1200→1600 Hz) instead of chirp for synchronization. See [FOUNTAIN_MODE.md](FOUNTAIN_MODE.md) for details.
 
+## Try It Out
+
+**Web Demo**: [transmitwave.andrewtheguy.com](https://transmitwave.andrewtheguy.com)
+
+Experience transmitwave directly in your browser - **no backend server required**:
+- **100% Frontend**: All encoding/decoding runs locally in your browser via WebAssembly
+- **Privacy First**: Your data never leaves your device - no server uploads or processing
+- **Standard Mode**: Encode/decode messages with Reed-Solomon error correction
+- **Fountain Code Mode**: Continuous streaming with RaptorQ codes and manual start/stop
+- **Cross-Device**: Test speaker-to-microphone transmission between devices
+
 ## Features
 
 - **Multi-tone FSK Modulation**: 6 simultaneous audio frequencies for non-coherent energy detection
