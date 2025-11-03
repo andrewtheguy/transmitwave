@@ -4,7 +4,7 @@ import { useEncoder } from '../hooks/useEncoder'
 import { useDecoder } from '../hooks/useDecoder'
 import Status from '../components/Status'
 
-const DemoPage: React.FC = () => {
+const StandardFskPage: React.FC = () => {
   const navigate = useNavigate()
   const { encode, isEncoding, error: encodeError } = useEncoder()
   const { decode, isDecoding, error: decodeError } = useDecoder()
@@ -180,4 +180,4 @@ const DemoPage: React.FC = () => {
   )
 }
 
-export default DemoPage
+export default StandardFskPage

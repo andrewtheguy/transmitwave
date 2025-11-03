@@ -3,9 +3,9 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { initWasm } from './utils/wasm'
 import Navigation from './components/Navigation'
 import IndexPage from './pages/IndexPage'
-import DemoPage from './pages/DemoPage'
-import AmplePage from './pages/AmplePage'
-import PreamblePostambleRecordPage from './pages/PreamblePostambleRecordPage'
+import StandardFskPage from './pages/StandardFskPage'
+import SignalDetectionPage from './pages/SignalDetectionPage'
+import StandardFskListenPage from './pages/StandardFskListenPage'
 import FountainEncodePage from './pages/FountainEncodePage'
 import FountainListenPage from './pages/FountainListenPage'
 
@@ -57,9 +57,9 @@ const App: React.FC = () => {
       <Navigation />
       <Routes>
         <Route path="/" element={<IndexPage />} />
-        <Route path="/demo" element={<DemoPage />} />
-        <Route path="/ample" element={<AmplePage />} />
-        <Route path="/preamble-postamble-record" element={<PreamblePostambleRecordPage />} />
+        <Route path="/standard-fsk" element={<StandardFskPage />} />
+        <Route path="/signal-detection" element={<SignalDetectionPage />} />
+        <Route path="/standard-fsk-listen" element={<StandardFskListenPage />} />
         <Route path="/fountain-encode" element={<FountainEncodePage />} />
         <Route path="/fountain-listen" element={<FountainListenPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

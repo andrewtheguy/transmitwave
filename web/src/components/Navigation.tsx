@@ -11,9 +11,11 @@ const Navigation: React.FC = () => {
         </Link>
         <ul className="navbar-menu">
           <li><Link to="/">Home</Link></li>
-          <li><Link to="/demo">Demo</Link></li>
-          <li><Link to="/ample">Preamble & Postamble</Link></li>
-          <li><Link to="/preamble-postamble-record">Auto-Record</Link></li>
+          <li><Link to="/standard-fsk">Standard FSK</Link></li>
+          <li><Link to="/standard-fsk-listen">Standard FSK Listen</Link></li>
+          <li><Link to="/signal-detection">Signal Detection</Link></li>
+          <li><Link to="/fountain-encode">Fountain Encode</Link></li>
+          <li><Link to="/fountain-listen">Fountain Listen</Link></li>
         </ul>
       </div>
     </nav>

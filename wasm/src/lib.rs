@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, detect_preamble, detect_postamble};
+use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, FountainStream, detect_preamble, detect_postamble};
 use transmitwave_core::decoder_fsk::DecodeStats;
 use transmitwave_core::sync::DetectionThreshold;
 
@@ -335,6 +335,7 @@ impl PostambleDetector {
 #[wasm_bindgen]
 pub struct WasmFountainEncoder {
     inner: EncoderFsk,
+    stream: Option<FountainStream>,
 }
 
 #[wasm_bindgen]
@@ -345,6 +346,7 @@ impl WasmFountainEncoder {
         EncoderFsk::new()
             .map(|encoder| WasmFountainEncoder {
                 inner: encoder,
+                stream: None,
             })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
@@ -381,6 +383,43 @@ impl WasmFountainEncoder {
             .collect();
 
         Ok(all_samples)
+    }
+
+    /// Begin a streaming session that yields one fountain block at a time.
+    /// Timeout of 0 seconds disables automatic stopping (infinite stream).
+    #[wasm_bindgen]
+    pub fn start_streaming(
+        &mut self,
+        data: &[u8],
+        block_size: usize,
+        repair_ratio: f32,
+        timeout_secs: u32,
+    ) -> Result<(), JsValue> {
+        let config = FountainConfig {
+            timeout_secs,
+            block_size,
+            repair_blocks_ratio: repair_ratio,
+        };
+
+        let stream = self
+            .inner
+            .encode_fountain(data, Some(config))
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+        self.stream = Some(stream);
+        Ok(())
+    }
+
+    /// Fetch the next fountain block from the active stream.
+    #[wasm_bindgen]
+    pub fn next_stream_block(&mut self) -> Option<Vec<f32>> {
+        self.stream.as_mut().and_then(|stream| stream.next())
+    }
+
+    /// Stop the current stream and release its resources.
+    #[wasm_bindgen]
+    pub fn stop_streaming(&mut self) {
+        self.stream = None;
     }
 }
 

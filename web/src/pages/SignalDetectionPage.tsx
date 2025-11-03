@@ -8,7 +8,7 @@ import { getMicProcessorUrl } from '../utils/mic-processor-inline'
 const TARGET_SAMPLE_RATE = 16000
 type DetectionMode = 'preamble' | 'postamble'
 
-const AmplePage: React.FC = () => {
+const SignalDetectionPage: React.FC = () => {
   const navigate = useNavigate()
   const [mode, setMode] = useState<DetectionMode>('preamble')
   const [isListening, setIsListening] = useState(false)
@@ -362,4 +362,4 @@ const AmplePage: React.FC = () => {
   )
 }
 
-export default AmplePage
+export default SignalDetectionPage
