@@ -353,6 +353,7 @@ const FountainEncodePage: React.FC = () => {
           <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem' }}>
             <li>Duration: {TIMEOUT_SECS} seconds</li>
             <li>Block size: {BLOCK_SIZE} bytes</li>
+            <li>Max payload: {FOUNTAIN_MAX_PAYLOAD_BYTES} bytes</li>
             <li>Repair ratio: {REPAIR_RATIO * 100}%</li>
             <li>Continuous stream: runs until manually stopped (no buffering)</li>
           </ul>
