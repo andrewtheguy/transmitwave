@@ -8,7 +8,7 @@ use hound::WavSpec;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE, DetectionThreshold};
+use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, resample_audio, stereo_to_mono, SAMPLE_RATE, DetectionThreshold, FOUNTAIN_BLOCK_SIZE};
 use tower_http::cors::CorsLayer;
 use base64::Engine;
 
@@ -151,8 +151,8 @@ enum Commands {
         #[arg(short, long, default_value = "30")]
         timeout: u32,
 
-        /// Block size in bytes (default: 64)
-        #[arg(short, long, default_value = "64")]
+        /// Block size in bytes (default: FOUNTAIN_BLOCK_SIZE)
+        #[arg(short, long, default_value_t = FOUNTAIN_BLOCK_SIZE)]
         block_size: usize,
 
         /// Repair blocks ratio (default: 0.5)
@@ -176,8 +176,8 @@ enum Commands {
         #[arg(short, long, default_value = "30")]
         timeout: u32,
 
-        /// Block size in bytes (default: 64)
-        #[arg(short, long, default_value = "64")]
+        /// Block size in bytes (default: FOUNTAIN_BLOCK_SIZE)
+        #[arg(short, long, default_value_t = FOUNTAIN_BLOCK_SIZE)]
         block_size: usize,
 
         /// Use adaptive threshold for both preamble and postamble

@@ -1,4 +1,5 @@
 use crate::error::{AudioModemError, Result};
+use crate::{FOUNTAIN_BLOCK_SIZE, FSK_BYTES_PER_SYMBOL as FSK_BYTES_PER_SYMBOL_CONST, FSK_SYMBOL_SAMPLES as FSK_SYMBOL_SAMPLES_CONST};
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
@@ -31,8 +32,8 @@ const FSK_NUM_BINS: usize = 96;
 /// Number of nibbles transmitted per symbol (6 nibbles = 3 bytes)
 pub const FSK_NIBBLES_PER_SYMBOL: usize = 6;
 
-/// Number of bytes transmitted per symbol
-pub const FSK_BYTES_PER_SYMBOL: usize = 3;
+/// Number of bytes transmitted per symbol (imported from crate root)
+pub const FSK_BYTES_PER_SYMBOL: usize = FSK_BYTES_PER_SYMBOL_CONST;
 
 
 /// Configuration for fountain mode streaming
@@ -50,15 +51,15 @@ impl Default for FountainConfig {
     fn default() -> Self {
         Self {
             timeout_secs: 30,
-            block_size: 64,
+            block_size: FOUNTAIN_BLOCK_SIZE,
             repair_blocks_ratio: 0.5,
         }
     }
 }
 
 
-/// FSK symbol duration (192ms at 16kHz sample rate)
-pub const FSK_SYMBOL_SAMPLES: usize = 3072;
+/// FSK symbol duration (192ms at 16kHz sample rate, imported from crate root)
+pub const FSK_SYMBOL_SAMPLES: usize = FSK_SYMBOL_SAMPLES_CONST;
 
 /// Chirp FSK symbol duration (240ms at 16kHz sample rate, 100 bits/sec throughput)
 /// Balanced for pleasant sound while maintaining good data rate

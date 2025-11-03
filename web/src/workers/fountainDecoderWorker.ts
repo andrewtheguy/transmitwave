@@ -1,5 +1,11 @@
 import { createFountainDecoder, initWasm } from '../utils/wasm'
-import { FOUNTAIN_BLOCK_SIZE_BYTES, FOUNTAIN_MAX_PAYLOAD_BYTES } from '../constants/fountain'
+import {
+  FOUNTAIN_BLOCK_SIZE_BYTES,
+  MAX_PAYLOAD_BYTES,
+  FSK_BYTES_PER_SYMBOL,
+  FSK_SYMBOL_SAMPLES,
+  PACKET_OVERHEAD_BYTES
+} from '../constants/fountain'
 
 interface InitMessage {
   type: 'init'
@@ -35,16 +41,12 @@ type WorkerMessage =
 let sampleBuffer: Float32Array[] = []
 let blockSize = FOUNTAIN_BLOCK_SIZE_BYTES
 let wasmInitialized = false
-let maxInputBytes = FOUNTAIN_MAX_PAYLOAD_BYTES
+let maxInputBytes = MAX_PAYLOAD_BYTES
 let totalSamples = 0
 let samplesPerPacket = 0
 let maxBufferSamples = 0
 let streamingMode: 'standard' | 'smart' = 'standard'
 let samplesSinceLastHint = 0
-
-const FSK_BYTES_PER_SYMBOL = 3
-const FSK_SYMBOL_SAMPLES = 3072
-const PACKET_OVERHEAD_BYTES = 14
 
 function recomputeLimits() {
   samplesPerPacket = computePacketSamples(blockSize)

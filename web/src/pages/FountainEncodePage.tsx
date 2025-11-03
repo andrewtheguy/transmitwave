@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { createFountainEncoder } from '../utils/wasm'
 import { createWavBlob } from '../utils/audio'
 import Status from '../components/Status'
-import { FOUNTAIN_BLOCK_SIZE_BYTES, FOUNTAIN_MAX_PAYLOAD_BYTES } from '../constants/fountain'
+import { FOUNTAIN_BLOCK_SIZE_BYTES, MAX_PAYLOAD_BYTES } from '../constants/fountain'
 
 const FountainEncodePage: React.FC = () => {
   const navigate = useNavigate()
@@ -271,13 +271,13 @@ const FountainEncodePage: React.FC = () => {
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Enter text to encode..."
-            maxLength={FOUNTAIN_MAX_PAYLOAD_BYTES}
+            maxLength={MAX_PAYLOAD_BYTES}
             disabled={isEncoding || isPlaying || isStreaming}
             style={{ minHeight: '120px', resize: 'vertical' }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
             <div style={{ fontSize: '0.9rem', color: '#718096' }}>
-              {text.length} / {FOUNTAIN_MAX_PAYLOAD_BYTES} characters
+              {text.length} / {MAX_PAYLOAD_BYTES} characters
             </div>
             <button
               onClick={handleClearText}
@@ -353,7 +353,7 @@ const FountainEncodePage: React.FC = () => {
           <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem' }}>
             <li>Duration: {TIMEOUT_SECS} seconds</li>
             <li>Block size: {BLOCK_SIZE} bytes</li>
-            <li>Max payload: {FOUNTAIN_MAX_PAYLOAD_BYTES} bytes</li>
+            <li>Max payload: {MAX_PAYLOAD_BYTES} bytes</li>
             <li>Repair ratio: {REPAIR_RATIO * 100}%</li>
             <li>Continuous stream: runs until manually stopped (no buffering)</li>
           </ul>

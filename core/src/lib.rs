@@ -53,4 +53,15 @@ pub const RS_ECC_BYTES: usize = RS_TOTAL_BYTES - RS_DATA_BYTES; // 32 byte error
 
 // Frame configuration
 pub const FRAME_HEADER_SIZE: usize = 8; // payload length (2) + frame number (2) + CRC-8 (1) + reserved (3)
-pub const MAX_PAYLOAD_SIZE: usize = 200;
+pub const MAX_PAYLOAD_SIZE: usize = 1024; // Maximum payload size in bytes
+
+// Fountain coding configuration
+pub const FOUNTAIN_BLOCK_SIZE: usize = 64; // Symbol size in bytes
+
+// FSK encoding constants
+pub const FSK_BYTES_PER_SYMBOL: usize = 3; // Bytes encoded per FSK symbol
+pub const FSK_SYMBOL_SAMPLES: usize = 3072; // Samples per FSK symbol (at 48kHz)
+pub const PACKET_OVERHEAD_BYTES: usize = 14; // Packet framing overhead
+
+// Audio buffer configuration
+pub const MAX_BUFFER_SAMPLES: usize = 80000; // Maximum audio buffer size in samples

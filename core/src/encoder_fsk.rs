@@ -6,6 +6,9 @@ use crate::sync::{generate_preamble, generate_postamble_signal};
 use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, SYNC_SILENCE_SAMPLES};
 use raptorq::{Encoder, EncodingPacket};
 
+#[cfg(test)]
+use crate::FOUNTAIN_BLOCK_SIZE;
+
 /// Encoder using Multi-tone FSK with Reed-Solomon FEC
 ///
 /// Uses 6 simultaneous audio frequencies to encode 3 bytes (24 bits) per symbol
@@ -611,7 +614,7 @@ mod tests {
 
         let config = FountainConfig {
             timeout_secs: 30,
-            block_size: 64,
+            block_size: FOUNTAIN_BLOCK_SIZE,
             repair_blocks_ratio: 1.0, // 100% repair overhead for more repair packets
         };
 
@@ -656,7 +659,7 @@ mod tests {
 
         let config = FountainConfig {
             timeout_secs: 30,
-            block_size: 64,
+            block_size: FOUNTAIN_BLOCK_SIZE,
             repair_blocks_ratio: 0.0, // Only source packets, no repairs
         };
 
@@ -705,7 +708,7 @@ mod tests {
 
         let config = FountainConfig {
             timeout_secs: 30,
-            block_size: 64,
+            block_size: FOUNTAIN_BLOCK_SIZE,
             repair_blocks_ratio: 1.0,
         };
 
@@ -762,7 +765,7 @@ mod tests {
 
         let config = FountainConfig {
             timeout_secs: 5,
-            block_size: 64,
+            block_size: FOUNTAIN_BLOCK_SIZE,
             repair_blocks_ratio: 1.0,
         };
 

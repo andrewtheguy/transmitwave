@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, FountainStream, detect_preamble, detect_postamble};
+use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, FountainStream, detect_preamble, detect_postamble, FOUNTAIN_BLOCK_SIZE};
 use transmitwave_core::decoder_fsk::DecodeStats;
 use transmitwave_core::sync::DetectionThreshold;
 
@@ -440,7 +440,7 @@ impl WasmFountainDecoder {
             .map(|decoder| WasmFountainDecoder {
                 inner: decoder,
                 buffer: Vec::new(),
-                block_size: 64, // Default block size
+                block_size: FOUNTAIN_BLOCK_SIZE,
             })
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }

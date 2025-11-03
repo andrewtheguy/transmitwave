@@ -5,16 +5,19 @@ import { PreambleDetector, createFountainDecoder } from '../utils/wasm'
 import { resampleAudio } from '../utils/audio'
 import Status from '../components/Status'
 import { getMicProcessorUrl } from '../utils/mic-processor-inline'
-import { FOUNTAIN_BLOCK_SIZE_BYTES, FOUNTAIN_MAX_PAYLOAD_BYTES } from '../constants/fountain'
+import {
+  FOUNTAIN_BLOCK_SIZE_BYTES,
+  MAX_PAYLOAD_BYTES,
+  FSK_BYTES_PER_SYMBOL,
+  FSK_SYMBOL_SAMPLES,
+  PACKET_OVERHEAD_BYTES,
+  MAX_BUFFER_SAMPLES
+} from '../constants/fountain'
 
 const TARGET_SAMPLE_RATE = 16000
 const TIMEOUT_SECS = 30
 const BLOCK_SIZE = FOUNTAIN_BLOCK_SIZE_BYTES
-const MAX_INPUT_BYTES = FOUNTAIN_MAX_PAYLOAD_BYTES
-const MAX_BUFFER_SAMPLES = 80000
-const FSK_BYTES_PER_SYMBOL = 3
-const FSK_SYMBOL_SAMPLES = 3072
-const PACKET_OVERHEAD_BYTES = 14
+const MAX_INPUT_BYTES = MAX_PAYLOAD_BYTES
 
 const computePacketSamples = (blockSize: number) => {
   const packetBytes = blockSize + PACKET_OVERHEAD_BYTES

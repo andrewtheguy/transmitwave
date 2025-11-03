@@ -8,6 +8,9 @@ use raptorq::{Decoder, EncodingPacket};
 use std::panic::catch_unwind;
 use log::warn;
 
+#[cfg(test)]
+use crate::FOUNTAIN_BLOCK_SIZE;
+
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
@@ -896,7 +899,7 @@ mod tests {
 
         let config = FountainConfig {
             timeout_secs: 30,
-            block_size: 64,
+            block_size: FOUNTAIN_BLOCK_SIZE,
             repair_blocks_ratio: 0.5,
         };
 
