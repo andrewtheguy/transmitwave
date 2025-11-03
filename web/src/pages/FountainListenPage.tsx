@@ -104,8 +104,8 @@ const FountainListenPage: React.FC = () => {
         }
       }
 
-      // Initialize preamble detector with Fixed(0.4) threshold
-      preambleWorker.postMessage({ type: 'init' })
+      // Initialize preamble detector with the configured threshold
+      preambleWorker.postMessage({ type: 'init', threshold: preambleThreshold })
 
       // Initialize the decoder worker
       const worker = new Worker(new URL('../workers/fountainDecoderWorker.ts', import.meta.url), {
