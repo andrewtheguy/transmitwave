@@ -29,7 +29,6 @@ While both use similar multi-tone FSK principles (96 frequency bins, 6 tones per
 
 Experience transmitwave directly in your browser - **no backend server required**:
 - **100% Frontend**: All encoding/decoding runs locally in your browser via WebAssembly
-- **Privacy First**: Your data never leaves your device - no server uploads or processing
 - **Standard Mode**: Encode/decode messages with Reed-Solomon error correction
 - **Fountain Code Mode**: Continuous streaming with RaptorQ codes and manual start/stop
 - **Cross-Device**: Test speaker-to-microphone transmission between devices
@@ -76,6 +75,14 @@ const audioSamples = encoder.encode(dataArray);
 const decoder = new WasmDecoder();
 const recoveredData = decoder.decode(audioSamples);
 ```
+
+## Status of Components
+
+| Component | Status | Testing | Notes |
+|-----------|--------|---------|-------|
+| **Core Library** | ✅ Stable | Comprehensive unit tests | Robust implementation with extensive test coverage for FSK modulation, FEC, framing, and fountain codes |
+| **CLI Tool** | ⚠️ Beta | Basic integration tests | Functional testing through CLI commands, less comprehensive than core tests |
+| **WASM Library/Web Interface** | ⚠️ Beta | Manual testing only | Tested primarily through web interface, no automated unit tests yet |
 
 ## Configuration
 
