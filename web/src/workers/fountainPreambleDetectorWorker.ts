@@ -1,4 +1,4 @@
-import { PreambleDetector, initWasm } from '../utils/wasm'
+import { FountainPreambleDetector, initWasm } from '../utils/wasm'
 
 interface InitMessage {
   type: 'init'
@@ -16,7 +16,7 @@ interface ClearMessage {
 
 type WorkerMessage = InitMessage | AddSamplesMessage | ClearMessage
 
-let detector: PreambleDetector | null = null
+let detector: FountainPreambleDetector | null = null
 let isInitialized = false
 let wasmInitialized = false
 let wasmInitPromise: Promise<void> | null = null
@@ -39,7 +39,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
             try {
               await wasmInitPromise
             } catch (error) {
-              console.error('WASM initialization failed in preamble worker:', error)
+              console.error('WASM initialization failed in fountain preamble worker:', error)
               self.postMessage({ type: 'error', error: `WASM initialization failed: ${error}` })
               return
             }
@@ -49,9 +49,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
             try {
               await wasmInitPromise
               wasmInitialized = true
-              console.log('WASM initialized in preamble worker')
+              console.log('WASM initialized in fountain preamble worker')
             } catch (error) {
-              console.error('Failed to initialize WASM in preamble worker:', error)
+              console.error('Failed to initialize WASM in fountain preamble worker:', error)
               self.postMessage({ type: 'error', error: `WASM initialization failed: ${error}` })
               wasmInitPromise = null
               return
@@ -71,9 +71,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
           detector = null
         }
 
-        detector = new PreambleDetector(threshold)
+        detector = new FountainPreambleDetector(threshold)
         isInitialized = true
-        console.log(`Preamble detector initialized with threshold ${threshold}`)
+        console.log(`Fountain preamble detector initialized with threshold ${threshold} (three-note whistle)`)
         self.postMessage({ type: 'init_done' })
 
         // Process any buffered samples
@@ -84,14 +84,14 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
               if (detector) {
                 const position = detector.add_samples(bufferedSamples)
                 if (position >= 0) {
-                  console.log(`Preamble detected in buffered samples at position ${position}!`)
+                  console.log(`Fountain preamble detected in buffered samples at position ${position}!`)
                   self.postMessage({ type: 'preamble_detected', position })
                   sampleBuffer.length = 0 // Clear buffer after detection
                   return
                 }
               }
             }
-            console.log(`No preamble found in buffered samples`)
+            console.log(`No fountain preamble found in buffered samples`)
           } catch (error) {
             console.error('Error processing buffered samples:', error)
             self.postMessage({ type: 'error', error: `Buffered sample processing error: ${error}` })
@@ -116,14 +116,14 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         try {
           const position = detector.add_samples(samples)
 
-          // position >= 0 means preamble was detected
+          // position >= 0 means fountain preamble was detected
           if (position >= 0) {
             self.postMessage({ type: 'preamble_detected', position })
           }
         } catch (error) {
           // Catch any WASM errors (including FFT planner issues)
-          console.error('Error during preamble detection add_samples:', error)
-          self.postMessage({ type: 'error', error: `Preamble detection error: ${error}` })
+          console.error('Error during fountain preamble detection add_samples:', error)
+          self.postMessage({ type: 'error', error: `Fountain preamble detection error: ${error}` })
         }
         break
       }

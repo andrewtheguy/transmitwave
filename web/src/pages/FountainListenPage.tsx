@@ -113,8 +113,8 @@ const FountainListenPage: React.FC = () => {
     }
 
     try {
-      // Initialize the preamble detection worker
-      const preambleWorker = new Worker(new URL('../workers/preambleDetectorWorker.ts', import.meta.url), {
+      // Initialize the fountain preamble detection worker (three-note whistle)
+      const preambleWorker = new Worker(new URL('../workers/fountainPreambleDetectorWorker.ts', import.meta.url), {
         type: 'module'
       })
       preambleWorkerRef.current = preambleWorker
@@ -127,15 +127,15 @@ const FountainListenPage: React.FC = () => {
 
         if (type === 'init_done' && !isInitialized) {
           isInitialized = true
-          console.log('Preamble worker initialized')
+          console.log('Fountain preamble worker initialized (three-note whistle detector)')
         } else if (type === 'preamble_detected') {
-          // Preamble detected in worker, trigger recording start
+          // Fountain preamble detected in worker, trigger recording start
           if (!preambleDetectedRef.current && isRecordingRef.current === false) {
-            console.log('Preamble detected from worker!')
+            console.log('Fountain preamble detected from worker (three-note whistle)!')
             handlePreambleDetected()
           }
         } else if (type === 'error') {
-          console.error('Preamble worker error:', event.data.error)
+          console.error('Fountain preamble worker error:', event.data.error)
         }
       }
 
@@ -287,7 +287,7 @@ const FountainListenPage: React.FC = () => {
       }, 50)
 
       setIsListening(true)
-      setStatus('Listening for preamble...')
+      setStatus('Listening for fountain preamble (three-note whistle)...')
       setStatusType('info')
       setDecodedText(null)
       setElapsed(0)
@@ -384,10 +384,10 @@ const FountainListenPage: React.FC = () => {
     allResampledSamplesRef.current = []
     resampleBufferRef.current = []
 
-    // Force immediate UI update when preamble is detected
+    // Force immediate UI update when fountain preamble is detected
     flushSync(() => {
       setIsRecording(true)
-      setStatus('Preamble detected! Starting streaming decode...')
+      setStatus('Fountain preamble detected (three-note whistle)! Starting streaming decode...')
       setStatusType('success')
       setSampleCount(initialLength)
       setDecodeAttempts(0)
