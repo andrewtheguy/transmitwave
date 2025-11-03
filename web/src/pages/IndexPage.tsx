@@ -21,8 +21,7 @@ const IndexPage: React.FC = () => {
           onClick={() => navigate('/standard-fsk')}
         >
           <h3>📝 Standard FSK</h3>
-          <p>Encode text to audio and decode audio back to text with real-time WAV file generation.</p>
-          <div style={{ fontSize: '0.85rem', color: '#059669', marginBottom: '1rem', fontWeight: 'bold' }}>✓ Recommended (Reed-Solomon)</div>
+          <p>Encode text to audio and decode audio back to text with real-time WAV file generation. Uses Reed-Solomon error correction.</p>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
 
@@ -32,8 +31,7 @@ const IndexPage: React.FC = () => {
           onClick={() => navigate('/standard-fsk-listen')}
         >
           <h3>🎙️ Standard FSK Listen</h3>
-          <p>Listen for preamble to auto-start recording, auto-stop on postamble, then auto-decode message.</p>
-          <div style={{ fontSize: '0.85rem', color: '#059669', marginBottom: '1rem', fontWeight: 'bold' }}>✓ Recommended (Reed-Solomon)</div>
+          <p>Listen for preamble to auto-start recording, auto-stop on postamble, then auto-decode message. Uses Reed-Solomon error correction.</p>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
 
