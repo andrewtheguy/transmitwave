@@ -51,7 +51,7 @@ const IndexPage: React.FC = () => {
           onClick={() => navigate('/fountain-encode')}
         >
           <h3>⛲ Fountain Encode</h3>
-          <p>Encode and continuously stream data for 30 seconds using RaptorQ fountain codes.</p>
+          <p>Encode and stream data using RaptorQ fountain codes. Choose between timed (30s) or continuous streaming mode.</p>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
 
@@ -61,7 +61,7 @@ const IndexPage: React.FC = () => {
           onClick={() => navigate('/fountain-listen')}
         >
           <h3>🎧 Fountain Listen</h3>
-          <p>Listen for fountain-coded stream and decode data after 30 seconds of reception.</p>
+          <p>Listen for fountain-coded stream and decode data. Choose between timed (30s) or continuous streaming mode.</p>
           <button className="btn-primary w-full">Open Demo</button>
         </div>
       </div>
