@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, FountainStream, detect_preamble, detect_postamble, FOUNTAIN_BLOCK_SIZE};
+use transmitwave_core::{DecoderFsk, EncoderFsk, FountainConfig, FountainStream, detect_preamble, detect_postamble, detect_fountain_preamble, FOUNTAIN_BLOCK_SIZE};
 use transmitwave_core::decoder_fsk::DecodeStats;
 use transmitwave_core::sync::DetectionThreshold;
 
@@ -303,6 +303,64 @@ impl PostambleDetector {
     #[wasm_bindgen]
     pub fn required_size() -> usize {
         transmitwave_core::POSTAMBLE_SAMPLES
+    }
+
+    /// Clear the audio buffer
+    #[wasm_bindgen]
+    pub fn clear(&mut self) {
+        self.detector.clear();
+    }
+
+    /// Get the current threshold value
+    #[wasm_bindgen]
+    pub fn threshold(&self) -> f32 {
+        self.detector.threshold()
+    }
+
+    /// Set a new threshold value
+    #[wasm_bindgen]
+    pub fn set_threshold(&mut self, fixed_value: f32) {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
+        self.detector.set_threshold(threshold);
+    }
+}
+
+/// Fountain preamble detector for detecting fountain mode three-note whistle in audio stream
+/// This detector specifically looks for the three-note whistle pattern (800->1200->1600 Hz)
+/// used exclusively by fountain mode transmissions
+#[wasm_bindgen]
+pub struct FountainPreambleDetector {
+    detector: SignalDetector<fn(&[f32], DetectionThreshold) -> Option<usize>>,
+}
+
+#[wasm_bindgen]
+impl FountainPreambleDetector {
+    /// Create a new fountain preamble detector with specified threshold
+    #[wasm_bindgen(constructor)]
+    pub fn new(fixed_value: f32) -> FountainPreambleDetector {
+        let threshold = DetectionThreshold::Fixed(fixed_value.max(0.001).min(1.0));
+        FountainPreambleDetector {
+            detector: SignalDetector::new(threshold, transmitwave_core::PREAMBLE_SAMPLES, detect_fountain_preamble),
+        }
+    }
+
+    /// Add audio samples from microphone to the buffer
+    /// Returns the detected fountain preamble position if found, or -1 if not detected
+    #[wasm_bindgen]
+    pub fn add_samples(&mut self, samples: &[f32]) -> i32 {
+        self.detector.add_samples(samples)
+    }
+
+    /// Get current buffer size (for monitoring)
+    #[wasm_bindgen]
+    pub fn buffer_size(&self) -> usize {
+        self.detector.buffer_size()
+    }
+
+    /// Get required buffer size to detect fountain preamble
+    #[wasm_bindgen]
+    pub fn required_size() -> usize {
+        transmitwave_core::PREAMBLE_SAMPLES
     }
 
     /// Clear the audio buffer

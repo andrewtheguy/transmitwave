@@ -24,10 +24,10 @@ pub enum DetectionThreshold {
 // Toggle this constant to switch between different synchronization signal types:
 //   - SignalType::Chirp         (frequency sweep from low to high, better detection in noisy environments)
 //   - SignalType::PrnNoise      (blends in better with the sound of the payload)
-//   - SignalType::ThreeNoteWhistle (musical three-note whistle pattern)
 //
 // This controls what `generate_preamble()` and `generate_postamble_signal()`
 // actually generate, allowing easy comparison between signal types.
+// Note: ThreeNoteWhistle is used exclusively for fountain mode preambles.
 const SIGNAL_TYPE: SignalType = SignalType::Chirp;
 
 /// Window length (in samples) for computing RMS in adaptive threshold mode.
@@ -43,7 +43,6 @@ const ADAPTIVE_RMS_WINDOW_LENGTH: usize = 2048;
 enum SignalType {
     PrnNoise,        // Pseudo-random bipolar noise (different seeds for pre/post)
     Chirp,           // Linear frequency sweep
-    ThreeNoteWhistle, // Three-note whistle pattern (different melodies for pre/post)
     PrnWithFreq,     // PRN sequence modulated at different frequencies (different freq for pre/post)
 }
 
@@ -223,49 +222,15 @@ fn generate_tone(freq: f32, duration_samples: usize, amplitude: f32) -> Vec<f32>
     samples
 }
 
-/// Generates a three-note whistle pattern for preamble
+/// Generates a three-note whistle pattern for fountain mode preamble
 /// Pattern: ascending melody (800 Hz -> 1200 Hz -> 1600 Hz)
 /// Each note is ~83ms with smooth transitions
-pub fn generate_preamble_three_note(duration_samples: usize, amplitude: f32) -> Vec<f32> {
+/// This signal is used exclusively for fountain mode transmissions
+pub fn generate_fountain_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     let note_duration = duration_samples / 3;
     let note1_freq = 800.0;  // Low note
     let note2_freq = 1200.0; // Mid note
     let note3_freq = 1600.0; // High note
-
-    let mut samples = vec![0.0; duration_samples];
-
-    // Generate three notes
-    let note1 = generate_tone(note1_freq, note_duration, amplitude);
-    let note2 = generate_tone(note2_freq, note_duration, amplitude);
-    let note3 = generate_tone(note3_freq, note_duration, amplitude);
-
-    // Concatenate the notes
-    for i in 0..note_duration.min(note1.len()) {
-        samples[i] = note1[i];
-    }
-    for i in 0..note_duration.min(note2.len()) {
-        if i + note_duration < samples.len() {
-            samples[i + note_duration] = note2[i];
-        }
-    }
-    for i in 0..note_duration.min(note3.len()) {
-        if i + 2 * note_duration < samples.len() {
-            samples[i + 2 * note_duration] = note3[i];
-        }
-    }
-
-    samples
-}
-
-/// Generates a three-note whistle pattern for postamble
-/// Pattern: descending melody (1600 Hz -> 1200 Hz -> 700 Hz)
-/// Each note is ~83ms with smooth transitions
-/// Uses slightly lower frequencies for better speaker response
-pub fn generate_postamble_three_note(duration_samples: usize, amplitude: f32) -> Vec<f32> {
-    let note_duration = duration_samples / 3;
-    let note1_freq = 1600.0; // High note
-    let note2_freq = 1200.0; // Mid note
-    let note3_freq = 700.0;  // Low note (higher than chirp postamble for better volume)
 
     let mut samples = vec![0.0; duration_samples];
 
@@ -309,7 +274,7 @@ pub fn generate_postamble_prn_freq(duration_samples: usize, amplitude: f32) -> V
 }
 
 /// Generate preamble signal
-/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, ThreeNoteWhistle, or PrnWithFreq)
+/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, or PrnWithFreq)
 pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match SIGNAL_TYPE {
         SignalType::PrnNoise => {
@@ -321,10 +286,6 @@ pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
             // Chirp: Linear frequency sweep from 200 Hz to 4000 Hz
             generate_preamble_chirp(duration_samples, amplitude)
         }
-        SignalType::ThreeNoteWhistle => {
-            // Three-note whistle: ascending melody (800 -> 1200 -> 1600 Hz)
-            generate_preamble_three_note(duration_samples, amplitude)
-        }
         SignalType::PrnWithFreq => {
             // PRN modulated at carrier frequency (1200 Hz for preamble)
             generate_preamble_prn_freq(duration_samples, amplitude)
@@ -333,7 +294,7 @@ pub fn generate_preamble(duration_samples: usize, amplitude: f32) -> Vec<f32> {
 }
 
 /// Generate postamble signal
-/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, ThreeNoteWhistle, or PrnWithFreq)
+/// Type determined by SIGNAL_TYPE configuration constant (PrnNoise, Chirp, or PrnWithFreq)
 pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec<f32> {
     match SIGNAL_TYPE {
         SignalType::PrnNoise => {
@@ -344,10 +305,6 @@ pub fn generate_postamble_signal(duration_samples: usize, amplitude: f32) -> Vec
         SignalType::Chirp => {
             // Chirp: Reverse sweep from 4000 Hz to 200 Hz (mirror of preamble)
             generate_postamble_chirp(duration_samples, amplitude)
-        }
-        SignalType::ThreeNoteWhistle => {
-            // Three-note whistle: descending melody (1600 -> 1200 -> 700 Hz)
-            generate_postamble_three_note(duration_samples, amplitude)
         }
         SignalType::PrnWithFreq => {
             // PRN modulated at different carrier frequency (700 Hz for postamble)
@@ -545,6 +502,86 @@ pub fn detect_postamble(samples: &[f32], threshold: DetectionThreshold) -> Optio
 
         // Calculate window energy using O(1) prefix-sum lookup
         let window_energy = sq_prefix[i + postamble_samples] - sq_prefix[i];
+
+        // Compute normalized correlation coefficient
+        let denom = (window_energy * template_energy).sqrt();
+        let normalized_corr = if denom > 1e-10 {
+            (raw_correlation / denom).abs()
+        } else {
+            0.0
+        };
+
+        if normalized_corr > best_correlation {
+            best_correlation = normalized_corr;
+            best_pos = i;
+        }
+    }
+
+    // Determine detection threshold
+    let threshold_value = compute_threshold_value(samples, threshold);
+
+    if best_correlation > threshold_value {
+        Some(best_pos)
+    } else {
+        None
+    }
+}
+
+/// Detect fountain mode preamble (three-note whistle) using efficient FFT-based cross-correlation
+/// Returns the position where the fountain preamble is most likely to start
+/// threshold: Specifies how to determine the detection threshold (Adaptive or Fixed)
+/// Panics if Fixed threshold is invalid (not in range [0.001, 1.0])
+pub fn detect_fountain_preamble(samples: &[f32], threshold: DetectionThreshold) -> Option<usize> {
+    // Validate threshold
+    if let DetectionThreshold::Fixed(value) = threshold {
+        if value < 0.001 || value > 1.0 {
+            panic!("Invalid fixed detection threshold: {}. Must be in range [0.001, 1.0]. Minimum is 0.001 (0.1%)", value);
+        }
+    }
+
+    let preamble_samples = crate::PREAMBLE_SAMPLES;
+
+    if samples.len() < preamble_samples {
+        return None;
+    }
+
+    // Generate expected fountain preamble signal pattern (three-note whistle)
+    let template = generate_fountain_preamble(preamble_samples, 1.0);
+
+    // Use FFT-based correlation for O(N log N) complexity
+    let fft_correlation = match fft_correlate_1d(samples, &template, Mode::Full) {
+        Ok(corr) => corr,
+        Err(e) => {
+            warn!(
+                "FFT correlation failed during fountain preamble detection: {} (samples={}, template={}, mode=Full)",
+                e,
+                samples.len(),
+                template.len()
+            );
+            return None;
+        }
+    };
+
+    let mut best_pos = 0;
+    let mut best_correlation = 0.0;
+
+    // Calculate template energy once
+    let template_energy: f32 = template.iter().map(|x| x * x).sum();
+
+    // Build prefix-sum array of squared samples for O(1) window energy computation
+    let mut sq_prefix = vec![0.0; samples.len() + 1];
+    for k in 0..samples.len() {
+        sq_prefix[k + 1] = sq_prefix[k] + samples[k] * samples[k];
+    }
+
+    // Iterate through valid positions and normalize correlation coefficients
+    for i in 0..=samples.len().saturating_sub(preamble_samples) {
+        // FFT correlation output at index (i + preamble_samples - 1) corresponds to window starting at i
+        let fft_index = i + preamble_samples - 1;
+        let raw_correlation = fft_correlation[fft_index];
+
+        // Calculate window energy using O(1) prefix-sum lookup
+        let window_energy = sq_prefix[i + preamble_samples] - sq_prefix[i];
 
         // Compute normalized correlation coefficient
         let denom = (window_energy * template_energy).sqrt();
@@ -770,7 +807,6 @@ mod tests {
         match SIGNAL_TYPE {
             SignalType::PrnNoise => generate_preamble(crate::PREAMBLE_SAMPLES, amplitude),
             SignalType::Chirp => generate_preamble_chirp(crate::PREAMBLE_SAMPLES, amplitude),
-            SignalType::ThreeNoteWhistle => generate_preamble_three_note(crate::PREAMBLE_SAMPLES, amplitude),
             SignalType::PrnWithFreq => generate_preamble_prn_freq(crate::PREAMBLE_SAMPLES, amplitude),
         }
     }
@@ -779,7 +815,6 @@ mod tests {
         match SIGNAL_TYPE {
             SignalType::PrnNoise => generate_postamble_signal(crate::POSTAMBLE_SAMPLES, amplitude),
             SignalType::Chirp => generate_postamble_chirp(crate::POSTAMBLE_SAMPLES, amplitude),
-            SignalType::ThreeNoteWhistle => generate_postamble_three_note(crate::POSTAMBLE_SAMPLES, amplitude),
             SignalType::PrnWithFreq => generate_postamble_prn_freq(crate::POSTAMBLE_SAMPLES, amplitude),
         }
     }

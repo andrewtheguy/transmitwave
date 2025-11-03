@@ -2,7 +2,7 @@ use crate::error::{AudioModemError, Result};
 use crate::fec::{FecDecoder, FecMode};
 use crate::framing::{FrameDecoder, crc16};
 use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
-use crate::sync::{detect_postamble, detect_preamble, DetectionThreshold};
+use crate::sync::{detect_postamble, detect_preamble, detect_fountain_preamble, DetectionThreshold};
 use crate::{PREAMBLE_SAMPLES, SYNC_SILENCE_SAMPLES};
 use raptorq::{Decoder, EncodingPacket};
 use std::panic::catch_unwind;
@@ -385,7 +385,7 @@ impl DecoderFsk {
                 return Err(AudioModemError::Timeout);
             }
 
-            // Look for next preamble
+            // Look for next fountain preamble (three-note whistle)
             let remaining = &samples[search_offset..];
             let preamble_search_window = PREAMBLE_SAMPLES + payload_samples_per_block;
             let search_len = remaining.len().min(preamble_search_window);
@@ -393,7 +393,7 @@ impl DecoderFsk {
                 break;
             }
             let preamble_slice = &remaining[..search_len];
-            let preamble_pos = match detect_preamble(preamble_slice, self.preamble_threshold) {
+            let preamble_pos = match detect_fountain_preamble(preamble_slice, self.preamble_threshold) {
                 Some(pos) => pos,
                 None => break,
             };
