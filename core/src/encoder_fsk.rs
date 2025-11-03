@@ -2,7 +2,7 @@ use crate::error::Result;
 use crate::fec::{FecEncoder, FecMode};
 use crate::framing::{Frame, FrameEncoder, crc16};
 use crate::fsk::{FskModulator, FountainConfig};
-use crate::sync::{generate_preamble, generate_postamble_signal};
+use crate::sync::{generate_preamble, generate_postamble_signal, generate_fountain_preamble};
 use crate::{MAX_PAYLOAD_SIZE, PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, SYNC_SILENCE_SAMPLES};
 use raptorq::{Encoder, EncodingPacket};
 
@@ -283,7 +283,8 @@ impl Iterator for FountainStream {
         );
 
         // Generate audio: preamble + FSK data only (no postamble for fountain mode)
-        let preamble = generate_preamble(PREAMBLE_SAMPLES, 0.5);
+        // Fountain mode exclusively uses the three-note whistle preamble
+        let preamble = generate_fountain_preamble(PREAMBLE_SAMPLES, 0.5);
         let mut samples = preamble;
 
         match self.fsk.modulate(&encoded_data) {

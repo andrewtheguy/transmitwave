@@ -1,4 +1,4 @@
-import { PreambleDetector, initWasm } from '../utils/wasm'
+import { FountainPreambleDetector, initWasm } from '../utils/wasm'
 
 interface InitMessage {
   type: 'init'
@@ -16,7 +16,7 @@ interface ClearMessage {
 
 type WorkerMessage = InitMessage | AddSamplesMessage | ClearMessage
 
-let detector: PreambleDetector | null = null
+let detector: FountainPreambleDetector | null = null
 let isInitialized = false
 let wasmInitialized = false
 let wasmInitPromise: Promise<void> | null = null
@@ -71,9 +71,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
           detector = null
         }
 
-        detector = new PreambleDetector(threshold)
+        detector = new FountainPreambleDetector(threshold)
         isInitialized = true
-        console.log(`Preamble detector initialized with threshold ${threshold}`)
+        console.log(`Fountain preamble detector initialized with threshold ${threshold} (three-note whistle)`)
         self.postMessage({ type: 'init_done' })
 
         // Process any buffered samples

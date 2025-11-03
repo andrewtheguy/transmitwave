@@ -9,6 +9,7 @@ import init, {
     WasmFountainDecoder,
     PreambleDetector,
     PostambleDetector,
+    FountainPreambleDetector,
 } from 'transmitwave-wasm';
 
 let wasmInitialized = false;
@@ -79,6 +80,7 @@ export {
     WasmFountainDecoder,
     PreambleDetector,
     PostambleDetector,
+    FountainPreambleDetector,
 };
 
 /**
