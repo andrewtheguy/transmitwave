@@ -30,6 +30,8 @@ While both use similar multi-tone FSK principles (96 frequency bins, 6 tones per
 
 **Unique to transmitwave:**
 - **Fountain Code Mode**: Supports RaptorQ fountain codes (RFC 6330) for rateless streaming transmission - ideal for unreliable channels and broadcast scenarios where continuous streaming is needed. Uses a distinctive three-note whistle preamble (800→1200→1600 Hz) instead of chirp for synchronization. See [FOUNTAIN_MODE.md](FOUNTAIN_MODE.md) for details.
+- **Error Correction**: Reed-Solomon FEC for robust data recovery for non-fountain code transmissions.
+- **WebAssembly Support**: Provides a WASM library and web demo for browser-based audio transmission without a backend server.
 
 ## Try It Out
 
