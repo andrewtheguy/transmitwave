@@ -2,6 +2,13 @@
 
 A Rust library for reliable low-bandwidth communication over audio channels using multi-tone FSK modulation. Encodes binary data into simultaneous audio frequencies (800-2700 Hz) for maximum robustness in speaker-to-microphone transmission scenarios.
 
+## Demo with Fountain Code Mode
+
+
+https://github.com/user-attachments/assets/6d3dce34-9152-4a55-a5dd-c0839e20063e
+
+
+
 ## Credit
 
 This project is inspired by the [ggwave](https://github.com/ggerganov/ggwave) library by Georgi Gerganov. Both projects use a multi-tone FSK modulation scheme for data-over-sound transmission, but with different technical implementations:
