@@ -4,6 +4,7 @@ A Rust library for reliable low-bandwidth communication over audio channels usin
 
 ## Demo with Fountain Code Mode
 
+Turn on the volume of the video player below to hear the sound.
 
 https://github.com/user-attachments/assets/6d3dce34-9152-4a55-a5dd-c0839e20063e
 
