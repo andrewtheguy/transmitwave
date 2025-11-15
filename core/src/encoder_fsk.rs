@@ -282,10 +282,18 @@ impl Iterator for FountainStream {
             crate::fsk::FSK_BYTES_PER_SYMBOL
         );
 
-        // Generate audio: preamble + FSK data only (no postamble for fountain mode)
+        // Generate audio: silence → preamble → silence → FSK data (no postamble for fountain mode)
         // Fountain mode exclusively uses the three-note whistle preamble
+        let mut samples = Vec::new();
+
+        // Add silence before preamble for clean block start
+        samples.extend_from_slice(&vec![0.0f32; SYNC_SILENCE_SAMPLES]);
+
         let preamble = generate_fountain_preamble(PREAMBLE_SAMPLES, 0.5);
-        let mut samples = preamble;
+        samples.extend_from_slice(&preamble);
+
+        // Add silence after preamble for clear frame boundaries
+        samples.extend_from_slice(&vec![0.0f32; SYNC_SILENCE_SAMPLES]);
 
         match self.fsk.modulate(&encoded_data) {
             Ok(fsk_samples) => {

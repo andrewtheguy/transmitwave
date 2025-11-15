@@ -3,7 +3,7 @@ use crate::fec::{FecDecoder, FecMode};
 use crate::framing::{FrameDecoder, crc16};
 use crate::fsk::{FskDemodulator, FountainConfig, FSK_BYTES_PER_SYMBOL, FSK_SYMBOL_SAMPLES};
 use crate::sync::{detect_postamble, detect_preamble, detect_fountain_preamble, DetectionThreshold};
-use crate::{PREAMBLE_SAMPLES, SYNC_SILENCE_SAMPLES};
+use crate::{PREAMBLE_SAMPLES, POSTAMBLE_SAMPLES, SYNC_SILENCE_SAMPLES};
 use raptorq::{Decoder, EncodingPacket};
 use std::panic::catch_unwind;
 use log::warn;
@@ -398,7 +398,8 @@ impl DecoderFsk {
                 None => break,
             };
 
-            let data_start = search_offset + preamble_pos + PREAMBLE_SAMPLES;
+            // Account for silence after preamble (1/8 second = 2000 samples at 16kHz)
+            let data_start = search_offset + preamble_pos + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
             if data_start + FSK_SYMBOL_SAMPLES > samples.len() {
                 break;
@@ -1579,13 +1580,13 @@ mod tests {
         let data = b"Hello FSK!";
         let samples = encoder.encode(data).unwrap();
 
-        // Extract only FSK data (skip preamble + silence + postamble)
-        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-        let postamble_samples = PREAMBLE_SAMPLES; // Typical postamble duration
+        // Extract only FSK data (skip silence + preamble + silence at start, and silence + postamble + silence at end)
+        let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
         // Ensure we have enough samples
-        if samples.len() > preamble_samples + postamble_samples {
-            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+        if samples.len() > skip_start + skip_end {
+            let fsk_only = &samples[skip_start..samples.len() - skip_end];
             let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
             assert_eq!(decoded, data);
         }
@@ -1599,12 +1600,12 @@ mod tests {
         let data = b"";
         let samples = encoder.encode(data).unwrap();
 
-        // Extract only FSK data
-        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-        let postamble_samples = PREAMBLE_SAMPLES;
+        // Extract only FSK data (skip silence + preamble + silence at start, and silence + postamble + silence at end)
+        let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        if samples.len() > preamble_samples + postamble_samples {
-            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+        if samples.len() > skip_start + skip_end {
+            let fsk_only = &samples[skip_start..samples.len() - skip_end];
             let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
             assert_eq!(decoded, data);
         }
@@ -1627,12 +1628,12 @@ mod tests {
         for data in test_cases {
             let samples = encoder.encode(&data).unwrap();
 
-            // Extract only FSK data
-            let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-            let postamble_samples = PREAMBLE_SAMPLES;
+            // Extract only FSK data (skip silence + preamble + silence at start, and silence + postamble + silence at end)
+            let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+            let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-            if samples.len() > preamble_samples + postamble_samples {
-                let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+            if samples.len() > skip_start + skip_end {
+                let fsk_only = &samples[skip_start..samples.len() - skip_end];
                 let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
                 assert_eq!(decoded, data, "Failed for data length {}", data.len());
             }
@@ -1648,12 +1649,12 @@ mod tests {
         let data: Vec<u8> = (0..100).map(|i| i as u8).collect();
         let samples = encoder.encode(&data).unwrap();
 
-        // Extract only FSK data
-        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-        let postamble_samples = PREAMBLE_SAMPLES;
+        // Extract only FSK data (skip silence + preamble + silence at start, and silence + postamble + silence at end)
+        let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        if samples.len() > preamble_samples + postamble_samples {
-            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+        if samples.len() > skip_start + skip_end {
+            let fsk_only = &samples[skip_start..samples.len() - skip_end];
             let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
             assert_eq!(decoded, data);
         }
@@ -1673,12 +1674,12 @@ mod tests {
             *sample += noise;
         }
 
-        // Extract only FSK data
-        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-        let postamble_samples = PREAMBLE_SAMPLES;
+        // Extract only FSK data (skip silence + preamble + silence at start, and silence + postamble + silence at end)
+        let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        if samples.len() > preamble_samples + postamble_samples {
-            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+        if samples.len() > skip_start + skip_end {
+            let fsk_only = &samples[skip_start..samples.len() - skip_end];
             let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
             assert_eq!(decoded, data);
         }
@@ -1703,12 +1704,12 @@ mod tests {
         let data = vec![42u8; 180];
         let samples = encoder.encode(&data).unwrap();
 
-        // Extract only FSK data
-        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-        let postamble_samples = PREAMBLE_SAMPLES;
+        // Extract only FSK data (skip silence + preamble + silence at start, and silence + postamble + silence at end)
+        let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        if samples.len() > preamble_samples + postamble_samples {
-            let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+        if samples.len() > skip_start + skip_end {
+            let fsk_only = &samples[skip_start..samples.len() - skip_end];
             let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
             assert_eq!(decoded, data);
         }
@@ -1730,12 +1731,12 @@ mod tests {
         for data in patterns {
             let samples = encoder.encode(&data).unwrap();
 
-            // Extract only FSK data
-            let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-            let postamble_samples = PREAMBLE_SAMPLES;
+            // Extract only FSK data (skip silence + preamble + silence at start, and silence + postamble + silence at end)
+            let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+            let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-            if samples.len() > preamble_samples + postamble_samples {
-                let fsk_only = &samples[preamble_samples..samples.len() - postamble_samples];
+            if samples.len() > skip_start + skip_end {
+                let fsk_only = &samples[skip_start..samples.len() - skip_end];
                 let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
                 assert_eq!(decoded, data, "Failed for pattern {:02X}", data[0]);
             }
@@ -1755,11 +1756,11 @@ mod tests {
         let result_with_sync = decoder_with_sync.decode(&full_samples);
 
         // Decode without sync (extract FSK data first)
-        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-        let postamble_samples = PREAMBLE_SAMPLES;
+        let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        let result_without_sync = if full_samples.len() > preamble_samples + postamble_samples {
-            let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+        let result_without_sync = if full_samples.len() > skip_start + skip_end {
+            let fsk_only = &full_samples[skip_start..full_samples.len() - skip_end];
             decoder_without_sync.decode_without_preamble_postamble(fsk_only)
         } else {
             Err(AudioModemError::InsufficientData)
@@ -1785,12 +1786,12 @@ mod tests {
 
         // Simulate extracting just the FSK region conservatively
         // This is what a real application would do after detecting preamble/postamble
-        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-        let postamble_estimate = PREAMBLE_SAMPLES; // Conservative estimate
+        let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        if full_samples.len() > preamble_samples + postamble_estimate {
+        if full_samples.len() > skip_start + skip_end {
             // Extract middle portion (FSK data only)
-            let fsk_data = &full_samples[preamble_samples..full_samples.len() - postamble_estimate];
+            let fsk_data = &full_samples[skip_start..full_samples.len() - skip_end];
 
             // Should decode successfully without preamble/postamble detection
             let decoded = decoder.decode_without_preamble_postamble(fsk_data).unwrap();
@@ -1813,12 +1814,12 @@ mod tests {
         for message in messages {
             let full_samples = encoder.encode(&message).unwrap();
 
-            // Extract FSK data
-            let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-            let postamble_samples = PREAMBLE_SAMPLES;
+            // Extract FSK data (skip silence + preamble + silence at start, and silence + postamble + silence at end)
+            let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+            let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-            if full_samples.len() > preamble_samples + postamble_samples {
-                let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+            if full_samples.len() > skip_start + skip_end {
+                let fsk_only = &full_samples[skip_start..full_samples.len() - skip_end];
                 let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
                 assert_eq!(decoded, message);
             }
@@ -1834,11 +1835,11 @@ mod tests {
         let data = b"X";
         let full_samples = encoder.encode(data).unwrap();
 
-        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-        let postamble_samples = PREAMBLE_SAMPLES;
+        let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        if full_samples.len() > preamble_samples + postamble_samples {
-            let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+        if full_samples.len() > skip_start + skip_end {
+            let fsk_only = &full_samples[skip_start..full_samples.len() - skip_end];
             let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
             assert_eq!(decoded, data);
         }
@@ -1854,11 +1855,11 @@ mod tests {
             let data = vec![*size as u8; *size];
             let full_samples = encoder.encode(&data).unwrap();
 
-            let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-            let postamble_samples = PREAMBLE_SAMPLES;
+            let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+            let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-            if full_samples.len() > preamble_samples + postamble_samples {
-                let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+            if full_samples.len() > skip_start + skip_end {
+                let fsk_only = &full_samples[skip_start..full_samples.len() - skip_end];
                 let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
                 assert_eq!(decoded, data, "Failed for size {}", size);
             }
@@ -1879,11 +1880,11 @@ mod tests {
 
         let full_samples = encoder.encode(&data).unwrap();
 
-        let preamble_samples = PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
-        let postamble_samples = PREAMBLE_SAMPLES;
+        let skip_start = SYNC_SILENCE_SAMPLES + PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
+        let skip_end = SYNC_SILENCE_SAMPLES + POSTAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES;
 
-        if full_samples.len() > preamble_samples + postamble_samples {
-            let fsk_only = &full_samples[preamble_samples..full_samples.len() - postamble_samples];
+        if full_samples.len() > skip_start + skip_end {
+            let fsk_only = &full_samples[skip_start..full_samples.len() - skip_end];
             let decoded = decoder.decode_without_preamble_postamble(fsk_only).unwrap();
             assert_eq!(decoded, data);
             // Verify byte-by-byte

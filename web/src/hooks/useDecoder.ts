@@ -129,10 +129,10 @@ export const useDecoder = (): UseDecoderResult => {
       }
 
       // Extract FSK data without preamble/postamble to avoid double-detection
-      // Preamble is 250ms at 16kHz = 4000 samples, plus 50ms silence = 800 samples
+      // Preamble is 250ms at 16kHz = 4000 samples, plus 125ms silence = 2000 samples
       const PREAMBLE_DURATION_MS = 250
       const PREAMBLE_SAMPLES = (16000 * PREAMBLE_DURATION_MS) / 1000 // 4000 samples
-      const SYNC_SILENCE_SAMPLES = 800
+      const SYNC_SILENCE_SAMPLES = 2000
 
       const dataStart = Math.min(PREAMBLE_SAMPLES + SYNC_SILENCE_SAMPLES, samples.length)
       const postambleEstimate = PREAMBLE_SAMPLES // Postamble is typically same duration as preamble
