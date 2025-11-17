@@ -2,13 +2,19 @@
 
 A Rust library for reliable low-bandwidth communication over audio channels using multi-tone FSK modulation. Encodes binary data into simultaneous audio frequencies (800-2700 Hz) for maximum robustness in speaker-to-microphone transmission scenarios.
 
-## Demo with Fountain Code Mode
+## Try It Out
 
-Turn on the volume of the video player below to hear the sound.
+**Web Demo**: [transmitwave.andrewtheguy.com](https://transmitwave.andrewtheguy.com)
+
+Experience transmitwave directly in your browser - **no backend server required**:
+- **100% Frontend**: All encoding/decoding runs locally in your browser via WebAssembly
+- **Standard Mode**: Encode/decode messages with Reed-Solomon error correction
+- **Fountain Code Mode**: Continuous streaming with RaptorQ codes and manual start/stop
+- **Cross-Device**: Test speaker-to-microphone transmission between devices
+
+**Demo Video** (Fountain Code Mode - turn on volume):
 
 https://github.com/user-attachments/assets/6d3dce34-9152-4a55-a5dd-c0839e20063e
-
-
 
 ## Credit
 
@@ -32,16 +38,6 @@ While both use similar multi-tone FSK principles (96 frequency bins, 6 tones per
 - **Fountain Code Mode**: Supports RaptorQ fountain codes (RFC 6330) for rateless streaming transmission - ideal for unreliable channels and broadcast scenarios where continuous streaming is needed. Uses a distinctive three-note whistle preamble (800→1200→1600 Hz) instead of chirp for synchronization. See [FOUNTAIN_MODE.md](FOUNTAIN_MODE.md) for details.
 - **Error Correction**: Reed-Solomon FEC for robust data recovery for non-fountain code transmissions.
 - **WebAssembly Support**: Provides a WASM library and web demo for browser-based audio transmission without a backend server.
-
-## Try It Out
-
-**Web Demo**: [transmitwave.andrewtheguy.com](https://transmitwave.andrewtheguy.com)
-
-Experience transmitwave directly in your browser - **no backend server required**:
-- **100% Frontend**: All encoding/decoding runs locally in your browser via WebAssembly
-- **Standard Mode**: Encode/decode messages with Reed-Solomon error correction
-- **Fountain Code Mode**: Continuous streaming with RaptorQ codes and manual start/stop
-- **Cross-Device**: Test speaker-to-microphone transmission between devices
 
 ## Features
 
