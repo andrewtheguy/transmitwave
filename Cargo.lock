@@ -234,6 +234,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fft-correlation"
+version = "0.1.0"
+source = "git+https://github.com/andrewtheguy/fft-correlation?tag=0.1.0#2d3c098bbe75afe12cd686137397fe9852e7d3b2"
+dependencies = [
+ "realfft",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1138,11 +1146,11 @@ name = "transmitwave-core"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "fft-correlation",
  "log",
  "rand",
  "rand_distr",
  "raptorq",
- "realfft",
  "reed-solomon-simd",
  "thiserror",
 ]
