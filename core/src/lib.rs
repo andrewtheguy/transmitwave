@@ -6,7 +6,6 @@
 pub mod error;
 pub mod fec;
 pub mod framing;
-pub mod fft_correlation;
 pub mod sync;
 pub mod resample;
 pub mod fsk;
